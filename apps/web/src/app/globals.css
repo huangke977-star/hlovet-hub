@@ -20441,6 +20441,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
 }
 .article-rich-editor .article-rich-editor-content p {
   min-height: 1.25em;
+  font-size: inherit;
   line-height: 1.25;
 }
 .article-rich-editor .article-rich-editor-content > * + * { margin-top: 0.24em; }
