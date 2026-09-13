@@ -22337,25 +22337,24 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   padding-left: 0 !important;
 }
 .article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item) {
-  position: relative !important;
-  display: block !important;
+  display: grid !important;
+  grid-template-columns: 14px minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: start;
   min-width: 0;
   width: 100%;
   list-style: none !important;
   margin: .16em 0;
-  padding: 0 0 0 20px !important;
+  padding: 0 !important;
 }
 .article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item)::marker {
   content: none;
 }
 .article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item) > label {
-  position: absolute !important;
-  top: 0;
-  left: 0;
-  z-index: 1;
   display: flex !important;
+  position: static !important;
   width: 14px !important;
-  height: 1.5em !important;
+  height: 1.25em !important;
   min-width: 14px !important;
   align-items: flex-start;
   justify-content: flex-start;
@@ -22367,9 +22366,12 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   box-sizing: border-box !important;
   display: block;
   width: 14px !important;
+  max-width: 14px !important;
   min-width: 14px !important;
   height: 14px !important;
+  max-height: 14px !important;
   min-height: 14px !important;
+  flex: 0 0 14px !important;
   margin: .12em 0 0 !important;
   appearance: none !important;
   -webkit-appearance: none !important;
@@ -22388,6 +22390,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   background-size: 80%;
 }
 .article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item) > div {
+  grid-column: 2;
   display: block;
   min-width: 0;
   width: 100%;
