@@ -68,6 +68,26 @@ const ResourceBlock = Node.create({
 
 const DEFAULT_EDITOR_FONT_SIZE = "14px";
 
+// Convert Markdown task items into the DOM shape expected by Tiptap's task
+// item extension before the editor parses the content. This keeps imported
+// task text on the same editable paragraph as the checkbox.
+const markdownRenderer = new marked.Renderer();
+markdownRenderer.list = function renderTaskList(list) {
+  if (!list.ordered && list.items.length && list.items.every((item) => item.task)) {
+    return `<ul data-type="taskList">\n${list.items.map((item) => this.listitem(item)).join("")}</ul>\n`;
+  }
+  const tag = list.ordered ? "ol" : "ul";
+  const start = list.ordered && list.start !== 1 ? ` start="${list.start}"` : "";
+  return `<${tag}${start}>\n${list.items.map((item) => this.listitem(item)).join("")}</${tag}>\n`;
+};
+markdownRenderer.listitem = function renderTaskListItem(item) {
+  if (!item.task) return `<li>${this.parser.parse(item.tokens)}</li>\n`;
+  const contentTokens = item.tokens?.[0]?.type === "checkbox" ? item.tokens.slice(1) : item.tokens;
+  const content = this.parser.parse(contentTokens);
+  const checked = item.checked ? "true" : "false";
+  return `<li data-type="taskItem" data-checked="${checked}"><label><input type="checkbox"${item.checked ? " checked" : ""}><span></span></label><div>${content}</div></li>\n`;
+};
+
 function ResourceBlockView({ node }: NodeViewProps) {
   const { phrase } = useLanguage();
   return (
@@ -329,7 +349,7 @@ export function ArticleRichEditor({ value, format, onChange, onAttachmentFiles, 
 
 function markdownToHtml(value: string): string {
   if (!value.trim()) return "";
-  return String(marked.parse(value, { breaks: true, gfm: true, async: false }));
+  return String(marked.parse(value, { breaks: true, gfm: true, renderer: markdownRenderer, async: false }));
 }
 
 function normalizeEditorHtml(value: string): string {

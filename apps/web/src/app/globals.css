@@ -22365,7 +22365,9 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   background-repeat: no-repeat;
   background-size: 80%;
 }
-.article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item, li.task-list-item, li:has(> input[type="checkbox"])) {
+.article-rich-editor .article-rich-editor-content li[data-type="taskItem"],
+.article-rich-editor .article-rich-editor-content li.article-task-item,
+.article-rich-editor .article-rich-editor-content li.task-list-item {
   display: grid !important;
   grid-template-columns: 12px minmax(0, 1fr) !important;
   column-gap: 7px !important;
@@ -22376,10 +22378,14 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   margin: .16em 0;
   padding: 0 !important;
 }
-.article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item, li.task-list-item, li:has(> input[type="checkbox"]))::marker {
+.article-rich-editor .article-rich-editor-content li[data-type="taskItem"]::marker,
+.article-rich-editor .article-rich-editor-content li.article-task-item::marker,
+.article-rich-editor .article-rich-editor-content li.task-list-item::marker {
   content: none;
 }
-.article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item, li.task-list-item, li:has(> input[type="checkbox"])) > label {
+.article-rich-editor .article-rich-editor-content li[data-type="taskItem"] > label,
+.article-rich-editor .article-rich-editor-content li.article-task-item > label,
+.article-rich-editor .article-rich-editor-content li.task-list-item > label {
   display: flex !important;
   position: static !important;
   width: 12px !important;
@@ -22391,7 +22397,9 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   padding: 0;
   white-space: nowrap;
 }
-.article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item, li.task-list-item, li:has(> input[type="checkbox"])) > label > input[type="checkbox"] {
+.article-rich-editor .article-rich-editor-content li[data-type="taskItem"] > label > input[type="checkbox"],
+.article-rich-editor .article-rich-editor-content li.article-task-item > label > input[type="checkbox"],
+.article-rich-editor .article-rich-editor-content li.task-list-item > label > input[type="checkbox"] {
   box-sizing: border-box !important;
   display: block;
   width: 12px !important;
@@ -22410,7 +22418,9 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   background-image: none;
   cursor: pointer;
 }
-.article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item, li.task-list-item, li:has(> input[type="checkbox"])) > label > input[type="checkbox"]:checked {
+.article-rich-editor .article-rich-editor-content li[data-type="taskItem"] > label > input[type="checkbox"]:checked,
+.article-rich-editor .article-rich-editor-content li.article-task-item > label > input[type="checkbox"]:checked,
+.article-rich-editor .article-rich-editor-content li.task-list-item > label > input[type="checkbox"]:checked {
   border-color: var(--accent) !important;
   background-color: var(--accent) !important;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='white' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m3.5 8 3 3 6-6'/%3E%3C/svg%3E");
@@ -22418,7 +22428,9 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   background-repeat: no-repeat;
   background-size: 80%;
 }
-.article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item, li.task-list-item, li:has(> input[type="checkbox"])) > div {
+.article-rich-editor .article-rich-editor-content li[data-type="taskItem"] > div,
+.article-rich-editor .article-rich-editor-content li.article-task-item > div,
+.article-rich-editor .article-rich-editor-content li.task-list-item > div {
   grid-column: 2;
   display: block;
   min-width: 0;
@@ -22426,7 +22438,9 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   max-width: 100%;
   margin: 0 !important;
 }
-.article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item, li.task-list-item, li:has(> input[type="checkbox"])) > label > span {
+.article-rich-editor .article-rich-editor-content li[data-type="taskItem"] > label > span,
+.article-rich-editor .article-rich-editor-content li.article-task-item > label > span,
+.article-rich-editor .article-rich-editor-content li.task-list-item > label > span {
   position: absolute !important;
   width: 1px !important;
   height: 1px !important;
@@ -22438,7 +22452,9 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   border: 0 !important;
   pointer-events: none !important;
 }
-.article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item, li.task-list-item, li:has(> input[type="checkbox"])) > div > p {
+.article-rich-editor .article-rich-editor-content li[data-type="taskItem"] > div > p,
+.article-rich-editor .article-rich-editor-content li.article-task-item > div > p,
+.article-rich-editor .article-rich-editor-content li.task-list-item > div > p {
   display: block;
   width: 100%;
   min-width: 0;
@@ -22447,10 +22463,9 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   line-height: inherit;
 }
 
-/* Marked emits task lists as a plain `ul > li > input` tree, without Tiptap's
-   task-list attributes. Reset the global checkbox margin here so it stays in
-   the first grid column instead of intruding into the task text. */
-.article-rich-editor .article-rich-editor-content li:has(> input[type="checkbox"]) > input[type="checkbox"] {
+/* Keep old HTML task items readable while newly imported Markdown uses the
+   same explicit Tiptap structure above. */
+.article-rich-editor .article-rich-editor-content ul > li > input[type="checkbox"] {
   box-sizing: border-box !important;
   display: inline-block !important;
   width: 12px !important;
@@ -22459,7 +22474,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   height: 12px !important;
   max-height: 12px !important;
   min-height: 12px !important;
-  margin: .2em 0 0 !important;
+  margin: .2em 7px 0 0 !important;
   vertical-align: top;
   appearance: none !important;
   -webkit-appearance: none !important;
@@ -22468,7 +22483,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   background-color: transparent !important;
   cursor: pointer;
 }
-.article-rich-editor .article-rich-editor-content li:has(> input[type="checkbox"]) > input[type="checkbox"]:checked {
+.article-rich-editor .article-rich-editor-content ul > li > input[type="checkbox"]:checked {
   border-color: var(--accent) !important;
   background-color: var(--accent) !important;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='white' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m3.5 8 3 3 6-6'/%3E%3C/svg%3E") !important;
