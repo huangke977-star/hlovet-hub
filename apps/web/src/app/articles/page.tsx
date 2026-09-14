@@ -243,17 +243,17 @@ function ArticlesContent() {
         ] as const).map(([value, label]) => (
           <button aria-selected={feed === value} className={feed === value ? "active" : undefined} key={value} onClick={() => replaceQuery({ feed: value, order: "default" })} role="tab" type="button">{label}</button>
         ))}
+        <div className="article-discovery-filter-bar">
+          <label className="article-search">
+            <Search aria-hidden="true" size={17} />
+            <input aria-label={t("discover.searchArticles")} name="search" onChange={(event) => setSearchInput(event.target.value)} onCompositionEnd={(event) => { setSearchInput(event.currentTarget.value); setIsComposing(false); }} onCompositionStart={() => setIsComposing(true)} placeholder={t("discover.searchArticles")} value={searchInput} />
+            {searchInput ? <button aria-label={t("common.clear")} onClick={() => setSearchInput("")} title={t("common.clear")} type="button"><X aria-hidden="true" size={16} /></button> : null}
+          </label>
+          <div className="article-order-select"><SlidersHorizontal aria-hidden="true" size={16} /><GlassSelect ariaLabel={t("discover.articleSort")} onChange={(value) => replaceQuery({ order: value })} options={articleOrderOptions} value={order} /></div>
+        </div>
       </div>
       <div className="article-discovery-layout">
         <div className="article-discovery-main">
-          <div className="article-feed-toolbar">
-            <label className="article-search">
-              <Search aria-hidden="true" size={17} />
-              <input aria-label={t("discover.searchArticles")} name="search" onChange={(event) => setSearchInput(event.target.value)} onCompositionEnd={(event) => { setSearchInput(event.currentTarget.value); setIsComposing(false); }} onCompositionStart={() => setIsComposing(true)} placeholder={t("discover.searchArticles")} value={searchInput} />
-              {searchInput ? <button aria-label={t("common.clear")} onClick={() => setSearchInput("")} title={t("common.clear")} type="button"><X aria-hidden="true" size={16} /></button> : null}
-            </label>
-            <div className="article-order-select"><SlidersHorizontal aria-hidden="true" size={16} /><GlassSelect ariaLabel={t("discover.articleSort")} onChange={(value) => replaceQuery({ order: value })} options={articleOrderOptions} value={order} /></div>
-          </div>
           {isLoading ? <div className="article-empty-state">{t("discover.loading")}</div>
             : list.items.length ? <div className="article-feed-list">{list.items.map((article) => <ArticleCard article={article} key={article.id} onNotInterested={feed === "recommended" && isLoggedIn ? () => void markNotInterested("article", article.id) : undefined} />)}</div>
               : <div className="article-empty-state"><strong>{t("discover.notFound")}</strong><span>{querySearch ? t("discover.tryAnother") : t("discover.noContent")}</span></div>}

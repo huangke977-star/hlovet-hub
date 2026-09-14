@@ -501,6 +501,10 @@
 .recommendation-feedback-page .profile-subpage-heading,
 .resource-orders-page .profile-subpage-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .recommendation-feedback-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.recommendation-feedback-title { display: inline-flex; align-items: center; gap: 7px; color: var(--accent-strong); font-size: 1.32rem; font-weight: 700; line-height: 1.2; }
+.recommendation-feedback-title svg { flex: 0 0 auto; }
+.recommendation-feedback-page .profile-subpage-heading p { margin-top: 5px; }
+.recommendation-feedback-toolbar > .text-action { min-height: 30px; padding: 5px 9px; font-size: .66rem; }
 .resource-catalog-toolbar-actions { display: inline-flex; align-items: center; gap: 8px; }
 .resource-catalog-toolbar-actions .text-action { font-size: .66rem; white-space: nowrap; }
 .recommendation-feedback-list,
@@ -17606,6 +17610,8 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .article-discovery-layout { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) minmax(260px, 300px); align-items: start; gap: 14px; }
 .article-discovery-main { display: grid; min-width: 0; gap: 8px; }
 .article-discovery-main .article-feed-toolbar { margin-top: 2px; }
+.article-discovery-filter-bar { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; justify-content: flex-end; gap: 10px; margin-left: auto; }
+.article-discovery-filter-bar .article-search { flex: 1 1 360px; min-width: min(100%, 360px); }
 .discovery-recommendations { position: sticky; top: 92px; min-width: 0; align-self: start; gap: 9px; padding: 11px; }
 .discovery-recommendations > header { min-height: 28px; }
 .discovery-recommendation-columns { grid-template-columns: minmax(0, 1fr); gap: 10px; }
@@ -17741,6 +17747,10 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
 }
 
 @media (max-width: 760px) {
+  .article-discovery-tabs { flex-wrap: wrap; }
+  .article-discovery-filter-bar { width: 100%; flex: 1 0 100%; margin-left: 0; }
+  .article-discovery-filter-bar .article-search { min-width: 0; }
+  .article-discovery-filter-bar .article-order-select { width: auto; }
   .subscription-management-groups { grid-template-columns: minmax(0, 1fr); }
 }
 

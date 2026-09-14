@@ -154,9 +154,39 @@ export function ArticleRichEditor({ value, format, onChange, onAttachmentFiles, 
           .filter((item) => item.kind === "file")
           .map((item) => item.getAsFile())
           .filter((file): file is File => Boolean(file));
-        if (!files.length || !attachmentHandlerRef.current) return false;
+        if (files.length && attachmentHandlerRef.current) {
+          event.preventDefault();
+          void insertAttachments(files);
+          return true;
+        }
+        const pastedText = event.clipboardData?.getData("text/plain") ?? "";
+        if (/^\s*[-*+]\s+\[[ xX]\]/m.test(pastedText) && editorRef.current) {
+          event.preventDefault();
+          editorRef.current.chain().focus(undefined, { scrollIntoView: false }).insertContent(markdownToHtml(pastedText)).run();
+          return true;
+        }
+        return false;
+      },
+      handleKeyDown: (_view, event) => {
+        if (event.key !== " " || !editorRef.current) return false;
+        const currentEditor = editorRef.current;
+        const { $from } = currentEditor.state.selection;
+        if (!$from.parent.isTextblock || $from.parentOffset !== $from.parent.textContent.length) return false;
+        // StarterKit turns the first `- ` into a bullet list before this
+        // handler runs, so accept both the original marker and its remaining
+        // `[ ]` text when the user types the second space.
+        const markerMatch = /^(?:\s*[-*+]\s+)?\[([ xX])\]$/.exec($from.parent.textContent);
+        if (!markerMatch) return false;
         event.preventDefault();
-        void insertAttachments(files);
+        const paragraphStart = $from.start();
+        const markerEnd = paragraphStart + $from.parent.textContent.length;
+        const chain = currentEditor.chain().focus(undefined, { scrollIntoView: false }).deleteRange({ from: paragraphStart, to: markerEnd });
+        if (currentEditor.isActive("taskItem")) {
+          if (markerMatch[1].toLowerCase() === "x") chain.updateAttributes("taskItem", { checked: true });
+        } else {
+          chain.toggleTaskList();
+        }
+        chain.run();
         return true;
       },
       handleDrop: (_view, event) => {
