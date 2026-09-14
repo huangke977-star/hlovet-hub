@@ -22339,8 +22339,8 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
 }
 .article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item) {
   display: grid !important;
-  grid-template-columns: 14px minmax(0, 1fr);
-  column-gap: 6px;
+  grid-template-columns: 12px minmax(0, 1fr) !important;
+  column-gap: 7px !important;
   align-items: start;
   min-width: 0;
   width: 100%;
@@ -22354,9 +22354,9 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item) > label {
   display: flex !important;
   position: static !important;
-  width: 14px !important;
+  width: 12px !important;
   height: 1.25em !important;
-  min-width: 14px !important;
+  min-width: 12px !important;
   align-items: flex-start;
   justify-content: flex-start;
   margin: 0;
@@ -22366,14 +22366,14 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item) > label > input[type="checkbox"] {
   box-sizing: border-box !important;
   display: block;
-  width: 14px !important;
-  max-width: 14px !important;
-  min-width: 14px !important;
-  height: 14px !important;
-  max-height: 14px !important;
-  min-height: 14px !important;
-  flex: 0 0 14px !important;
-  margin: .12em 0 0 !important;
+  width: 12px !important;
+  max-width: 12px !important;
+  min-width: 12px !important;
+  height: 12px !important;
+  max-height: 12px !important;
+  min-height: 12px !important;
+  flex: 0 0 12px !important;
+  margin: .2em 0 0 !important;
   appearance: none !important;
   -webkit-appearance: none !important;
   border: 1px solid var(--control-line) !important;
@@ -22397,6 +22397,18 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   width: 100%;
   max-width: 100%;
   margin: 0 !important;
+}
+.article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item) > label > span {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+  pointer-events: none !important;
 }
 .article-rich-editor .article-rich-editor-content :is(li[data-type="taskItem"], li.article-task-item) > div > p {
   display: block;
