@@ -137,7 +137,7 @@ export function ArticleRichEditor({ value, format, onChange, onAttachmentFiles, 
       Placeholder.configure({ placeholder: phrase("开始写作，支持 Markdown 快捷输入…", "Start writing with Markdown shortcuts…") }),
       ResourceBlock,
     ],
-    content: format === "markdown" ? markdownToHtml(value) : value,
+    content: editorContentFromValue(value, format),
     onCreate: ({ editor: createdEditor }) => {
       // Keep newly typed text at the editor default without rewriting existing marks.
       createdEditor.commands.setFontSize(DEFAULT_EDITOR_FONT_SIZE);
@@ -208,7 +208,7 @@ export function ArticleRichEditor({ value, format, onChange, onAttachmentFiles, 
 
   useEffect(() => {
     if (!editor) return;
-    const nextContent = format === "markdown" ? markdownToHtml(value) : value;
+    const nextContent = editorContentFromValue(value, format);
     if (normalizeEditorHtml(editor.getHTML()) !== normalizeEditorHtml(nextContent)) {
       editor.commands.setContent(nextContent, { emitUpdate: false });
     }
@@ -380,6 +380,50 @@ export function ArticleRichEditor({ value, format, onChange, onAttachmentFiles, 
 function markdownToHtml(value: string): string {
   if (!value.trim()) return "";
   return String(marked.parse(value, { breaks: true, gfm: true, renderer: markdownRenderer, async: false }));
+}
+
+function editorContentFromValue(value: string, format: "markdown" | "html"): string {
+  return format === "markdown" ? markdownToHtml(value) : convertLegacyTaskMarkdown(value);
+}
+
+// Older drafts saved Markdown task markers as a paragraph with <br> lines.
+// Convert only paragraphs made entirely of task markers so normal prose and
+// code-like content are left unchanged.
+function convertLegacyTaskMarkdown(value: string): string {
+  if (!value.trim() || typeof DOMParser === "undefined") return value;
+  const documentFragment = new DOMParser().parseFromString(`<div id="article-editor-root">${value}</div>`, "text/html");
+  const root = documentFragment.getElementById("article-editor-root");
+  if (!root) return value;
+
+  for (const paragraph of Array.from(root.children)) {
+    if (paragraph.tagName !== "P") continue;
+    const lines = paragraph.innerHTML.split(/<br\s*\/?>/i);
+    const taskLines = lines.map((line) => /^\s*[-*+]\s+\[([ xX])\]\s+(.+?)\s*$/.exec(line));
+    if (!taskLines.length || taskLines.some((line) => !line)) continue;
+
+    const list = documentFragment.createElement("ul");
+    list.dataset.type = "taskList";
+    taskLines.forEach((match) => {
+      if (!match) return;
+      const item = documentFragment.createElement("li");
+      item.dataset.type = "taskItem";
+      item.dataset.checked = match[1].toLowerCase() === "x" ? "true" : "false";
+      const label = documentFragment.createElement("label");
+      const checkbox = documentFragment.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = item.dataset.checked === "true";
+      const labelText = documentFragment.createElement("span");
+      label.append(checkbox, labelText);
+      const content = documentFragment.createElement("div");
+      const taskParagraph = documentFragment.createElement("p");
+      taskParagraph.innerHTML = match[2];
+      content.append(taskParagraph);
+      item.append(label, content);
+      list.append(item);
+    });
+    paragraph.replaceWith(list);
+  }
+  return root.innerHTML;
 }
 
 function normalizeEditorHtml(value: string): string {
