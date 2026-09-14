@@ -22419,9 +22419,10 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   line-height: inherit;
 }
 
-/* Older Markdown HTML can put the checkbox directly inside the list item. Keep
-   that structure in the same compact column as Tiptap's label-based task item. */
-.article-rich-editor .article-rich-editor-content :is(ul[data-type="taskList"], ul.task-list, ul.contains-task-list) > li > input[type="checkbox"] {
+/* Marked emits task lists as a plain `ul > li > input` tree, without Tiptap's
+   task-list attributes. Reset the global checkbox margin here so it stays in
+   the first grid column instead of intruding into the task text. */
+.article-rich-editor .article-rich-editor-content li:has(> input[type="checkbox"]) > input[type="checkbox"] {
   box-sizing: border-box !important;
   display: inline-block !important;
   width: 12px !important;
@@ -22430,7 +22431,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   height: 12px !important;
   max-height: 12px !important;
   min-height: 12px !important;
-  margin: .2em 7px 0 0 !important;
+  margin: .2em 0 0 !important;
   vertical-align: top;
   appearance: none !important;
   -webkit-appearance: none !important;
@@ -22439,7 +22440,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   background-color: transparent !important;
   cursor: pointer;
 }
-.article-rich-editor .article-rich-editor-content :is(ul[data-type="taskList"], ul.task-list, ul.contains-task-list) > li > input[type="checkbox"]:checked {
+.article-rich-editor .article-rich-editor-content li:has(> input[type="checkbox"]) > input[type="checkbox"]:checked {
   border-color: var(--accent) !important;
   background-color: var(--accent) !important;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='white' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m3.5 8 3 3 6-6'/%3E%3C/svg%3E") !important;
