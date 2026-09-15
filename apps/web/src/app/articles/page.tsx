@@ -249,7 +249,7 @@ function ArticlesContent() {
             <input aria-label={t("discover.searchArticles")} name="search" onChange={(event) => setSearchInput(event.target.value)} onCompositionEnd={(event) => { setSearchInput(event.currentTarget.value); setIsComposing(false); }} onCompositionStart={() => setIsComposing(true)} placeholder={t("discover.searchArticles")} value={searchInput} />
             {searchInput ? <button aria-label={t("common.clear")} onClick={() => setSearchInput("")} title={t("common.clear")} type="button"><X aria-hidden="true" size={16} /></button> : null}
           </label>
-          <div className="article-order-select"><SlidersHorizontal aria-hidden="true" size={16} /><GlassSelect ariaLabel={t("discover.articleSort")} onChange={(value) => replaceQuery({ order: value })} options={articleOrderOptions} value={order} /></div>
+          <div className="article-order-select"><SlidersHorizontal aria-hidden="true" size={16} /><GlassSelect ariaLabel={t("discover.articleSort")} menuClassName="article-discovery-order-menu" menuPortal onChange={(value) => replaceQuery({ order: value })} options={articleOrderOptions} value={order} /></div>
         </div>
       </div>
       <div className="article-discovery-layout">
