@@ -22410,8 +22410,9 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   display: flex !important;
   position: relative !important;
   width: 12px !important;
-  height: 1.25em !important;
+  height: 1lh !important;
   min-width: 12px !important;
+  line-height: inherit;
   align-items: center;
   justify-content: flex-start;
   margin: 0;
@@ -22505,7 +22506,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   height: 12px !important;
   min-height: 12px !important;
   max-height: 12px !important;
-  margin: calc((1.24em - 12px) / 2) 0 0 !important;
+  margin: calc((1lh - 12px) / 2) 0 0 !important;
   padding: 0 !important;
   appearance: none !important;
   -webkit-appearance: none !important;
@@ -22531,9 +22532,10 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   display: flex !important;
   position: relative;
   width: 12px;
-  height: 1.24em;
+  height: 1lh;
   min-width: 12px;
   align-items: center;
+  line-height: inherit;
   margin: 0;
   padding: 0;
 }
@@ -22588,6 +22590,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .article-body li.article-task-item > div > p,
 .article-body li.task-list-item > div > p {
   min-width: 0;
+  font-size: inherit !important;
   margin: 0 !important;
   line-height: inherit;
 }
