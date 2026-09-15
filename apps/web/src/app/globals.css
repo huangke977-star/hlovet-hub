@@ -22412,7 +22412,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   width: 12px !important;
   height: 1.25em !important;
   min-width: 12px !important;
-  align-items: flex-start;
+  align-items: center;
   justify-content: flex-start;
   margin: 0;
   padding: 0;
@@ -22422,13 +22422,14 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .article-rich-editor .article-rich-editor-content li.article-task-item > label > input[type="checkbox"],
 .article-rich-editor .article-rich-editor-content li.task-list-item > label > input[type="checkbox"] {
   position: absolute !important;
-  inset: 0 auto auto 0;
+  inset: 50% auto auto 0;
   z-index: 1;
   width: 12px !important;
   height: 12px !important;
-  margin: .2em 0 0 !important;
+  margin: 0 !important;
   padding: 0 !important;
   opacity: 0 !important;
+  transform: translateY(-50%);
   appearance: none !important;
   -webkit-appearance: none !important;
   cursor: pointer;
@@ -22451,7 +22452,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   box-sizing: border-box;
   width: 12px !important;
   height: 12px !important;
-  margin: .2em 0 0 !important;
+  margin: 0 !important;
   border: 1px solid var(--control-line) !important;
   border-radius: 3px !important;
   background: transparent;
@@ -22462,6 +22463,133 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   clip: auto !important;
   white-space: normal !important;
   pointer-events: none !important;
+}
+
+/* Markdown previews use a direct input followed by an anonymous text node,
+   while HTML/Tiptap previews keep the editor's label and text wrapper. Keep
+   both structures on the same two-column baseline and control the checkbox
+   size explicitly instead of relying on the browser default. */
+.article-body ul[data-type="taskList"],
+.article-body ul.contains-task-list {
+  list-style: none !important;
+  margin: .24em 0 .38em;
+  padding-left: 0 !important;
+}
+.article-body li[data-type="taskItem"],
+.article-body li.article-task-item,
+.article-body li.task-list-item {
+  display: grid !important;
+  grid-template-columns: 12px minmax(0, 1fr) !important;
+  column-gap: 7px !important;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+  list-style: none !important;
+  margin: .08em 0;
+  padding: 0 !important;
+}
+.article-body li[data-type="taskItem"]::marker,
+.article-body li.article-task-item::marker,
+.article-body li.task-list-item::marker {
+  content: none;
+}
+.article-body li[data-type="taskItem"] > input[type="checkbox"],
+.article-body li.article-task-item > input[type="checkbox"],
+.article-body li.task-list-item > input[type="checkbox"] {
+  grid-column: 1;
+  align-self: start;
+  box-sizing: border-box !important;
+  width: 12px !important;
+  min-width: 12px !important;
+  max-width: 12px !important;
+  height: 12px !important;
+  min-height: 12px !important;
+  max-height: 12px !important;
+  margin: calc((1.24em - 12px) / 2) 0 0 !important;
+  padding: 0 !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  border: 1px solid var(--control-line) !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+  cursor: default;
+}
+.article-body li[data-type="taskItem"] > input[type="checkbox"]:checked,
+.article-body li.article-task-item > input[type="checkbox"]:checked,
+.article-body li.task-list-item > input[type="checkbox"]:checked {
+  border-color: var(--accent) !important;
+  background-color: var(--accent) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='white' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m3.5 8 3 3 6-6'/%3E%3C/svg%3E") !important;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 80%;
+}
+.article-body li[data-type="taskItem"] > label,
+.article-body li.article-task-item > label,
+.article-body li.task-list-item > label {
+  grid-column: 1;
+  display: flex !important;
+  position: relative;
+  width: 12px;
+  height: 1.24em;
+  min-width: 12px;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+}
+.article-body li[data-type="taskItem"] > label > input[type="checkbox"],
+.article-body li.article-task-item > label > input[type="checkbox"] {
+  box-sizing: border-box !important;
+  position: absolute;
+  inset: 50% auto auto 0;
+  width: 12px !important;
+  min-width: 12px !important;
+  max-width: 12px !important;
+  height: 12px !important;
+  min-height: 12px !important;
+  max-height: 12px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  opacity: 0;
+  transform: translateY(-50%);
+}
+.article-body li[data-type="taskItem"] > label > span,
+.article-body li.article-task-item > label > span {
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  border: 1px solid var(--control-line);
+  border-radius: 3px;
+  background: transparent;
+  pointer-events: none;
+}
+.article-body li[data-type="taskItem"][data-checked="true"] > label > span,
+.article-body li.article-task-item[data-checked="true"] > label > span {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='white' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m3.5 8 3 3 6-6'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 80%;
+}
+.article-body li[data-type="taskItem"] > div,
+.article-body li.article-task-item > div,
+.article-body li.task-list-item > div {
+  grid-column: 2;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 !important;
+}
+.article-body li[data-type="taskItem"] > div > p,
+.article-body li.article-task-item > div > p,
+.article-body li.task-list-item > div > p {
+  min-width: 0;
+  margin: 0 !important;
+  line-height: inherit;
 }
 .article-rich-editor .article-rich-editor-content li[data-type="taskItem"] > label:has(> input[type="checkbox"]:checked) > span,
 .article-rich-editor .article-rich-editor-content li.article-task-item > label:has(> input[type="checkbox"]:checked) > span,
