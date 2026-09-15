@@ -19679,6 +19679,43 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   background: color-mix(in srgb, var(--accent-strong) 44%, rgba(255, 255, 255, 0.32));
 }
 
+.article-rich-html-source {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 360px;
+  max-height: 640px;
+  border: 0;
+  outline: 0;
+  resize: vertical;
+  background: transparent;
+  color: var(--foreground);
+  font: 14px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  padding: 16px 17px 22px;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+  scrollbar-color: color-mix(in srgb, var(--accent-strong) 48%, transparent) transparent;
+  scrollbar-width: thin;
+}
+.article-rich-html-source:focus,
+.article-rich-html-source:focus-visible {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+}
+.article-rich-html-source::-webkit-scrollbar { width: 6px; height: 6px; }
+.article-rich-html-source::-webkit-scrollbar-track { background: transparent; }
+.article-rich-html-source::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-strong) 44%, rgba(255, 255, 255, 0.32));
+}
+.article-rich-source-mode-label {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 28px;
+  white-space: nowrap;
+}
+
 .article-rich-editor .article-rich-editor-content > * + * { margin-top: 0.52em; }
 .article-rich-editor .article-rich-editor-content,
 .article-rich-editor .article-rich-editor-content > *,

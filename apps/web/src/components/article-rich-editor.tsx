@@ -10,12 +10,13 @@ import { FontSize, TextStyle } from "@tiptap/extension-text-style";
 import Underline from "@tiptap/extension-underline";
 import { EditorContent, NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor, type NodeViewProps } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { Bold, Coins, Code2, FileUp, Italic, Link2, List, ListChecks, ListOrdered, Minus, Quote, Redo2, RemoveFormatting, Sparkles, Strikethrough, Undo2, Unlink, X } from "lucide-react";
+import { Bold, Coins, Code2, FileCode, FileUp, Italic, Link2, List, ListChecks, ListOrdered, Minus, Quote, Redo2, RemoveFormatting, Sparkles, Strikethrough, Undo2, Unlink, X } from "lucide-react";
 import { marked } from "marked";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { GlassSelect } from "@/components/glass-select";
 import { useLanguage } from "@/components/language-provider";
+import { sanitizeArticleHtmlForPreview } from "@/lib/article-html";
 
 export interface RichEditorImage {
   src: string;
@@ -108,6 +109,8 @@ export function ArticleRichEditor({ value, format, onChange, onAttachmentFiles, 
   const [resourcePoints, setResourcePoints] = useState("10");
   const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
+  const [isHtmlSourceMode, setIsHtmlSourceMode] = useState(false);
+  const [htmlSource, setHtmlSource] = useState("");
   const selectionRef = useRef<{ from: number; to: number } | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -288,6 +291,26 @@ export function ArticleRichEditor({ value, format, onChange, onAttachmentFiles, 
     onAiAssistant(from === to ? "" : editor.state.doc.textBetween(from, to, "\n"));
   }
 
+  function enterHtmlSourceMode() {
+    if (!editor) return;
+    setHtmlSource(editor.getHTML());
+    setIsHtmlSourceMode(true);
+  }
+
+  function leaveHtmlSourceMode() {
+    if (!editor) return;
+    const sanitized = sanitizeArticleHtmlForPreview(htmlSource);
+    setHtmlSource(sanitized);
+    editor.commands.setContent(sanitized || "<p></p>", { emitUpdate: false });
+    onChange(normalizeEditorHtml(sanitized), "html");
+    setIsHtmlSourceMode(false);
+  }
+
+  function updateHtmlSource(valueToApply: string) {
+    setHtmlSource(valueToApply);
+    onChange(sanitizeArticleHtmlForPreview(valueToApply), "html");
+  }
+
   function applyLink() {
     if (!editor) return;
     const valueToApply = linkUrl.trim();
@@ -323,6 +346,8 @@ export function ArticleRichEditor({ value, format, onChange, onAttachmentFiles, 
   return (
     <div className="article-rich-editor">
       <div className="article-rich-toolbar" role="toolbar" aria-label={phrase("文章格式工具", "Article formatting tools")}>
+        <button aria-pressed={isHtmlSourceMode} className={isHtmlSourceMode ? "active" : undefined} onMouseDown={(event) => event.preventDefault()} onClick={() => (isHtmlSourceMode ? leaveHtmlSourceMode() : enterHtmlSourceMode())} title={isHtmlSourceMode ? phrase("切换到可视化编辑", "Switch to visual editor") : phrase("编辑 HTML 源码", "Edit HTML source")} type="button"><FileCode size={15} /></button>
+        {!isHtmlSourceMode ? <>
         <div className="article-rich-heading-select">
           <GlassSelect ariaLabel={phrase("文本层级", "Text level")} menuClassName="article-rich-heading-select-menu" menuPortal onChange={(level) => { if (level === "p") editor.chain().focus(undefined, { scrollIntoView: false }).setParagraph().run(); else editor.chain().focus(undefined, { scrollIntoView: false }).toggleHeading({ level: Number(level) as 1 | 2 | 3 }).run(); }} options={[{ value: "p", label: phrase("正文", "Text") }, { value: "1", label: phrase("标题1", "H1") }, { value: "2", label: phrase("标题2", "H2") }, { value: "3", label: phrase("标题3", "H3") }]} value={headingValue} />
         </div>
@@ -352,8 +377,9 @@ export function ArticleRichEditor({ value, format, onChange, onAttachmentFiles, 
         {toolbarButton(phrase("清除格式", "Clear formatting"), <RemoveFormatting size={15} />, () => editor.chain().focus(undefined, { scrollIntoView: false }).clearNodes().unsetAllMarks().run())}
         {toolbarButton(phrase("撤销", "Undo"), <Undo2 size={15} />, () => editor.chain().focus(undefined, { scrollIntoView: false }).undo().run(), false, !editor.can().undo())}
         {toolbarButton(phrase("重做", "Redo"), <Redo2 size={15} />, () => editor.chain().focus(undefined, { scrollIntoView: false }).redo().run(), false, !editor.can().redo())}
+        </> : <span className="article-rich-source-mode-label">{phrase("HTML 源码", "HTML source")}</span>}
       </div>
-      <EditorContent editor={editor} />
+      {isHtmlSourceMode ? <textarea aria-label={phrase("HTML 源码", "HTML source")} className="article-rich-html-source" onChange={(event) => updateHtmlSource(event.target.value)} spellCheck={false} value={htmlSource} /> : <EditorContent editor={editor} />}
 
       {isResourceDialogOpen && typeof document !== "undefined" ? createPortal(
         <div className="modal-backdrop article-rich-dialog-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) setIsResourceDialogOpen(false); }}>

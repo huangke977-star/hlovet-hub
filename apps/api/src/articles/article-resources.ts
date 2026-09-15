@@ -11,19 +11,35 @@ export type ArticleContentFormat = "markdown" | "html";
 const HTML_ALLOWED_TAGS = [
   "p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "s", "u",
   "blockquote", "ul", "ol", "li", "pre", "code", "a", "img", "hr", "table",
-  "thead", "tbody", "tr", "th", "td", "resource-block",
+  "thead", "tbody", "tr", "th", "td", "div", "span", "label", "input", "resource-block",
 ];
 
 const HTML_ALLOWED_ATTRIBUTES: sanitizeHtml.IOptions["allowedAttributes"] = {
   a: ["href", "target", "rel"],
   img: ["src", "alt", "title"],
+  ul: ["data-type"],
+  li: ["class", "data-type", "data-checked"],
+  input: ["type", "checked"],
+  span: ["style"],
   "resource-block": ["data-points"],
+};
+
+const HTML_ALLOWED_CLASSES: sanitizeHtml.IOptions["allowedClasses"] = {
+  li: ["article-task-item"],
+};
+
+const HTML_ALLOWED_STYLES: sanitizeHtml.IOptions["allowedStyles"] = {
+  span: {
+    "font-size": [/^(?:\d+(?:\.\d+)?(?:px|rem|em|%)|small|medium|large)$/i],
+  },
 };
 
 export function sanitizeArticleHtml(source: string): string {
   return sanitizeHtml(source, {
     allowedTags: HTML_ALLOWED_TAGS,
     allowedAttributes: HTML_ALLOWED_ATTRIBUTES,
+    allowedClasses: HTML_ALLOWED_CLASSES,
+    allowedStyles: HTML_ALLOWED_STYLES,
     allowedSchemes: ["http", "https", "mailto"],
     allowProtocolRelative: false,
     disallowedTagsMode: "discard",

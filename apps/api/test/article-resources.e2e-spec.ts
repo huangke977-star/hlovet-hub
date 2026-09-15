@@ -134,6 +134,30 @@ describe("article resource blocks", () => {
     expect(sanitized).not.toContain("onclick");
   });
 
+  it("preserves article formatting nodes while filtering unsafe attributes", () => {
+    const sanitized = sanitizeArticleHtml([
+      '<p><span style="font-size: 14px">正文</span></p>',
+      '<ul data-type="taskList"><li class="article-task-item" data-type="taskItem" data-checked="false"><label><input type="checkbox" checked><span></span></label><div><p>任务</p></div></li></ul>',
+      '<p><a href="javascript:alert(1)" onclick="alert(1)">危险链接</a><a href="https://example.com">安全链接</a></p>',
+    ].join(""));
+
+    expect(sanitized).toContain('<span style="font-size:14px">正文</span>');
+    expect(sanitized).toContain('data-type="taskList"');
+    expect(sanitized).toContain('class="article-task-item"');
+    expect(sanitized).toContain('data-checked="false"');
+    expect(sanitized).toContain('type="checkbox"');
+    expect(sanitized).toContain('href="https://example.com"');
+    expect(sanitized).not.toContain("javascript:");
+    expect(sanitized).not.toContain("onclick");
+  });
+
+  it("keeps escaped HTML inside code blocks as code instead of executable markup", () => {
+    const sanitized = sanitizeArticleHtml('<pre><code>&lt;h1&gt;标题&lt;/h1&gt;</code></pre>');
+
+    expect(sanitized).toBe('<pre><code>&lt;h1&gt;标题&lt;/h1&gt;</code></pre>');
+    expect(sanitized).not.toContain("<h1>");
+  });
+
   it("parses HTML resource blocks and keeps ordinary HTML segments", () => {
     const parsed = parseArticleContent(
       '<p>公开正文。</p><resource-block data-points="10"><p>需要兑换的内容。</p></resource-block><p>后续正文。</p>',
