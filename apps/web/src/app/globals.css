@@ -19679,17 +19679,21 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   background: color-mix(in srgb, var(--accent-strong) 44%, rgba(255, 255, 255, 0.32));
 }
 
-.article-rich-html-source {
+.article-rich-editor .article-rich-html-source {
   box-sizing: border-box;
+  display: block;
   width: 100%;
   min-height: 360px;
   max-height: 640px;
+  min-width: 0;
+  margin: 0;
   border: 0;
+  border-radius: 0 0 8px 8px;
   outline: 0;
-  resize: vertical;
-  background: transparent;
+  resize: none;
+  background: color-mix(in srgb, var(--surface) 20%, transparent);
   color: var(--foreground);
-  font: 14px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font: 14px/1.25 ui-monospace, SFMono-Regular, Consolas, monospace;
   padding: 16px 17px 22px;
   tab-size: 2;
   white-space: pre;
@@ -19697,15 +19701,15 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   scrollbar-color: color-mix(in srgb, var(--accent-strong) 48%, transparent) transparent;
   scrollbar-width: thin;
 }
-.article-rich-html-source:focus,
-.article-rich-html-source:focus-visible {
+.article-rich-editor .article-rich-html-source:focus,
+.article-rich-editor .article-rich-html-source:focus-visible {
   border: 0;
   outline: 0;
   box-shadow: none;
 }
-.article-rich-html-source::-webkit-scrollbar { width: 6px; height: 6px; }
-.article-rich-html-source::-webkit-scrollbar-track { background: transparent; }
-.article-rich-html-source::-webkit-scrollbar-thumb {
+.article-rich-editor .article-rich-html-source::-webkit-scrollbar { width: 6px; height: 6px; }
+.article-rich-editor .article-rich-html-source::-webkit-scrollbar-track { background: transparent; }
+.article-rich-editor .article-rich-html-source::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent-strong) 44%, rgba(255, 255, 255, 0.32));
 }
@@ -19714,6 +19718,15 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   font-size: 0.68rem;
   line-height: 28px;
   white-space: nowrap;
+}
+
+/* Keep source mode joined to the same editor surface instead of creating a
+   second-looking textarea panel below the toolbar. */
+.article-rich-editor.is-html-source-mode .article-rich-toolbar {
+  background: color-mix(in srgb, var(--surface) 48%, transparent);
+}
+.article-rich-editor.is-html-source-mode .article-rich-html-source {
+  background: color-mix(in srgb, var(--surface) 20%, transparent);
 }
 
 .article-rich-editor .article-rich-editor-content > * + * { margin-top: 0.52em; }
@@ -19914,6 +19927,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   .article-rich-heading-select,
   .article-rich-heading-select .announcement-editor-select-trigger { width: 60px; min-width: 60px; flex-basis: 60px; }
   .article-rich-editor .article-rich-editor-content { min-height: 280px; max-height: 54vh; padding: 13px 12px 18px; }
+  .article-rich-editor .article-rich-html-source { min-height: 280px; max-height: 54vh; padding: 13px 12px 18px; }
   .article-rich-dialog { width: min(520px, calc(100vw - 20px)); }
 }
 

@@ -344,7 +344,7 @@ export function ArticleRichEditor({ value, format, onChange, onAttachmentFiles, 
   );
 
   return (
-    <div className="article-rich-editor">
+    <div className={`article-rich-editor${isHtmlSourceMode ? " is-html-source-mode" : ""}`}>
       <div className="article-rich-toolbar" role="toolbar" aria-label={phrase("文章格式工具", "Article formatting tools")}>
         <button aria-pressed={isHtmlSourceMode} className={isHtmlSourceMode ? "active" : undefined} onMouseDown={(event) => event.preventDefault()} onClick={() => (isHtmlSourceMode ? leaveHtmlSourceMode() : enterHtmlSourceMode())} title={isHtmlSourceMode ? phrase("切换到可视化编辑", "Switch to visual editor") : phrase("编辑 HTML 源码", "Edit HTML source")} type="button"><FileCode size={15} /></button>
         {!isHtmlSourceMode ? <>
