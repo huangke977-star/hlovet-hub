@@ -1,6 +1,7 @@
 "use client";
 
 import { Node, mergeAttributes, type Editor } from "@tiptap/core";
+import CodeBlock from "@tiptap/extension-code-block";
 import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -12,11 +13,11 @@ import { EditorContent, NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer,
 import StarterKit from "@tiptap/starter-kit";
 import { Bold, Coins, Code2, FileCode, FileUp, Italic, Link2, List, ListChecks, ListOrdered, Minus, Quote, Redo2, RemoveFormatting, Sparkles, Strikethrough, Undo2, Unlink, X } from "lucide-react";
 import { marked } from "marked";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { GlassSelect } from "@/components/glass-select";
 import { useLanguage } from "@/components/language-provider";
-import { sanitizeArticleHtmlForPreview } from "@/lib/article-html";
+import { ARTICLE_CODE_BLOCK_LANGUAGES, normalizeArticleCodeBlockLanguage, sanitizeArticleHtmlForPreview, type ArticleCodeBlockLanguage } from "@/lib/article-html";
 
 export interface RichEditorImage {
   src: string;
@@ -68,6 +69,79 @@ const ResourceBlock = Node.create({
 });
 
 const DEFAULT_EDITOR_FONT_SIZE = "14px";
+const CodeBlockNodeViewContent = NodeViewContent as unknown as ComponentType<{ as: "code"; className: string }>;
+
+const codeBlockLanguageLabels: Record<ArticleCodeBlockLanguage, { zh: string; en: string }> = {
+  plaintext: { zh: "纯文本", en: "Plain text" },
+  html: { zh: "HTML", en: "HTML" },
+  css: { zh: "CSS", en: "CSS" },
+  javascript: { zh: "JavaScript", en: "JavaScript" },
+  typescript: { zh: "TypeScript", en: "TypeScript" },
+  json: { zh: "JSON", en: "JSON" },
+  sql: { zh: "SQL", en: "SQL" },
+  python: { zh: "Python", en: "Python" },
+  bash: { zh: "Bash", en: "Bash" },
+  java: { zh: "Java", en: "Java" },
+  go: { zh: "Go", en: "Go" },
+  c: { zh: "C", en: "C" },
+  cpp: { zh: "C++", en: "C++" },
+  csharp: { zh: "C#", en: "C#" },
+  php: { zh: "PHP", en: "PHP" },
+  rust: { zh: "Rust", en: "Rust" },
+  xml: { zh: "XML", en: "XML" },
+  yaml: { zh: "YAML", en: "YAML" },
+  markdown: { zh: "Markdown", en: "Markdown" },
+};
+
+function ArticleCodeBlockView({ node, updateAttributes }: NodeViewProps) {
+  const { phrase } = useLanguage();
+  const language = normalizeArticleCodeBlockLanguage(node.attrs.language);
+  const languageOptions = ARTICLE_CODE_BLOCK_LANGUAGES.map((value) => ({
+    value,
+    label: phrase(codeBlockLanguageLabels[value].zh, codeBlockLanguageLabels[value].en),
+  }));
+
+  return (
+    <NodeViewWrapper as="pre" className="article-code-block-editor" data-language={language}>
+      <span className="article-code-block-language" contentEditable={false}>
+        <GlassSelect
+          ariaLabel={phrase("代码语言", "Code language")}
+          menuClassName="article-code-block-language-menu"
+          menuPortal
+          onChange={(value) => updateAttributes({ language: value })}
+          options={languageOptions}
+          value={language}
+        />
+      </span>
+      <CodeBlockNodeViewContent as="code" className={`language-${language}`} />
+    </NodeViewWrapper>
+  );
+}
+
+const ArticleCodeBlock = CodeBlock.extend({
+  addAttributes() {
+    return {
+      language: {
+        default: "plaintext",
+        parseHTML: (element) => normalizeArticleCodeBlockLanguage(
+          element.getAttribute("data-language") ?? element.firstElementChild?.getAttribute("class"),
+        ),
+        rendered: false,
+      },
+    };
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    const language = normalizeArticleCodeBlockLanguage(node.attrs.language);
+    return [
+      "pre",
+      mergeAttributes({ "data-language": language }, HTMLAttributes),
+      ["code", { class: `language-${language}` }, 0],
+    ];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ArticleCodeBlockView);
+  },
+});
 
 // Convert Markdown task items into the DOM shape expected by Tiptap's task
 // item extension before the editor parses the content. This keeps imported
@@ -124,9 +198,11 @@ export function ArticleRichEditor({ value, format, onChange, onAttachmentFiles, 
     immediatelyRender: false,
     extensions: [
       StarterKit.configure({
+        codeBlock: false,
         link: false,
         heading: { levels: [1, 2, 3] },
       }),
+      ArticleCodeBlock,
       Link.configure({ openOnClick: false, autolink: true }),
       Image.configure({ inline: false, allowBase64: false }),
       Underline,

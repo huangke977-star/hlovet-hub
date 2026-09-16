@@ -5,6 +5,11 @@ import sanitizeHtml from "sanitize-html";
 const RESOURCE_OPEN_PATTERN = /^:::resource\{points=(\d+)\}\s*$/;
 const RESOURCE_CLOSE_PATTERN = /^:::\s*$/;
 const RESOURCE_HTML_PATTERN = /<resource-block\b([^>]*)>([\s\S]*?)<\/resource-block>/gi;
+const ARTICLE_CODE_BLOCK_LANGUAGES = new Set([
+  "plaintext", "html", "css", "javascript", "typescript", "json", "sql", "python",
+  "bash", "java", "go", "c", "cpp", "csharp", "php", "rust", "xml", "yaml",
+  "markdown",
+]);
 
 export type ArticleContentFormat = "markdown" | "html";
 
@@ -21,11 +26,14 @@ const HTML_ALLOWED_ATTRIBUTES: sanitizeHtml.IOptions["allowedAttributes"] = {
   li: ["class", "data-type", "data-checked"],
   input: ["type", "checked"],
   span: ["style"],
+  pre: ["data-language"],
+  code: ["class"],
   "resource-block": ["data-points"],
 };
 
 const HTML_ALLOWED_CLASSES: sanitizeHtml.IOptions["allowedClasses"] = {
   li: ["article-task-item"],
+  code: [...ARTICLE_CODE_BLOCK_LANGUAGES].map((language) => `language-${language}`),
 };
 
 const HTML_ALLOWED_STYLES: sanitizeHtml.IOptions["allowedStyles"] = {
@@ -43,7 +51,21 @@ export function sanitizeArticleHtml(source: string): string {
     allowedSchemes: ["http", "https", "mailto"],
     allowProtocolRelative: false,
     disallowedTagsMode: "discard",
+    transformTags: {
+      pre: (tagName, attribs) => ({
+        tagName,
+        attribs: {
+          ...attribs,
+          "data-language": normalizeArticleCodeBlockLanguage(attribs["data-language"]),
+        },
+      }),
+    },
   }).trim();
+}
+
+function normalizeArticleCodeBlockLanguage(value: unknown): string {
+  const candidate = String(value ?? "").trim().toLowerCase().replace(/^language-/, "");
+  return ARTICLE_CODE_BLOCK_LANGUAGES.has(candidate) ? candidate : "plaintext";
 }
 
 export function normalizeArticleContent(source: string, format: ArticleContentFormat): string {

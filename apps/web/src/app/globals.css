@@ -7907,6 +7907,7 @@ a.entry-item:hover {
 .article-list-line span { color: var(--accent-strong); }
 
 .article-code {
+  position: relative;
   overflow-x: auto;
   margin: 20px 0;
   border-radius: 10px;
@@ -7916,6 +7917,18 @@ a.entry-item:hover {
   font-size: 0.88rem;
   line-height: 1.7;
   padding: 18px;
+}
+.article-code[data-language]::before {
+  display: block;
+  margin-bottom: 8px;
+  color: color-mix(in srgb, currentColor 66%, transparent);
+  content: attr(data-language);
+  font-family: var(--font-body), Arial, sans-serif;
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: normal;
 }
 
 .article-tag-list {
@@ -19773,6 +19786,45 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   color: var(--foreground);
   padding: 10px 12px;
 }
+.article-rich-editor .article-rich-editor-content .article-code-block-editor {
+  position: relative;
+  padding: 38px 12px 10px;
+}
+.article-rich-editor .article-code-block-editor > code {
+  display: block;
+  min-height: 1.45em;
+}
+.article-code-block-language {
+  position: absolute;
+  z-index: 2;
+  top: 7px;
+  right: 8px;
+  display: block;
+  width: 132px;
+}
+.article-code-block-language .announcement-editor-select,
+.article-code-block-language .announcement-editor-select-trigger {
+  width: 100%;
+}
+.article-code-block-language .announcement-editor-select-trigger {
+  min-height: 24px;
+  padding: 3px 6px 3px 8px;
+  border-color: color-mix(in srgb, var(--control-line) 76%, transparent);
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  font-size: 0.68rem;
+  line-height: 1.1;
+}
+.article-code-block-language .announcement-editor-select-value {
+  white-space: nowrap;
+}
+.article-code-block-language-menu {
+  z-index: 2605;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.article-code-block-language-menu button {
+  font-size: 0.72rem;
+}
 .article-rich-editor .article-rich-editor-content code {
   max-width: 100%;
   font-size: 0.86em;
@@ -19861,6 +19913,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .article-html-segment li { margin: 0.2em 0; }
 .article-html-segment blockquote { margin: 1em 0; border-left: 3px solid var(--accent-strong); background: color-mix(in srgb, var(--surface) 42%, transparent); color: var(--muted-strong); padding: 9px 14px; }
 .article-html-segment pre {
+  position: relative;
   box-sizing: border-box;
   max-width: 100%;
   overflow-x: auto;
@@ -19868,6 +19921,18 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   background: color-mix(in srgb, var(--surface-strong) 74%, transparent);
   padding: 10px 12px;
   white-space: pre;
+}
+.article-html-segment pre[data-language]::before {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted-strong);
+  content: attr(data-language);
+  font-family: inherit;
+  font-size: 0.64rem;
+  font-weight: 600;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: normal;
 }
 .article-html-segment code {
   max-width: 100%;

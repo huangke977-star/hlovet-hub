@@ -8,13 +8,14 @@ import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { memo, useEffect, useMemo, useState } from "react";
+import { isValidElement, memo, useEffect, useMemo, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import type { Article, ArticleAuthor, ArticleContentFormat, ArticleContentSegment } from "@/lib/article-api";
 import { requestBlob, resolveApiUrl } from "@/lib/auth-api";
 import { readAccessToken } from "@/lib/auth-storage";
 import { getOfflineMediaBlob } from "@/lib/offline-cache";
 import { getAvatarFallbackText } from "@/lib/user-display";
+import { normalizeArticleCodeBlockLanguage } from "@/lib/article-html";
 import { PublicProfilePopover } from "@/components/public-profile-popover";
 import { AvatarManagementBadge } from "@/components/user-identity-badges";
 import { useLanguage } from "@/components/language-provider";
@@ -233,7 +234,7 @@ function MarkdownSegment({ attachmentImageUrls, content, onPreviewImage, pending
         const resolvedSource = resolveArticleImageUrl(src, pendingImageUrls, attachmentImageUrls);
         return <button aria-label={alt || phrase("预览图片", "Preview image")} className="article-body-image-trigger" onClick={() => onPreviewImage({ alt: alt ?? "", src: resolvedSource })} type="button"><img alt={alt ?? ""} className="article-body-image" src={resolvedSource} /></button>;
       },
-      pre: ({ children }) => <pre className="article-code">{children}</pre>,
+      pre: ({ children }) => <pre className="article-code" data-language={getMarkdownCodeBlockLanguage(children)}>{children}</pre>,
       table: ({ children }) => <div className="article-table-wrap"><table>{children}</table></div>,
     }}
     rehypePlugins={[rehypeSanitize]}
@@ -241,6 +242,13 @@ function MarkdownSegment({ attachmentImageUrls, content, onPreviewImage, pending
   >
     {content.replaceAll("\r\n", "\n")}
   </ReactMarkdown>;
+}
+
+function getMarkdownCodeBlockLanguage(children: ReactNode) {
+  const code = Array.isArray(children) ? children.find((child) => isValidElement(child)) : children;
+  if (!isValidElement(code)) return "plaintext";
+  const className = (code.props as { className?: unknown }).className;
+  return normalizeArticleCodeBlockLanguage(className);
 }
 
 function HtmlSegment({ attachmentImageUrls, content, onPreviewImage, pendingImageUrls }: {

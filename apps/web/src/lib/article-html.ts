@@ -1,3 +1,18 @@
+export const ARTICLE_CODE_BLOCK_LANGUAGES = [
+  "plaintext", "html", "css", "javascript", "typescript", "json", "sql", "python",
+  "bash", "java", "go", "c", "cpp", "csharp", "php", "rust", "xml", "yaml",
+  "markdown",
+] as const;
+
+export type ArticleCodeBlockLanguage = (typeof ARTICLE_CODE_BLOCK_LANGUAGES)[number];
+
+const codeBlockLanguages = new Set<string>(ARTICLE_CODE_BLOCK_LANGUAGES);
+
+export function normalizeArticleCodeBlockLanguage(value: unknown): ArticleCodeBlockLanguage {
+  const candidate = String(value ?? "").trim().toLowerCase().replace(/^language-/, "");
+  return codeBlockLanguages.has(candidate) ? candidate as ArticleCodeBlockLanguage : "plaintext";
+}
+
 const allowedTags = new Set([
   "p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "s", "u",
   "blockquote", "ul", "ol", "li", "pre", "code", "a", "img", "hr", "table",
@@ -11,6 +26,8 @@ const allowedAttributes: Record<string, Set<string>> = {
   li: new Set(["class", "data-type", "data-checked"]),
   input: new Set(["type", "checked"]),
   span: new Set(["style"]),
+  pre: new Set(["data-language"]),
+  code: new Set(["class"]),
   "resource-block": new Set(["data-points"]),
 };
 
@@ -53,7 +70,17 @@ export function sanitizeArticleHtmlForPreview(source: string) {
         return;
       }
       if (name === "style" && !isSafeTextStyle(value)) element.removeAttribute(attribute.name);
+      if (tag === "code" && name === "class" && !/^language-(?:plaintext|html|css|javascript|typescript|json|sql|python|bash|java|go|c|cpp|csharp|php|rust|xml|yaml|markdown)$/i.test(value)) {
+        element.removeAttribute(attribute.name);
+      }
     });
+
+    if (tag === "pre") {
+      const code = element.querySelector(":scope > code");
+      const language = normalizeArticleCodeBlockLanguage(element.getAttribute("data-language") ?? code?.getAttribute("class"));
+      element.setAttribute("data-language", language);
+      if (code) code.setAttribute("class", `language-${language}`);
+    }
   };
 
   Array.from(root.children).forEach(sanitizeNode);
