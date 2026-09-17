@@ -1,7 +1,7 @@
 "use client";
 
 import { Node, mergeAttributes, type Editor } from "@tiptap/core";
-import CodeBlock from "@tiptap/extension-code-block";
+import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -11,11 +11,12 @@ import { FontSize, TextStyle } from "@tiptap/extension-text-style";
 import Underline from "@tiptap/extension-underline";
 import { EditorContent, NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor, type NodeViewProps } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { Bold, Coins, Code2, FileCode, FileUp, Italic, Link2, List, ListChecks, ListOrdered, Minus, Quote, Redo2, RemoveFormatting, Sparkles, Strikethrough, Undo2, Unlink, X } from "lucide-react";
+import { Bold, Coins, Code2, FileCode, FileUp, Italic, Link2, List, ListChecks, ListOrdered, Minus, Quote, Redo2, RemoveFormatting, Sparkles, Strikethrough, Undo2, Unlink, Wand2, X } from "lucide-react";
 import { marked } from "marked";
 import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { GlassSelect } from "@/components/glass-select";
+import { articleLowlight } from "@/components/article-code-highlight";
 import { useLanguage } from "@/components/language-provider";
 import { ARTICLE_CODE_BLOCK_LANGUAGES, normalizeArticleCodeBlockLanguage, sanitizeArticleHtmlForPreview, type ArticleCodeBlockLanguage } from "@/lib/article-html";
 
@@ -93,34 +94,116 @@ const codeBlockLanguageLabels: Record<ArticleCodeBlockLanguage, { zh: string; en
   markdown: { zh: "Markdown", en: "Markdown" },
 };
 
-function ArticleCodeBlockView({ node, updateAttributes }: NodeViewProps) {
+const formattableCodeBlockLanguages = new Set<ArticleCodeBlockLanguage>([
+  "html", "css", "javascript", "typescript", "json", "sql", "yaml", "markdown",
+]);
+
+async function formatArticleCodeBlock(source: string, language: ArticleCodeBlockLanguage): Promise<string | null> {
+  if (!formattableCodeBlockLanguages.has(language)) return null;
+  if (language === "sql") {
+    const { format } = await import("sql-formatter");
+    return format(source, { keywordCase: "upper", language: "mysql", tabWidth: 2 });
+  }
+
+  const prettier = await import("prettier/standalone");
+  const formatOptions = { printWidth: 96, tabWidth: 2 };
+  switch (language) {
+    case "html": {
+      const html = await import("prettier/plugins/html");
+      return prettier.format(source, { ...formatOptions, parser: "html", plugins: [html] });
+    }
+    case "css": {
+      const postcss = await import("prettier/plugins/postcss");
+      return prettier.format(source, { ...formatOptions, parser: "css", plugins: [postcss] });
+    }
+    case "javascript": {
+      const [babel, estree] = await Promise.all([import("prettier/plugins/babel"), import("prettier/plugins/estree")]);
+      return prettier.format(source, { ...formatOptions, parser: "babel", plugins: [babel, estree] });
+    }
+    case "typescript": {
+      const [typescript, estree] = await Promise.all([import("prettier/plugins/typescript"), import("prettier/plugins/estree")]);
+      return prettier.format(source, { ...formatOptions, parser: "typescript", plugins: [typescript, estree] });
+    }
+    case "json": {
+      const [babel, estree] = await Promise.all([import("prettier/plugins/babel"), import("prettier/plugins/estree")]);
+      return prettier.format(source, { ...formatOptions, parser: "json", plugins: [babel, estree] });
+    }
+    case "yaml": {
+      const yaml = await import("prettier/plugins/yaml");
+      return prettier.format(source, { ...formatOptions, parser: "yaml", plugins: [yaml] });
+    }
+    case "markdown": {
+      const markdown = await import("prettier/plugins/markdown");
+      return prettier.format(source, { ...formatOptions, parser: "markdown", plugins: [markdown] });
+    }
+    default:
+      return null;
+  }
+}
+
+function ArticleCodeBlockView({ editor, getPos, node, updateAttributes }: NodeViewProps) {
   const { phrase } = useLanguage();
+  const [formatStatus, setFormatStatus] = useState<"idle" | "success" | "error">("idle");
   const language = normalizeArticleCodeBlockLanguage(node.attrs.language);
   const languageOptions = ARTICLE_CODE_BLOCK_LANGUAGES.map((value) => ({
     value,
     label: phrase(codeBlockLanguageLabels[value].zh, codeBlockLanguageLabels[value].en),
   }));
+  const canFormat = formattableCodeBlockLanguages.has(language);
+
+  async function handleFormat() {
+    const position = typeof getPos === "function" ? getPos() : null;
+    const currentNode = typeof position === "number" ? editor.state.doc.nodeAt(position) : null;
+    if (typeof position !== "number" || !currentNode || currentNode.type.name !== "codeBlock" || !currentNode.textContent.trim()) {
+      setFormatStatus("error");
+      window.setTimeout(() => setFormatStatus("idle"), 3000);
+      return;
+    }
+    try {
+      const formatted = await formatArticleCodeBlock(currentNode.textContent, language);
+      if (formatted === null) {
+        setFormatStatus("error");
+      } else {
+        editor.view.dispatch(editor.state.tr.insertText(formatted, position + 1, position + currentNode.nodeSize - 1));
+        setFormatStatus("success");
+      }
+    } catch {
+      setFormatStatus("error");
+    }
+    window.setTimeout(() => setFormatStatus("idle"), 3000);
+  }
 
   return (
-    <NodeViewWrapper as="pre" className="article-code-block-editor" data-language={language}>
-      <span className="article-code-block-language" contentEditable={false}>
-        <GlassSelect
-          ariaLabel={phrase("代码语言", "Code language")}
-          menuClassName="article-code-block-language-menu"
-          menuPortal
-          onChange={(value) => updateAttributes({ language: value })}
-          options={languageOptions}
-          value={language}
-        />
-      </span>
+    <NodeViewWrapper as="div" className="article-code-block-editor" data-language={language}>
+      <header className="article-code-block-header" contentEditable={false}>
+        <span className="article-code-block-title"><FileCode aria-hidden="true" size={14} /><strong>{phrase("代码块", "Code block")}</strong></span>
+        <span className="article-code-block-controls">
+          <span className="article-code-block-language">
+            <GlassSelect
+              ariaLabel={phrase("代码语言", "Code language")}
+              menuClassName="article-code-block-language-menu"
+              menuPortal
+              onChange={(value) => updateAttributes({ language: value })}
+              options={languageOptions}
+              value={language}
+            />
+          </span>
+          {canFormat ? <button aria-label={phrase("格式化代码", "Format code")} className="article-code-block-format" onClick={() => { void handleFormat(); }} onMouseDown={(event) => event.preventDefault()} title={phrase("格式化代码", "Format code")} type="button"><Wand2 aria-hidden="true" size={13} /></button> : null}
+          {formatStatus !== "idle" ? <span aria-live="polite" className={`article-code-block-format-status ${formatStatus}`} role="status">{formatStatus === "success" ? phrase("已格式化", "Formatted") : phrase("无法格式化代码", "Could not format")}</span> : null}
+        </span>
+      </header>
       <CodeBlockNodeViewContent as="code" className={`language-${language}`} />
     </NodeViewWrapper>
   );
 }
 
-const ArticleCodeBlock = CodeBlock.extend({
+const ArticleCodeBlock = CodeBlockLowlight.configure({
+  defaultLanguage: "plaintext",
+  lowlight: articleLowlight,
+}).extend({
   addAttributes() {
     return {
+      ...(this.parent?.() ?? {}),
       language: {
         default: "plaintext",
         parseHTML: (element) => normalizeArticleCodeBlockLanguage(

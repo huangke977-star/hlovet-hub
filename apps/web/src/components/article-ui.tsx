@@ -8,7 +8,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { isValidElement, memo, useEffect, useMemo, useState } from "react";
+import { isValidElement, memo, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import type { Article, ArticleAuthor, ArticleContentFormat, ArticleContentSegment } from "@/lib/article-api";
 import { requestBlob, resolveApiUrl } from "@/lib/auth-api";
@@ -16,6 +16,7 @@ import { readAccessToken } from "@/lib/auth-storage";
 import { getOfflineMediaBlob } from "@/lib/offline-cache";
 import { getAvatarFallbackText } from "@/lib/user-display";
 import { normalizeArticleCodeBlockLanguage } from "@/lib/article-html";
+import { appendHighlightedArticleCode, HighlightedArticleCode } from "@/components/article-code-highlight";
 import { PublicProfilePopover } from "@/components/public-profile-popover";
 import { AvatarManagementBadge } from "@/components/user-identity-badges";
 import { useLanguage } from "@/components/language-provider";
@@ -234,6 +235,13 @@ function MarkdownSegment({ attachmentImageUrls, content, onPreviewImage, pending
         const resolvedSource = resolveArticleImageUrl(src, pendingImageUrls, attachmentImageUrls);
         return <button aria-label={alt || phrase("预览图片", "Preview image")} className="article-body-image-trigger" onClick={() => onPreviewImage({ alt: alt ?? "", src: resolvedSource })} type="button"><img alt={alt ?? ""} className="article-body-image" src={resolvedSource} /></button>;
       },
+      code: ({ children, className, node, ...props }) => {
+        void node;
+        const language = normalizeArticleCodeBlockLanguage(className);
+        const source = articleCodeText(children);
+        const isBlockCode = typeof className === "string" && className.includes("language-");
+        return <code {...props} className={className}>{isBlockCode ? <HighlightedArticleCode code={source} language={language} /> : children}</code>;
+      },
       pre: ({ children }) => <pre className="article-code" data-language={getMarkdownCodeBlockLanguage(children)}>{children}</pre>,
       table: ({ children }) => <div className="article-table-wrap"><table>{children}</table></div>,
     }}
@@ -257,11 +265,24 @@ function HtmlSegment({ attachmentImageUrls, content, onPreviewImage, pendingImag
   onPreviewImage: (image: { alt: string; src: string }) => void;
   pendingImageUrls?: Record<string, string>;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const resolvedPendingContent = Object.entries(pendingImageUrls ?? {}).reduce(
     (current, [marker, url]) => current.replaceAll(marker, url),
     content,
   );
   const resolvedContent = resolveHtmlArticleAttachmentUrls(resolvedPendingContent, attachmentImageUrls);
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.querySelectorAll("pre > code").forEach((code) => {
+      if (!(code instanceof HTMLElement)) return;
+      const pre = code.parentElement;
+      const language = normalizeArticleCodeBlockLanguage(pre?.getAttribute("data-language") ?? code.getAttribute("class"));
+      if (pre) pre.setAttribute("data-language", language);
+      code.className = `language-${language}`;
+      appendHighlightedArticleCode(document, code, code.textContent ?? "", language);
+    });
+  }, [resolvedContent]);
   return <div className="article-html-segment" dangerouslySetInnerHTML={{ __html: resolvedContent }} onClick={(event) => {
     const target = event.target instanceof Element ? event.target : null;
     const image = target?.closest("img");
@@ -274,7 +295,14 @@ function HtmlSegment({ attachmentImageUrls, content, onPreviewImage, pendingImag
     if (!attachmentPath) return;
     event.preventDefault();
     void downloadArticleAttachment(attachmentPath, anchor?.textContent ?? "attachment");
-  }} />;
+  }} ref={containerRef} />;
+}
+
+function articleCodeText(value: ReactNode): string {
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (Array.isArray(value)) return value.map(articleCodeText).join("");
+  if (isValidElement(value)) return articleCodeText((value.props as { children?: ReactNode }).children ?? "");
+  return "";
 }
 
 function ArticleAttachmentLink({ children, fileName, path }: { children: ReactNode; fileName: string; path: string }) {
