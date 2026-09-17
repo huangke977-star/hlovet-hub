@@ -19906,7 +19906,7 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.article-rich-editor .article-rich-editor-content :not(pre) > code {
+.article-rich-editor .article-rich-editor-content :not(pre, .article-code-block-editor) > code {
   border-radius: 4px;
   background: color-mix(in srgb, var(--surface-strong) 62%, transparent);
   padding: 2px 4px;
