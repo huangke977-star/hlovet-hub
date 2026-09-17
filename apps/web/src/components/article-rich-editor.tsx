@@ -95,8 +95,21 @@ const codeBlockLanguageLabels: Record<ArticleCodeBlockLanguage, { zh: string; en
 };
 
 const formattableCodeBlockLanguages = new Set<ArticleCodeBlockLanguage>([
-  "html", "css", "javascript", "typescript", "json", "sql", "yaml", "markdown",
+  "html", "css", "javascript", "typescript", "json", "sql", "java", "yaml", "markdown",
 ]);
+
+function extractFormattedJavaSnippet(value: string, startMarker: string, endMarker: string): string {
+  const lines = value.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => line.includes(startMarker));
+  const end = lines.findIndex((line, index) => index > start && line.includes(endMarker));
+  if (start < 0 || end < 0) return value.trim();
+  const snippetLines = lines.slice(start + 1, end);
+  const indentation = snippetLines
+    .filter((line) => line.trim())
+    .reduce((minimum, line) => Math.min(minimum, line.match(/^\s*/)?.[0].length ?? 0), Number.POSITIVE_INFINITY);
+  const trimBy = Number.isFinite(indentation) ? indentation : 0;
+  return snippetLines.map((line) => line.slice(Math.min(trimBy, line.length))).join("\n").trim();
+}
 
 async function formatArticleCodeBlock(source: string, language: ArticleCodeBlockLanguage): Promise<string | null> {
   if (!formattableCodeBlockLanguages.has(language)) return null;
@@ -127,6 +140,18 @@ async function formatArticleCodeBlock(source: string, language: ArticleCodeBlock
     case "json": {
       const [babel, estree] = await Promise.all([import("prettier/plugins/babel"), import("prettier/plugins/estree")]);
       return prettier.format(source, { ...formatOptions, parser: "json", plugins: [babel, estree] });
+    }
+    case "java": {
+      const java = (await import("prettier-plugin-java")).default;
+      try {
+        return await prettier.format(source, { ...formatOptions, parser: "java", plugins: [java] });
+      } catch {
+        const startMarker = "// __LINGXI_FORMAT_START__";
+        const endMarker = "// __LINGXI_FORMAT_END__";
+        const wrapped = `class __LingxiFormatWrapper__ {\nvoid __lingxiFormatMethod__() {\n${startMarker}\n${source}\n${endMarker}\n}\n}`;
+        const formatted = await prettier.format(wrapped, { ...formatOptions, parser: "java", plugins: [java] });
+        return extractFormattedJavaSnippet(formatted, startMarker, endMarker);
+      }
     }
     case "yaml": {
       const yaml = await import("prettier/plugins/yaml");
