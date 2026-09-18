@@ -7,6 +7,7 @@ export type Locale = (typeof supportedLocales)[number];
 const zhCN = {
   "nav.home": "首页",
   "nav.tools": "工具",
+  "nav.ai": "AI 助手",
   "nav.discover": "发现",
   "nav.workspace": "工作台",
   "nav.main": "主导航",
@@ -435,6 +436,7 @@ const zhCN = {
 const enUS: Record<keyof typeof zhCN, string> = {
   "nav.home": "Home",
   "nav.tools": "Tools",
+  "nav.ai": "AI assistant",
   "nav.discover": "Discover",
   "nav.workspace": "Workspace",
   "nav.main": "Main navigation",

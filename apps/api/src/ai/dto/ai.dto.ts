@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
+import { IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
 
 export const AI_PROVIDERS = ["openai-compatible", "anthropic", "google"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
@@ -17,6 +17,21 @@ export const AI_ARTICLE_OPERATIONS = [
   "format",
 ] as const;
 export type AiArticleOperation = (typeof AI_ARTICLE_OPERATIONS)[number];
+
+export const AI_TOOL_NAMES = [
+  "get_my_summary",
+  "list_my_tasks",
+  "list_my_subscriptions",
+  "list_my_earnings",
+  "list_my_articles",
+  "search_visible_articles",
+  "get_article_context",
+  "summarize_topic",
+  "summarize_collection",
+  "get_admin_overview",
+  "create_article_draft",
+] as const;
+export type AiToolName = (typeof AI_TOOL_NAMES)[number];
 
 export class UpdateAiConfigurationDto {
   @IsBoolean()
@@ -122,4 +137,56 @@ export class ArticleAssistantDto {
   @IsOptional()
   @IsIn(["zh-CN", "en-US"])
   locale?: "zh-CN" | "en-US";
+}
+
+export class AiChatDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  conversationId?: number;
+
+  @IsString()
+  @MaxLength(8000)
+  message!: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  articleId?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  articleSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  topicSlug?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  collectionId?: number;
+
+  @IsOptional()
+  @IsIn(["zh-CN", "en-US"])
+  locale?: "zh-CN" | "en-US";
+}
+
+export class AiToolInputDto {
+  @IsOptional()
+  @IsObject()
+  input?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  conversationId?: number;
+}
+
+export class AiToolConfirmationDto {
+  @IsString()
+  @MaxLength(160)
+  confirmationToken!: string;
 }

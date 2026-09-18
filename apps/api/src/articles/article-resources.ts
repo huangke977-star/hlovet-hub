@@ -52,13 +52,16 @@ export function sanitizeArticleHtml(source: string): string {
     allowProtocolRelative: false,
     disallowedTagsMode: "discard",
     transformTags: {
-      pre: (tagName, attribs) => ({
-        tagName,
-        attribs: {
-          ...attribs,
-          "data-language": normalizeArticleCodeBlockLanguage(attribs["data-language"]),
-        },
-      }),
+      pre: (tagName, attribs) => {
+        // Keep legacy plain code blocks byte-compatible; explicit language metadata is normalized.
+        const hasLanguage = attribs["data-language"] !== undefined || Boolean(attribs.class);
+        return {
+          tagName,
+          attribs: hasLanguage
+            ? { ...attribs, "data-language": normalizeArticleCodeBlockLanguage(attribs["data-language"] ?? attribs.class) }
+            : attribs,
+        };
+      },
     },
   }).trim();
 }

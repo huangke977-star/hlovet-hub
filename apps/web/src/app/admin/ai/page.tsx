@@ -10,7 +10,7 @@ import { PasswordInput } from "@/components/password-input";
 import { useLanguage } from "@/components/language-provider";
 import { type AuthUser, getMe, isAuthExpiredError } from "@/lib/auth-api";
 import { clearAuthTokens, readAccessToken } from "@/lib/auth-storage";
-import { getAiAdminConfiguration, getAiAdminInvocations, testAiAdminConnection, type AiAdminConfiguration, type AiAdminConfigurationUpdate, type AiInvocationOverview, updateAiAdminConfiguration } from "@/lib/ai-api";
+import { getAiAdminConfiguration, getAiAdminInvocations, getAiAdminToolInvocations, testAiAdminConnection, type AiAdminConfiguration, type AiAdminConfigurationUpdate, type AiInvocationOverview, type AiToolInvocationAudit, updateAiAdminConfiguration } from "@/lib/ai-api";
 import { localizedPath } from "@/lib/i18n";
 
 type Draft = AiAdminConfigurationUpdate;
@@ -53,12 +53,14 @@ export default function AiAdminPage() {
   const [notice, setNotice] = useState("");
   const [testing, setTesting] = useState(false);
   const [overview, setOverview] = useState<AiInvocationOverview | null>(null);
+  const [toolAudits, setToolAudits] = useState<AiToolInvocationAudit[]>([]);
 
   async function load(currentToken: string) {
-    const [next, nextOverview] = await Promise.all([getAiAdminConfiguration(currentToken), getAiAdminInvocations(currentToken)]);
+    const [next, nextOverview, nextToolAudits] = await Promise.all([getAiAdminConfiguration(currentToken), getAiAdminInvocations(currentToken), getAiAdminToolInvocations(currentToken)]);
     setConfig(next);
     setDraft(toDraft(next));
     setOverview(nextOverview);
+    setToolAudits(nextToolAudits.items);
     setApiKey("");
     setClearApiKey(false);
   }
@@ -71,9 +73,11 @@ export default function AiAdminPage() {
       const result = await testAiAdminConnection(token);
       setNotice(phrase(`连接成功，耗时 ${result.durationMs} ms。`, `Connection succeeded in ${result.durationMs} ms.`));
       setOverview(await getAiAdminInvocations(token));
+      setToolAudits((await getAiAdminToolInvocations(token)).items);
     } catch (testError) {
       setError(testError instanceof Error ? testError.message : phrase("AI 连接测试失败。", "AI connection test failed."));
       setOverview(await getAiAdminInvocations(token).catch(() => overview));
+      setToolAudits((await getAiAdminToolInvocations(token).catch(() => ({ items: toolAudits }))).items);
     } finally {
       setTesting(false);
     }
@@ -158,6 +162,10 @@ export default function AiAdminPage() {
     <section className="ai-log-panel">
       <header><span><Activity size={17} />{phrase("调用记录", "Invocation log")}</span><small>{overview ? phrase(`今日 ${overview.today.requests} 次，${overview.today.totalTokens} tokens，约 ${(overview.today.estimatedCostMicros / 1000000).toFixed(6)} ${config.billingCurrency}`, `${overview.today.requests} today, ${overview.today.totalTokens} tokens, about ${(overview.today.estimatedCostMicros / 1000000).toFixed(6)} ${config.billingCurrency}`) : phrase("暂无记录", "No records")}</small></header>
       {overview?.logs.length ? <div className="ai-log-list">{overview.logs.map((log) => <div className="ai-log-row" key={log.id}><span className={log.status === "success" ? "ai-log-status success" : "ai-log-status failed"}>{log.status === "success" ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />}{log.status === "success" ? phrase("成功", "Success") : phrase("失败", "Failed")}</span><span>{log.operation === "test_connection" ? phrase("连接测试", "Connection test") : log.operation}</span><span>{log.model || "-"}</span><span>{log.totalTokens ?? "-"} tokens</span><span>{log.durationMs} ms</span><time dateTime={log.createdAt}>{new Date(log.createdAt).toLocaleString(locale === "zh-CN" ? "zh-CN" : "en-US")}</time>{log.errorSummary ? <small>{log.errorSummary}</small> : null}</div>)}</div> : <p className="ai-log-empty">{phrase("连接测试或文章助手调用后，脱敏记录会显示在这里。", "Redacted records appear here after a connection test or assistant invocation.")}</p>}
+    </section>
+    <section className="ai-tool-audit-panel">
+      <header><span><ShieldCheck size={17} />{phrase("工具审计", "Tool audit")}</span><small>{phrase("仅显示元数据，不显示输入参数和输出正文", "Metadata only; inputs and outputs are hidden")}</small></header>
+      {toolAudits.length ? <div className="ai-tool-audit-list">{toolAudits.map((audit) => <div className="ai-tool-audit-row" key={audit.id}><span className={audit.status === "success" ? "ai-log-status success" : audit.status === "awaiting_confirmation" ? "ai-tool-audit-status pending" : "ai-log-status failed"}>{audit.status === "success" ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />}{audit.status === "success" ? phrase("成功", "Success") : audit.status === "awaiting_confirmation" ? phrase("待确认", "Awaiting confirmation") : phrase("失败", "Failed")}</span><strong>{audit.toolName}</strong><span>{audit.nickname || audit.username} <small>@{audit.username}</small></span><span>{audit.requiresConfirmation ? phrase("需确认", "Confirmation required") : phrase("只读", "Read-only")}</span><time dateTime={audit.createdAt}>{new Date(audit.createdAt).toLocaleString(locale === "zh-CN" ? "zh-CN" : "en-US")}</time></div>)}</div> : <p className="ai-log-empty">{phrase("用户执行受控工具后，审计记录会显示在这里。", "Tool audit records appear here after users run controlled tools.")}</p>}
     </section>
     <AppToast message={error || notice} onDismiss={() => { setError(""); setNotice(""); }} tone={error ? "error" : "success"} />
   </section>;

@@ -66,6 +66,7 @@ import { getAvatarFallbackText, getUserDisplayName } from "@/lib/user-display";
 const navItems = [
   { href: "/", key: "nav.home" },
   { href: "/tools", key: "nav.tools" },
+  { href: "/ai", key: "nav.ai" },
   { href: "/articles", key: "nav.discover" },
   { href: "/dashboard", key: "nav.workspace" },
 ] as const;

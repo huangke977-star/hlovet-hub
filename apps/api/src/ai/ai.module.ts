@@ -3,6 +3,7 @@ import { JwtModule } from "@nestjs/jwt";
 import { SecurityModule } from "../security/security.module";
 import { RedisModule } from "../redis/redis.module";
 import { UsersModule } from "../users/users.module";
+import { ArticlesModule } from "../articles/articles.module";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { SuperAdminGuard } from "../auth/guards/super-admin.guard";
 import { UserManagementGuard } from "../auth/guards/user-management.guard";
@@ -10,7 +11,7 @@ import { AiController, ArticleAiController } from "./ai.controller";
 import { AiService } from "./ai.service";
 
 @Module({
-  imports: [JwtModule.register({}), RedisModule, SecurityModule, UsersModule],
+  imports: [JwtModule.register({}), RedisModule, SecurityModule, UsersModule, ArticlesModule],
   controllers: [AiController, ArticleAiController],
   providers: [AiService, JwtAuthGuard, SuperAdminGuard, UserManagementGuard],
 })

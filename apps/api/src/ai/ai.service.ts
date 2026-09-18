@@ -1,17 +1,21 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ForbiddenException,
   GatewayTimeoutException,
   Injectable,
   HttpException,
   HttpStatus,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { AiConfiguration } from "../generated/prisma/client";
+import { createHash, randomBytes } from "node:crypto";
+import { AiConfiguration, Prisma } from "../generated/prisma/client";
+import { AuthenticatedUser } from "../auth/auth.types";
+import { ArticlesService } from "../articles/articles.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RedisService } from "../redis/redis.service";
 import { SecretCryptoService } from "../security/secret-crypto.service";
-import { AiArticleOperation, AiProvider, ArticleAssistantDto, UpdateAiConfigurationDto } from "./dto/ai.dto";
+import { AiArticleOperation, AiChatDto, AiProvider, AiToolInputDto, AiToolName, ArticleAssistantDto, UpdateAiConfigurationDto } from "./dto/ai.dto";
 import {
   AiChatMessage,
   AiProviderClientError,
@@ -19,6 +23,22 @@ import {
   completeWithProvider,
 } from "./ai-provider.client";
 import os from "node:os";
+
+const AI_TOOL_DEFINITIONS = [
+  { name: "get_my_summary", label: "我的积分与成长", description: "读取当前账号的积分、经验、等级和最近账本记录。", readOnly: true, requiresConfirmation: false },
+  { name: "list_my_tasks", label: "我的待办", description: "整理当前账号未读的通知和待处理入口，不会自动修改状态。", readOnly: true, requiresConfirmation: false },
+  { name: "list_my_subscriptions", label: "我的订阅", description: "读取当前账号订阅的作者、专题和合集概况。", readOnly: true, requiresConfirmation: false },
+  { name: "list_my_earnings", label: "我的收益", description: "读取当前账号资源兑换产生的待结算、已结算和退款收益。", readOnly: true, requiresConfirmation: false },
+  { name: "list_my_articles", label: "我的文章状态", description: "读取当前账号文章的草稿、发布和审核状态。", readOnly: true, requiresConfirmation: false },
+  { name: "search_visible_articles", label: "搜索可见文章", description: "只搜索当前账号有权限查看的站内文章。", readOnly: true, requiresConfirmation: false },
+  { name: "get_article_context", label: "读取文章上下文", description: "读取当前账号有权限查看的文章正文并作为问答来源。", readOnly: true, requiresConfirmation: false },
+  { name: "summarize_topic", label: "总结专题", description: "只总结当前账号有权限查看的专题文章。", readOnly: true, requiresConfirmation: false },
+  { name: "summarize_collection", label: "总结合集", description: "只总结当前账号有权限查看的合集文章。", readOnly: true, requiresConfirmation: false },
+  { name: "get_admin_overview", label: "解释后台概况", description: "读取管理员可见的运营概况，只返回汇总数据。", readOnly: true, requiresConfirmation: false },
+  { name: "create_article_draft", label: "创建文章草稿", description: "准备创建文章草稿，必须经过确认后才会写入。", readOnly: false, requiresConfirmation: true },
+] as const;
+
+type AiSource = { type: "article"; id: number; slug: string; title: string; author: string };
 
 export interface ResourceRecommendation {
   cpuCores: number;
@@ -52,6 +72,7 @@ export class AiService {
     private readonly prisma: PrismaService,
     private readonly crypto: SecretCryptoService,
     private readonly redis: RedisService,
+    private readonly articles?: ArticlesService,
   ) {}
 
   async getAdminConfiguration() {
@@ -157,6 +178,284 @@ export class AiService {
       durationMs: result.durationMs,
       usage: result.usage,
     };
+  }
+
+  listTools() {
+    return AI_TOOL_DEFINITIONS.map((tool) => ({ ...tool }));
+  }
+
+  async listConversations(userId: number) {
+    const items = await this.prisma.aiConversation.findMany({
+      where: { userId },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      take: 30,
+      select: { id: true, title: true, createdAt: true, updatedAt: true, _count: { select: { messages: true } } },
+    });
+    return { items: items.map((item) => ({ ...item, createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString() })) };
+  }
+
+  async getConversation(userId: number, id: number) {
+    const conversation = await this.prisma.aiConversation.findFirst({
+      where: { id, userId },
+      include: { messages: { orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 80 } },
+    });
+    if (!conversation) throw new BadRequestException("AI 对话不存在或不属于当前账号。\nThe AI conversation does not exist or does not belong to this account.");
+    return {
+      id: conversation.id,
+      title: conversation.title,
+      createdAt: conversation.createdAt.toISOString(),
+      updatedAt: conversation.updatedAt.toISOString(),
+      messages: conversation.messages.map((message) => ({ id: message.id, role: message.role, content: message.content, sources: message.sources, createdAt: message.createdAt.toISOString() })),
+    };
+  }
+
+  async chat(user: AuthenticatedUser, dto: AiChatDto) {
+    const message = dto.message.trim();
+    if (!message) throw new BadRequestException("问题不能为空。\nThe question cannot be empty.");
+    const conversation = dto.conversationId
+      ? await this.prisma.aiConversation.findFirst({ where: { id: dto.conversationId, userId: user.id } })
+      : await this.prisma.aiConversation.create({ data: { userId: user.id, title: message.slice(0, 60) } });
+    if (!conversation) throw new BadRequestException("AI 对话不存在或不属于当前账号。\nThe AI conversation does not exist or does not belong to this account.");
+
+    const [history, context] = await Promise.all([
+      this.prisma.aiConversationMessage.findMany({ where: { conversationId: conversation.id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 12 }),
+      this.buildChatContext(user, dto),
+    ]);
+    const locale = dto.locale === "en-US" ? "en-US" : "zh-CN";
+    const system = locale === "en-US"
+      ? "You are a careful assistant for this site. Answer only from the supplied context, say when the context is insufficient, and never reveal hidden content, credentials, tokens, or administrator-only data. Cite the numbered sources when you use them."
+      : "你是本站的谨慎助手。只能依据提供的上下文回答，信息不足时明确说明，不得透露隐藏内容、凭据、令牌或仅管理员可见的数据；使用来源时请标注对应的来源编号。";
+    const contextMessage = locale === "en-US" ? `Readable site context:\n${context.text}` : `当前账号可读取的站内上下文：\n${context.text}`;
+    const result = await this.complete({
+      userId: user.id,
+      operation: "p24_chat",
+      messages: [
+        { role: "system", content: system },
+        { role: "system", content: contextMessage },
+        ...history.reverse().map((item) => ({ role: item.role === "assistant" ? "assistant" as const : "user" as const, content: item.content })),
+        { role: "user", content: message },
+      ],
+    });
+    await this.prisma.$transaction([
+      this.prisma.aiConversationMessage.create({ data: { conversationId: conversation.id, role: "user", content: message } }),
+      this.prisma.aiConversationMessage.create({ data: { conversationId: conversation.id, role: "assistant", content: result.text.trim(), sources: context.sources as unknown as Prisma.InputJsonValue } }),
+      this.prisma.aiConversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } }),
+    ]);
+    return {
+      conversationId: conversation.id,
+      title: conversation.title,
+      text: result.text.trim(),
+      sources: context.sources,
+      provider: result.provider,
+      model: result.model,
+      durationMs: result.durationMs,
+      usage: result.usage,
+    };
+  }
+
+  async executeTool(user: AuthenticatedUser, name: string, dto: AiToolInputDto) {
+    const definition = AI_TOOL_DEFINITIONS.find((tool) => tool.name === name);
+    if (!definition) throw new BadRequestException("不支持的 AI 工具。\nThis AI tool is not supported.");
+    const toolName = definition.name as AiToolName;
+    const input = dto.input ?? {};
+    const conversationId = await this.ownedConversationId(user.id, dto.conversationId);
+    if (toolName === "create_article_draft") return this.prepareDraftConfirmation(user, input, conversationId);
+    const output = await this.executeReadOnlyTool(user, toolName, input);
+    const invocation = await this.prisma.aiToolInvocation.create({
+      data: { userId: user.id, conversationId, toolName, input: input as Prisma.InputJsonValue, output: output as Prisma.InputJsonValue, status: "success", completedAt: new Date() },
+      select: { id: true, createdAt: true },
+    });
+    return { invocationId: invocation.id, tool: definition, status: "success", output, createdAt: invocation.createdAt.toISOString() };
+  }
+
+  async confirmTool(user: AuthenticatedUser, invocationId: number, confirmationToken: string) {
+    const invocation = await this.prisma.aiToolInvocation.findFirst({ where: { id: invocationId, userId: user.id, toolName: "create_article_draft", status: "awaiting_confirmation" } });
+    if (!invocation || !invocation.confirmationTokenHash || !invocation.confirmationExpiresAt || invocation.confirmationExpiresAt.getTime() < Date.now() || !this.sameSecret(confirmationToken, invocation.confirmationTokenHash)) {
+      throw new BadRequestException("确认令牌无效或已过期，请重新准备草稿。\nThe confirmation token is invalid or expired; prepare the draft again.");
+    }
+    const input = this.readObject(invocation.input);
+    const title = this.readString(input.title, 120);
+    const content = this.readString(input.content, 60000);
+    if (!title || !content) throw new BadRequestException("草稿标题和正文不能为空。\nA draft title and body are required.");
+    try {
+      const article = this.articles ? await this.articles.create(user, {
+        title,
+        content,
+        summary: this.readString(input.summary, 300),
+        category: this.readString(input.category, 80),
+        tags: this.readString(input.tags, 500),
+        contentFormat: this.readString(input.contentFormat, 10) === "html" ? "html" : "markdown",
+        status: "draft",
+      }) : null;
+      if (!article) throw new ServiceUnavailableException("文章服务暂不可用。\nThe article service is unavailable.");
+      await this.prisma.aiToolInvocation.update({ where: { id: invocation.id }, data: { status: "success", confirmedAt: new Date(), completedAt: new Date(), confirmationTokenHash: null, output: { articleId: article.id, slug: article.slug, title: article.title } } });
+      return { success: true, invocationId: invocation.id, article: { id: article.id, slug: article.slug, title: article.title } };
+    } catch (error) {
+      await this.prisma.aiToolInvocation.update({ where: { id: invocation.id }, data: { status: "failed", completedAt: new Date(), confirmationTokenHash: null } }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async getAdminToolInvocations(limit = 50) {
+    const items = await this.prisma.aiToolInvocation.findMany({
+      take: Math.max(1, Math.min(100, Math.floor(limit))),
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      include: { user: { select: { username: true, nickname: true } } },
+    });
+    return { items: items.map((item) => ({ id: item.id, toolName: item.toolName, status: item.status, requiresConfirmation: item.requiresConfirmation, username: item.user.username, nickname: item.user.nickname, createdAt: item.createdAt.toISOString(), completedAt: item.completedAt?.toISOString() ?? null })) };
+  }
+
+  private async buildChatContext(user: AuthenticatedUser, dto: AiChatDto): Promise<{ text: string; sources: AiSource[] }> {
+    const contexts: Array<{ article: Awaited<ReturnType<ArticlesService["getAiReadableContext"]>>; source: AiSource }> = [];
+    if (this.articles && (dto.articleId || dto.articleSlug)) {
+      const article = await this.articles.getAiReadableContext(user, { id: dto.articleId, slug: dto.articleSlug });
+      contexts.push({ article, source: { type: "article", id: article.id, slug: article.slug, title: article.title, author: article.author.nickname || article.author.username } });
+    } else if (this.articles && dto.topicSlug) {
+      contexts.push(...await this.groupArticleContexts(user, "topic", dto.topicSlug));
+    } else if (this.articles && dto.collectionId) {
+      contexts.push(...await this.groupArticleContexts(user, "collection", dto.collectionId));
+    } else if (this.articles) {
+      const matches = await this.articles.searchAiReadableArticles(user, dto.message, 3);
+      for (const match of matches) {
+        const article = await this.articles.getAiReadableContext(user, { id: match.id });
+        contexts.push({ article, source: { type: "article", id: article.id, slug: article.slug, title: article.title, author: article.author.nickname || article.author.username } });
+      }
+    }
+    if (!contexts.length) return { text: "(no matching readable site content)", sources: [] };
+    let used = 0;
+    const parts = contexts.map(({ article }, index) => {
+      const remaining = Math.max(0, 22000 - used);
+      const content = article.content.slice(0, remaining);
+      used += content.length;
+      return `[${index + 1}] ${article.title}\n作者：${article.author.nickname || article.author.username}\n摘要：${article.summary || "无"}\n正文：\n${content}`;
+    });
+    return { text: parts.join("\n\n"), sources: contexts.map(({ source }) => source) };
+  }
+
+  private async executeReadOnlyTool(user: AuthenticatedUser, name: Exclude<AiToolName, "create_article_draft">, input: Record<string, unknown>) {
+    if (name === "get_my_summary") {
+      const [account, ledger] = await Promise.all([
+        this.prisma.user.findUnique({ where: { id: user.id }, select: { username: true, nickname: true, experience: true, points: true, status: true, role: { select: { code: true, name: true, level: true } } } }),
+        this.prisma.userReputationLedger.findMany({ where: { userId: user.id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 10, select: { description: true, experienceDelta: true, pointDelta: true, pendingPointDelta: true, createdAt: true } }),
+      ]);
+      return { account, recentLedger: ledger.map((item) => ({ ...item, createdAt: item.createdAt.toISOString() })) };
+    }
+    if (name === "list_my_tasks") {
+      const items = await this.prisma.userNotification.findMany({ where: { userId: user.id, readAt: null }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 50, select: { id: true, type: true, channel: true, title: true, body: true, bodyEn: true, actionUrl: true, createdAt: true } });
+      return { count: items.length, items: items.map((item) => ({ ...item, createdAt: item.createdAt.toISOString() })) };
+    }
+    if (name === "list_my_subscriptions") {
+      const [authors, topics, collections, tags] = await Promise.all([
+        this.prisma.userSubscription.findMany({ where: { subscriberId: user.id }, orderBy: { createdAt: "desc" }, take: 50, select: { frequency: true, notifyNewArticles: true, author: { select: { username: true, nickname: true } } } }),
+        this.prisma.articleTopicSubscription.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 50, select: { frequency: true, topic: { select: { title: true, slug: true } } } }),
+        this.prisma.articleCollectionSubscription.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 50, select: { collection: { select: { name: true, id: true } } } }),
+        this.prisma.articleTagSubscription.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 50, select: { tag: true, frequency: true } }),
+      ]);
+      return { authors, topics, collections, tags };
+    }
+    if (name === "list_my_earnings") {
+      const items = await this.prisma.articleResourceExchange.findMany({ where: { authorId: user.id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100, select: { pointCost: true, deliveryStatus: true, sellerSettledAt: true, refundedAt: true, createdAt: true, article: { select: { title: true, slug: true } } } });
+      return { summary: items.reduce((summary, item) => { summary.gross += item.pointCost; if (item.refundedAt) summary.refunded += item.pointCost; else if (item.sellerSettledAt) summary.settled += item.pointCost; else summary.pending += item.pointCost; return summary; }, { gross: 0, pending: 0, settled: 0, refunded: 0 }), items: items.map((item) => ({ ...item, createdAt: item.createdAt.toISOString(), sellerSettledAt: item.sellerSettledAt?.toISOString() ?? null, refundedAt: item.refundedAt?.toISOString() ?? null })) };
+    }
+    if (name === "list_my_articles") {
+      const articles = await this.prisma.article.findMany({ where: { authorId: user.id, status: { not: "deleted" } }, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], take: 100, select: { id: true, title: true, slug: true, status: true, visibility: true, publishedAt: true, updatedAt: true, viewCount: true, commentCount: true } });
+      return { items: articles.map((item) => ({ ...item, publishedAt: item.publishedAt?.toISOString() ?? null, updatedAt: item.updatedAt.toISOString() })) };
+    }
+    if (name === "search_visible_articles") {
+      if (!this.articles) throw new ServiceUnavailableException("文章服务暂不可用。\nThe article service is unavailable.");
+      return { query: this.readString(input.query, 100), items: await this.articles.searchAiReadableArticles(user, this.readString(input.query, 100), this.readNumber(input.limit, 8)) };
+    }
+    if (name === "summarize_topic" || name === "summarize_collection") {
+      if (!this.articles) throw new ServiceUnavailableException("文章服务暂不可用。\nThe article service is unavailable.");
+      const key = name === "summarize_topic" ? this.readString(input.topicSlug, 120) : this.readNumber(input.collectionId, 0);
+      const contexts = await this.groupArticleContexts(user, name === "summarize_topic" ? "topic" : "collection", key);
+      return { group: name === "summarize_topic" ? { type: "topic", slug: key } : { type: "collection", id: key }, articles: contexts.map(({ article }) => article) };
+    }
+    if (name === "get_admin_overview") {
+      if (!user.isSuperAdmin && !user.isAdministrator) throw new ForbiddenException("只有管理员可以查看后台概况。\nOnly administrators can view the admin overview.");
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      const [activeUsers, publishedArticles, openAlerts, todayAuditLogs] = await Promise.all([
+        this.prisma.user.count({ where: { status: "active" } }),
+        this.prisma.article.count({ where: { status: "published" } }),
+        this.prisma.operationalAlert.count({ where: { status: "open" } }),
+        this.prisma.auditLog.count({ where: { createdAt: { gte: startOfDay } } }),
+      ]);
+      return { activeUsers, publishedArticles, openAlerts, todayAuditLogs, generatedAt: new Date().toISOString() };
+    }
+    if (!this.articles) throw new ServiceUnavailableException("文章服务暂不可用。\nThe article service is unavailable.");
+    const articleId = typeof input.articleId === "number" && input.articleId > 0 ? Math.floor(input.articleId) : undefined;
+    const article = await this.articles.getAiReadableContext(user, { id: articleId, slug: this.readString(input.articleSlug, 180) || undefined });
+    return { article, source: { type: "article", id: article.id, slug: article.slug, title: article.title, author: article.author.nickname || article.author.username } };
+  }
+
+  private async prepareDraftConfirmation(user: AuthenticatedUser, input: Record<string, unknown>, conversationId: number | null) {
+    const title = this.readString(input.title, 120);
+    const content = this.readString(input.content, 60000);
+    if (!title || !content) throw new BadRequestException("准备草稿需要标题和正文。\nA title and body are required to prepare a draft.");
+    const token = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const invocation = await this.prisma.aiToolInvocation.create({ data: { userId: user.id, conversationId, toolName: "create_article_draft", input: input as Prisma.InputJsonValue, status: "awaiting_confirmation", requiresConfirmation: true, confirmationTokenHash: createHash("sha256").update(token).digest("hex"), confirmationExpiresAt: expiresAt } });
+    return { invocationId: invocation.id, status: "awaiting_confirmation", requiresConfirmation: true, confirmationToken: token, expiresAt: expiresAt.toISOString(), preview: { title, summary: this.readString(input.summary, 300), category: this.readString(input.category, 80), tags: this.readString(input.tags, 500), content } };
+  }
+
+  private async groupArticleContexts(user: AuthenticatedUser, kind: "topic" | "collection", key: string | number) {
+    if (!this.articles) throw new ServiceUnavailableException("文章服务暂不可用。\nThe article service is unavailable.");
+    let articleIds: number[];
+    if (kind === "topic") {
+      const topic = await this.prisma.articleTopic.findUnique({ where: { slug: String(key) }, select: { id: true, title: true, slug: true, description: true, status: true, visibility: true, allowedRoles: { select: { role: { select: { code: true } } } } } });
+      if (!topic || topic.status !== "active") throw new BadRequestException("专题不存在或暂不可见。\nThe topic does not exist or is not visible.");
+      this.assertGroupVisible(user, topic.visibility, undefined, topic.allowedRoles.map(({ role }) => role.code));
+      articleIds = (await this.prisma.articleTopicItem.findMany({ where: { topicId: topic.id }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }], take: 30, select: { articleId: true } })).map(({ articleId }) => articleId);
+    } else {
+      const collection = await this.prisma.articleCollection.findUnique({ where: { id: Number(key) }, select: { id: true, name: true, description: true, ownerId: true, visibility: true } });
+      if (!collection) throw new BadRequestException("合集不存在或暂不可见。\nThe collection does not exist or is not visible.");
+      this.assertGroupVisible(user, collection.visibility, collection.ownerId, []);
+      articleIds = (await this.prisma.articleCollectionItem.findMany({ where: { collectionId: collection.id }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }], take: 30, select: { articleId: true } })).map(({ articleId }) => articleId);
+    }
+    const contexts: Array<{ article: Awaited<ReturnType<ArticlesService["getAiReadableContext"]>>; source: AiSource }> = [];
+    for (const articleId of articleIds) {
+      try {
+        const article = await this.articles.getAiReadableContext(user, { id: articleId });
+        contexts.push({ article, source: { type: "article", id: article.id, slug: article.slug, title: article.title, author: article.author.nickname || article.author.username } });
+      } catch {
+        // Group membership does not override the article's own visibility rule.
+      }
+    }
+    return contexts;
+  }
+
+  private assertGroupVisible(user: AuthenticatedUser, visibility: string, ownerId: number | undefined, roleCodes: string[]): void {
+    if (visibility === "public") return;
+    if (visibility === "authenticated") return;
+    if (ownerId === user.id || user.isSuperAdmin) return;
+    if (visibility === "role_restricted" && roleCodes.includes(user.role.code)) return;
+    throw new ForbiddenException("当前账号没有查看该专题或合集的权限。\nThis account cannot view this topic or collection.");
+  }
+
+  private async ownedConversationId(userId: number, conversationId?: number): Promise<number | null> {
+    if (!conversationId) return null;
+    const conversation = await this.prisma.aiConversation.findFirst({ where: { id: conversationId, userId }, select: { id: true } });
+    if (!conversation) throw new BadRequestException("AI 对话不存在或不属于当前账号。\nThe AI conversation does not exist or does not belong to this account.");
+    return conversation.id;
+  }
+
+  private sameSecret(raw: string, hash: string): boolean {
+    return createHash("sha256").update(raw).digest("hex") === hash;
+  }
+
+  private readObject(value: Prisma.JsonValue | null): Record<string, unknown> {
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  }
+
+  private readString(value: unknown, maxLength: number): string {
+    return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+  }
+
+  private readNumber(value: unknown, fallback: number): number {
+    const numeric = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+    return Math.max(1, Math.min(12, Math.floor(numeric)));
   }
 
   async getAdminInvocationOverview(limit = 30) {

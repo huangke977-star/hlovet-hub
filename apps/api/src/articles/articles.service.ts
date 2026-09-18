@@ -838,6 +838,62 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
     return this.getBySlug(slug, user, visitorKey);
   }
 
+  /**
+   * Builds the article context used by server-side AI features without recording a page view.
+   * The normal reader permission check and resource redaction still run through toResponse.
+   */
+  async getAiReadableContext(
+    user: AuthenticatedUser,
+    input: { id?: number; slug?: string },
+  ): Promise<Pick<ArticleResponse, "id" | "title" | "slug" | "summary" | "content" | "contentFormat" | "category" | "tags" | "author" | "publishedAt">> {
+    const article = input.id ? await this.getArticleOrThrow(input.id) : await this.getArticleBySlug(input.slug ?? "");
+    this.assertCanRead(article, user);
+    const response = this.toResponse(article, user);
+    return {
+      id: response.id,
+      title: response.title,
+      slug: response.slug,
+      summary: response.summary,
+      content: response.content,
+      contentFormat: response.contentFormat,
+      category: response.category,
+      tags: response.tags,
+      author: response.author,
+      publishedAt: response.publishedAt,
+    };
+  }
+
+  /** Uses the same visibility predicate as the discovery/article list for AI article search. */
+  async searchAiReadableArticles(user: AuthenticatedUser, query: string, limit = 8) {
+    const safeLimit = Math.max(1, Math.min(12, Math.floor(limit)));
+    const where = this.buildWhere({ page: 1, pageSize: safeLimit, search: query.trim(), sort: "latest" }, user, false, false);
+    const records = await this.prisma.article.findMany({
+      where,
+      orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
+      take: safeLimit,
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        summary: true,
+        category: true,
+        tags: true,
+        publishedAt: true,
+        author: { select: { id: true, username: true, nickname: true } },
+      },
+    });
+    return records.map((article) => ({
+      id: article.id,
+      title: article.title,
+      slug: article.slug,
+      summary: article.summary,
+      category: article.category,
+      tags: article.tags.split(",").filter(Boolean),
+      publishedAt: article.publishedAt?.toISOString() ?? null,
+      author: article.author,
+    }));
+  }
+
   async listComments(
     slug: string,
     user: AuthenticatedUser | null,
