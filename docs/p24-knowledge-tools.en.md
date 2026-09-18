@@ -2,7 +2,7 @@
 
 ## Status
 
-P24 code, the database migration, API tests, and the web build are complete locally. The production migration and release checks are performed during deployment. P24 does not require OSS/R2 and does not run a local model, Ollama, a vector database, or another always-on AI service on the server.
+P24 code, the database migration, API tests, the web build, production migration, and release checks are complete. Production health checks, Chinese/English entry checks, and API route startup checks all passed. P24 does not require OSS/R2 and does not run a local model, Ollama, a vector database, or another always-on AI service on the server.
 
 ## User entry
 
