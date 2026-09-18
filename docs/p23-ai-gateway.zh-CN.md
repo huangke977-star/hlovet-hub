@@ -6,9 +6,10 @@
 
 ## 连接配置
 
-- 供应商：按服务商选择 `OpenAI Compatible`、`Anthropic` 或 `Google`。
+- 供应商：可选择 `DeepSeek`、`通用第三方（OpenAI 兼容）`、`Anthropic` 或 `Google`。旧版本保存的 `OpenAI Compatible` 配置仍然兼容。
 - 接口地址：填写服务商的 API 根地址，不要填写 API Key。
-  - OpenAI 兼容：例如 `https://api.openai.com/v1`。系统会请求 `/chat/completions`。
+  - DeepSeek：默认地址为 `https://api.deepseek.com/v1`，模型可填写 `deepseek-chat` 或服务商提供的其他模型；系统请求 `/chat/completions`。
+  - 通用第三方（OpenAI 兼容）：例如 `https://api.openai.com/v1` 或其他兼容服务地址；系统请求 `/chat/completions`。
   - Anthropic：例如 `https://api.anthropic.com`。系统会请求 `/v1/messages`。
   - Google：例如 `https://generativelanguage.googleapis.com/v1beta`。系统会请求所选模型的 `:generateContent`。
 - 模型名称：填写服务商实际提供的模型 ID。

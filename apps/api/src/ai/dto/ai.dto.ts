@@ -1,7 +1,7 @@
 import { Type } from "class-transformer";
 import { IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
 
-export const AI_PROVIDERS = ["openai-compatible", "anthropic", "google"] as const;
+export const AI_PROVIDERS = ["openai-compatible", "deepseek", "custom", "anthropic", "google"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
 export const AI_ARTICLE_OPERATIONS = [

@@ -6,9 +6,10 @@ After signing in, a super administrator can open `Admin -> AI settings`. Regular
 
 ## Connection Settings
 
-- Provider: choose `OpenAI Compatible`, `Anthropic`, or `Google`.
+- Provider: choose `DeepSeek`, `Generic third party (OpenAI-compatible)`, `Anthropic`, or `Google`. The legacy `OpenAI Compatible` value remains supported.
 - Base URL: enter the provider API root without an API key.
-  - OpenAI-compatible: for example `https://api.openai.com/v1`; the gateway calls `/chat/completions`.
+  - DeepSeek: the default base URL is `https://api.deepseek.com/v1`; use `deepseek-chat` or another model supplied by the provider. The gateway calls `/chat/completions`.
+  - Generic third party (OpenAI-compatible): for example `https://api.openai.com/v1` or another compatible service URL; the gateway calls `/chat/completions`.
   - Anthropic: for example `https://api.anthropic.com`; the gateway calls `/v1/messages`.
   - Google: for example `https://generativelanguage.googleapis.com/v1beta`; the gateway calls the selected model's `:generateContent` endpoint.
 - Model: enter the provider's actual model ID.

@@ -160,6 +160,36 @@ describe("P23 AI configuration", () => {
     expect(harness.redis.releaseCounter).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["deepseek", "custom"] as const)("routes the %s provider through the OpenAI-compatible endpoint", async (provider) => {
+    const harness = createHarness();
+    const baseUrl = provider === "deepseek" ? "https://api.deepseek.com/v1" : "https://third-party.example/v1";
+    harness.prisma.aiConfiguration.upsert.mockResolvedValue({
+      id: 1,
+      enabled: true,
+      provider,
+      baseUrl,
+      model: provider === "deepseek" ? "deepseek-chat" : "custom-model",
+      apiKeyEncrypted: "encrypted:secret-key",
+      globalConcurrency: 2,
+      userConcurrency: 1,
+      maxOutputTokens: 2000,
+      requestTimeoutSeconds: 60,
+      dailyRequestLimit: 0,
+      billingCurrency: "USD",
+      inputCostPerMillionMicros: 0,
+      outputCostPerMillionMicros: 0,
+      updatedAt: new Date("2026-09-10T00:00:00.000Z"),
+    });
+    const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: "OK" } }] }),
+    } as Response);
+
+    await harness.service.complete({ userId: 9, operation: "provider_test", messages: [{ role: "user", content: "ping" }] });
+
+    expect(fetchSpy).toHaveBeenCalledWith(new URL(`${baseUrl}/chat/completions`), expect.objectContaining({ method: "POST" }));
+  });
+
   it("rejects a request when the daily quota is full without contacting the provider", async () => {
     const harness = createHarness();
     harness.prisma.aiConfiguration.upsert.mockResolvedValue({

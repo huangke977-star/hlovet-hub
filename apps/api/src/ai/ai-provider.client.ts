@@ -34,7 +34,7 @@ export class AiProviderClientError extends Error {
 }
 
 export async function completeWithProvider(input: AiProviderRequest): Promise<AiProviderCompletion> {
-  if (input.provider === "openai-compatible") {
+  if (input.provider === "openai-compatible" || input.provider === "deepseek" || input.provider === "custom") {
     return completeOpenAiCompatible(input);
   }
   if (input.provider === "anthropic") {

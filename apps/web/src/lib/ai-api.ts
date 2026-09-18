@@ -1,6 +1,6 @@
 import { authHeaders, requestJson } from "./auth-api";
 
-export type AiProvider = "openai-compatible" | "anthropic" | "google";
+export type AiProvider = "openai-compatible" | "deepseek" | "custom" | "anthropic" | "google";
 
 export interface AiResourceRecommendation {
   cpuCores: number;
