@@ -25,6 +25,8 @@ export const AI_TOOL_NAMES = [
   "list_my_earnings",
   "list_my_articles",
   "search_visible_articles",
+  "list_visible_articles",
+  "list_recommended_articles",
   "get_article_context",
   "summarize_topic",
   "summarize_collection",

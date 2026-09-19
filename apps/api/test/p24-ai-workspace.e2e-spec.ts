@@ -34,6 +34,7 @@ function createHarness() {
   const redis = { tryAcquireCounter: jest.fn(), releaseCounter: jest.fn() };
   const articles = {
     searchAiReadableArticles: jest.fn(),
+    listAiRecommendedArticles: jest.fn(),
     getAiReadableContext: jest.fn(),
     create: jest.fn(),
   };
@@ -65,6 +66,38 @@ describe("P24 AI workspace", () => {
 
     expect(harness.articles.getAiReadableContext).toHaveBeenCalledWith(user, { id: undefined, slug: "visible-only" });
     expect((result.output as { article: { slug: string } }).article.slug).toBe("visible-only");
+  });
+
+  it("loads latest readable and recommended articles for broad site-content questions", async () => {
+    const harness = createHarness();
+    harness.articles.searchAiReadableArticles.mockImplementation(async (_currentUser, query: string) => query
+      ? []
+      : [{ id: 3, title: "最新可见文章", slug: "latest-visible", summary: "摘要", category: "", tags: [], publishedAt: null, author: { id: 1, username: "author", nickname: "Author" } }]);
+    harness.articles.listAiRecommendedArticles.mockResolvedValue([{ id: 4, title: "推荐可见文章", slug: "recommended-visible", summary: "推荐摘要", category: "", tags: [], publishedAt: null, author: { id: 2, username: "author2", nickname: "Author 2" } }]);
+    harness.articles.getAiReadableContext.mockImplementation(async (_currentUser, input: { id?: number }) => ({ id: input.id ?? 0, title: input.id === 4 ? "推荐可见文章" : "最新可见文章", slug: input.id === 4 ? "recommended-visible" : "latest-visible", content: "可读取正文", contentFormat: "markdown", summary: "摘要", category: "", tags: [], author: { username: "author", nickname: "Author" }, publishedAt: null }));
+
+    const buildContext = (harness.service as unknown as { buildChatContext: (currentUser: AuthenticatedUser, dto: { message: string }) => Promise<{ text: string; sources: Array<{ id: number }> }> }).buildChatContext.bind(harness.service);
+    const result = await buildContext(user, { message: "你能推荐一些适合我的文章，并列出最新内容吗？" });
+
+    expect(harness.articles.searchAiReadableArticles).toHaveBeenCalledWith(user, "", 8);
+    expect(harness.articles.listAiRecommendedArticles).toHaveBeenCalledWith(user, 6);
+    expect(result.sources.map((source) => source.id)).toEqual([3, 4]);
+    expect(result.text).toContain("最新可见文章");
+    expect(result.text).toContain("推荐可见文章");
+  });
+
+  it("exposes read-only tools for visible and personalized article lists", async () => {
+    const harness = createHarness();
+    harness.prisma.aiToolInvocation.create.mockResolvedValue({ id: 45, createdAt: new Date("2026-09-18T01:00:00.000Z") });
+    harness.articles.searchAiReadableArticles.mockResolvedValue([{ id: 3, title: "可见文章" }]);
+    harness.articles.listAiRecommendedArticles.mockResolvedValue([{ id: 4, title: "推荐文章" }]);
+
+    expect(harness.service.listTools().map((tool) => tool.name)).toEqual(expect.arrayContaining(["list_visible_articles", "list_recommended_articles"]));
+    await harness.service.executeTool(user, "list_visible_articles", { input: { limit: 12 } });
+    await harness.service.executeTool(user, "list_recommended_articles", { input: { limit: 8 } });
+
+    expect(harness.articles.searchAiReadableArticles).toHaveBeenCalledWith(user, "", 12);
+    expect(harness.articles.listAiRecommendedArticles).toHaveBeenCalledWith(user, 8);
   });
 
   it("requires a short-lived confirmation before creating an article draft", async () => {

@@ -31,6 +31,8 @@ const AI_TOOL_DEFINITIONS = [
   { name: "list_my_earnings", label: "我的收益", description: "读取当前账号资源兑换产生的待结算、已结算和退款收益。", readOnly: true, requiresConfirmation: false },
   { name: "list_my_articles", label: "我的文章状态", description: "读取当前账号文章的草稿、发布和审核状态。", readOnly: true, requiresConfirmation: false },
   { name: "search_visible_articles", label: "搜索可见文章", description: "只搜索当前账号有权限查看的站内文章。", readOnly: true, requiresConfirmation: false },
+  { name: "list_visible_articles", label: "权限范围内文章", description: "列出当前账号有权限查看的近期站内文章。", readOnly: true, requiresConfirmation: false },
+  { name: "list_recommended_articles", label: "个性化推荐文章", description: "根据当前账号的兴趣和反馈，列出有权限查看的推荐文章。", readOnly: true, requiresConfirmation: false },
   { name: "get_article_context", label: "读取文章上下文", description: "读取当前账号有权限查看的文章正文并作为问答来源。", readOnly: true, requiresConfirmation: false },
   { name: "summarize_topic", label: "总结专题", description: "只总结当前账号有权限查看的专题文章。", readOnly: true, requiresConfirmation: false },
   { name: "summarize_collection", label: "总结合集", description: "只总结当前账号有权限查看的合集文章。", readOnly: true, requiresConfirmation: false },
@@ -223,8 +225,8 @@ export class AiService {
     ]);
     const locale = dto.locale === "en-US" ? "en-US" : "zh-CN";
     const system = locale === "en-US"
-      ? "You are a careful assistant for this site. Answer only from the supplied context, say when the context is insufficient, and never reveal hidden content, credentials, tokens, or administrator-only data. Cite the numbered sources when you use them."
-      : "你是本站的谨慎助手。只能依据提供的上下文回答，信息不足时明确说明，不得透露隐藏内容、凭据、令牌或仅管理员可见的数据；使用来源时请标注对应的来源编号。";
+      ? "You are a careful assistant for this site. The supplied site context has already been filtered for the current user's permissions. For questions about visible, latest, new, or recommended articles, use the supplied article index and context; do not claim that you cannot access site articles. Say clearly when the permitted scope contains no matching published content. Never reveal hidden content, credentials, tokens, or administrator-only data. Cite the numbered sources when you use them."
+      : "你是本站的谨慎助手。提供的站内上下文已经按当前账号权限过滤。遇到可见、最新、新增或推荐文章的问题，要使用提供的文章索引和正文上下文回答，不要说自己无法访问站内文章；如果当前权限范围内没有匹配的已发布内容，要明确说明没有可用内容。不得透露隐藏内容、凭据、令牌或仅管理员可见的数据；使用来源时请标注对应的来源编号。";
     const contextMessage = locale === "en-US" ? `Readable site context:\n${context.text}` : `当前账号可读取的站内上下文：\n${context.text}`;
     const result = await this.complete({
       userId: user.id,
@@ -315,13 +317,30 @@ export class AiService {
     } else if (this.articles && dto.collectionId) {
       contexts.push(...await this.groupArticleContexts(user, "collection", dto.collectionId));
     } else if (this.articles) {
-      const matches = await this.articles.searchAiReadableArticles(user, dto.message, 3);
+      const directMatches = await this.articles.searchAiReadableArticles(user, dto.message, 5);
+      const broadRequest = /文章|专题|合集|推荐|最新|新增|可见|查看|阅读|内容|哪些|站内|article|topic|collection|recommend|latest|new|visible|readable|content/i.test(dto.message);
+      const latestMatches = broadRequest || directMatches.length === 0
+        ? await this.articles.searchAiReadableArticles(user, "", 8)
+        : [];
+      const recommendedMatches = broadRequest && typeof this.articles.listAiRecommendedArticles === "function"
+        ? await this.articles.listAiRecommendedArticles(user, 6)
+        : [];
+      const seen = new Set<number>();
+      const matches = [...directMatches, ...latestMatches, ...recommendedMatches].filter((match) => {
+        if (seen.has(match.id)) return false;
+        seen.add(match.id);
+        return true;
+      }).slice(0, broadRequest ? 10 : 5);
       for (const match of matches) {
-        const article = await this.articles.getAiReadableContext(user, { id: match.id });
-        contexts.push({ article, source: { type: "article", id: article.id, slug: article.slug, title: article.title, author: article.author.nickname || article.author.username } });
+        try {
+          const article = await this.articles.getAiReadableContext(user, { id: match.id });
+          contexts.push({ article, source: { type: "article", id: article.id, slug: article.slug, title: article.title, author: article.author.nickname || article.author.username } });
+        } catch {
+          // Search and recommendation results still pass through the article read guard.
+        }
       }
     }
-    if (!contexts.length) return { text: "(no matching readable site content)", sources: [] };
+    if (!contexts.length) return { text: "当前权限范围内没有可用的已发布站内文章。\nNo readable published site articles are available within the current permission scope.", sources: [] };
     let used = 0;
     const parts = contexts.map(({ article }, index) => {
       const remaining = Math.max(0, 22000 - used);
@@ -364,6 +383,14 @@ export class AiService {
     if (name === "search_visible_articles") {
       if (!this.articles) throw new ServiceUnavailableException("文章服务暂不可用。\nThe article service is unavailable.");
       return { query: this.readString(input.query, 100), items: await this.articles.searchAiReadableArticles(user, this.readString(input.query, 100), this.readNumber(input.limit, 8)) };
+    }
+    if (name === "list_visible_articles") {
+      if (!this.articles) throw new ServiceUnavailableException("文章服务暂不可用。\nThe article service is unavailable.");
+      return { items: await this.articles.searchAiReadableArticles(user, "", this.readNumber(input.limit, 12)) };
+    }
+    if (name === "list_recommended_articles") {
+      if (!this.articles) throw new ServiceUnavailableException("文章服务暂不可用。\nThe article service is unavailable.");
+      return { items: await this.articles.listAiRecommendedArticles(user, this.readNumber(input.limit, 8)) };
     }
     if (name === "summarize_topic" || name === "summarize_collection") {
       if (!this.articles) throw new ServiceUnavailableException("文章服务暂不可用。\nThe article service is unavailable.");

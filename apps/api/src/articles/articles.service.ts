@@ -894,6 +894,22 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
     }));
   }
 
+  /** Returns discovery recommendations after applying the same per-user visibility rules. */
+  async listAiRecommendedArticles(user: AuthenticatedUser, limit = 8) {
+    const safeLimit = Math.max(1, Math.min(12, Math.floor(limit)));
+    const result = await this.listArticles({ page: 1, pageSize: safeLimit, sort: "recommended" }, user, false, false);
+    return result.items.map((article) => ({
+      id: article.id,
+      title: article.title,
+      slug: article.slug,
+      summary: article.summary,
+      category: article.category,
+      tags: article.tags,
+      publishedAt: article.publishedAt,
+      author: { id: article.author.id, username: article.author.username, nickname: article.author.nickname },
+    }));
+  }
+
   async listComments(
     slug: string,
     user: AuthenticatedUser | null,
