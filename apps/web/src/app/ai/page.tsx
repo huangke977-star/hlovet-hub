@@ -51,9 +51,8 @@ export default function AiPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [tools, setTools] = useState<AiToolDefinition[]>([]);
   const [draft, setDraft] = useState("");
-  const [draftTitle, setDraftTitle] = useState("");
-  const [draftContent, setDraftContent] = useState("");
-  const [pendingDraft, setPendingDraft] = useState<{ invocationId: number; token: string; title: string; content: string } | null>(null);
+  const [draftDescription, setDraftDescription] = useState("");
+  const [pendingDraft, setPendingDraft] = useState<{ invocationId: number; token: string; title: string; summary: string; category: string; tags: string; content: string } | null>(null);
   const [toolModal, setToolModal] = useState<ToolModalState | null>(null);
   const [draftModalOpen, setDraftModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -174,12 +173,12 @@ export default function AiPage() {
   }
 
   async function prepareDraft() {
-    if (!token || toolRunning || !draftTitle.trim() || !draftContent.trim()) return;
+    if (!token || toolRunning || !draftDescription.trim()) return;
     setToolRunning("create_article_draft");
     setError("");
     try {
-      const result = await executeAiTool(token, "create_article_draft", { title: draftTitle, content: draftContent }, conversationId);
-      if (result.confirmationToken && result.preview) setPendingDraft({ invocationId: result.invocationId, token: result.confirmationToken, title: result.preview.title, content: result.preview.content });
+      const result = await executeAiTool(token, "create_article_draft", { description: draftDescription, locale }, conversationId);
+      if (result.confirmationToken && result.preview) setPendingDraft({ invocationId: result.invocationId, token: result.confirmationToken, title: result.preview.title, summary: result.preview.summary, category: result.preview.category, tags: result.preview.tags, content: result.preview.content });
       setNotice(phrase("草稿已准备，请确认后写入。", "The draft is ready. Confirm before writing it."));
     } catch (toolError) {
       setError(toolError instanceof Error ? toolError.message : phrase("草稿准备失败。", "Could not prepare the draft."));
@@ -194,8 +193,7 @@ export default function AiPage() {
     try {
       const result = await confirmAiTool(token, pendingDraft.invocationId, pendingDraft.token);
       setPendingDraft(null);
-      setDraftTitle("");
-      setDraftContent("");
+      setDraftDescription("");
       setDraftModalOpen(false);
       setNotice(phrase(`文章草稿“${result.article.title}”已创建。`, `Draft “${result.article.title}” was created.`));
     } catch (confirmError) {
@@ -225,7 +223,15 @@ export default function AiPage() {
       <aside className="ai-tools-sidebar"><header><span><Wrench size={15} />{phrase("受控工具", "Controlled tools")}</span><small>{phrase("默认只读", "Read-only by default")}</small></header>{tools.map((tool) => <button className="ai-tool-button" disabled={Boolean(toolRunning)} key={tool.name} onClick={() => void runTool(tool)} type="button"><span><strong>{tool.label}</strong><small>{tool.description}</small></span>{tool.readOnly ? <Search size={14} /> : <FilePlus2 size={14} />}</button>)}</aside>
     </div>
     {toolModal && typeof document !== "undefined" ? createPortal(<div className="modal-backdrop ai-tool-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setToolModal(null); }} role="presentation"><section aria-modal="true" className="ai-tool-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><span><Wrench aria-hidden="true" size={17} /><strong>{toolModal.tool.label}</strong></span><button aria-label={phrase("关闭", "Close")} onClick={() => setToolModal(null)} title={phrase("关闭", "Close")} type="button"><X aria-hidden="true" size={17} /></button></header><p className="ai-tool-modal-description">{toolModal.tool.description}</p><div className="ai-tool-modal-content">{toolModal.output === null ? <div className="ai-tool-modal-loading"><LoaderCircle className="spin" size={19} />{phrase("正在读取结果", "Loading result")}</div> : renderToolValue(toolModal.output)}</div><footer><button className="button secondary" onClick={() => setToolModal(null)} type="button">{phrase("关闭", "Close")}</button></footer></section></div>, document.body) : null}
-    {draftModalOpen && typeof document !== "undefined" ? createPortal(<div className="modal-backdrop ai-draft-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && toolRunning !== "confirm") setDraftModalOpen(false); }} role="presentation"><section aria-label={phrase("准备文章草稿", "Prepare article draft")} aria-modal="true" className="ai-draft-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><span><FilePlus2 aria-hidden="true" size={17} /><strong>{phrase("准备文章草稿", "Prepare article draft")}</strong></span><button aria-label={phrase("关闭", "Close")} disabled={toolRunning === "confirm"} onClick={() => setDraftModalOpen(false)} title={phrase("关闭", "Close")} type="button"><X aria-hidden="true" size={17} /></button></header><div className="ai-draft-modal-fields"><label><span>{phrase("标题", "Title")}</span><input maxLength={120} onChange={(event) => setDraftTitle(event.target.value)} placeholder={phrase("填写草稿标题", "Enter a draft title")} value={draftTitle} /></label><label><span>{phrase("正文", "Body")}</span><textarea maxLength={60000} onChange={(event) => setDraftContent(event.target.value)} placeholder={phrase("填写草稿正文", "Enter the draft body")} rows={9} value={draftContent} /></label></div>{pendingDraft ? <div className="ai-draft-preview"><span><CheckCircle2 aria-hidden="true" size={14} />{phrase("草稿预览，确认后才会写入文章", "Draft preview; nothing is written until you confirm")}</span><strong>{pendingDraft.title}</strong><p>{pendingDraft.content}</p></div> : null}<footer><button className="button secondary" disabled={toolRunning === "confirm"} onClick={() => setDraftModalOpen(false)} type="button">{phrase("关闭", "Close")}</button>{pendingDraft ? <button className="button" disabled={toolRunning === "confirm"} onClick={() => void confirmDraft()} type="button">{toolRunning === "confirm" ? phrase("创建中", "Creating") : phrase("确认创建", "Confirm create")}</button> : <button className="button" disabled={Boolean(toolRunning) || !draftTitle.trim() || !draftContent.trim()} onClick={() => void prepareDraft()} type="button">{toolRunning === "create_article_draft" ? phrase("生成中", "Preparing") : phrase("生成预览", "Prepare preview")}</button>}</footer></section></div>, document.body) : null}
+    {draftModalOpen && typeof document !== "undefined" ? createPortal(
+      <div className="modal-backdrop ai-draft-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && toolRunning !== "confirm") setDraftModalOpen(false); }} role="presentation">
+        <section aria-label={phrase("准备文章草稿", "Prepare article draft")} aria-modal="true" className="ai-draft-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog">
+          <header><span><FilePlus2 aria-hidden="true" size={17} /><strong>{phrase("准备文章草稿", "Prepare article draft")}</strong></span><button aria-label={phrase("关闭", "Close")} disabled={toolRunning === "confirm"} onClick={() => setDraftModalOpen(false)} title={phrase("关闭", "Close")} type="button"><X aria-hidden="true" size={17} /></button></header>
+          {!pendingDraft ? <div className="ai-draft-modal-fields"><label><span>{phrase("文章描述", "Article description")}</span><textarea maxLength={4000} onChange={(event) => setDraftDescription(event.target.value)} placeholder={phrase("描述你想写的文章主题、受众和重点，AI 会生成标题、摘要、分类、标签和正文。", "Describe the topic, audience, and key points. AI will generate the title, summary, category, tags, and body.")} rows={8} value={draftDescription} /></label></div> : null}
+          {pendingDraft ? <div className="ai-draft-preview"><span><CheckCircle2 aria-hidden="true" size={14} />{phrase("草稿预览，确认后才会写入文章", "Draft preview; nothing is written until you confirm")}</span><div className="ai-draft-preview-field"><span>{phrase("标题", "Title")}</span><strong>{pendingDraft.title}</strong></div><div className="ai-draft-preview-field"><span>{phrase("摘要", "Summary")}</span><p>{pendingDraft.summary || "-"}</p></div><div className="ai-draft-preview-field"><span>{phrase("分类", "Category")}</span><p>{pendingDraft.category || "-"}</p></div><div className="ai-draft-preview-field"><span>{phrase("标签", "Tags")}</span><p>{pendingDraft.tags || "-"}</p></div><div className="ai-draft-preview-field"><span>{phrase("正文", "Body")}</span><p>{pendingDraft.content}</p></div></div> : null}
+          <footer><button className="button secondary" disabled={toolRunning === "confirm"} onClick={() => setDraftModalOpen(false)} type="button">{phrase("关闭", "Close")}</button>{pendingDraft ? <button className="button" disabled={toolRunning === "confirm"} onClick={() => void confirmDraft()} type="button">{toolRunning === "confirm" ? phrase("创建中", "Creating") : phrase("确认创建", "Confirm create")}</button> : <button className="button" disabled={Boolean(toolRunning) || !draftDescription.trim()} onClick={() => void prepareDraft()} type="button">{toolRunning === "create_article_draft" ? phrase("生成中", "Generating") : phrase("生成预览", "Generate preview")}</button>}</footer>
+        </section>
+      </div>, document.body) : null}
     <AppToast message={error} onDismiss={() => setError("")} tone="error" />
     <AppToast message={notice} onDismiss={() => setNotice("")} tone="success" />
   </section>;

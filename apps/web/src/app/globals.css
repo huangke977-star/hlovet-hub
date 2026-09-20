@@ -445,11 +445,10 @@
 .ai-model-fetch-button { display: inline-flex; width: 35px; min-width: 35px; height: 35px; align-items: center; justify-content: center; border: 1px solid color-mix(in srgb, var(--control-line) 70%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--surface-strong) 72%, transparent); color: var(--muted-strong); cursor: pointer; }
 .ai-model-fetch-button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 58%, var(--control-line)); background: color-mix(in srgb, var(--accent-soft) 42%, var(--surface-strong)); color: var(--accent-strong); }
 .ai-model-fetch-button:disabled { cursor: wait; opacity: .55; }
-.ai-model-help { display: block; color: var(--muted); font-size: .61rem; line-height: 1.35; }
 .ai-api-key-field { position: relative; min-width: 0; }
-.ai-api-key-field .password-input > input { padding-right: 78px; }
-.ai-api-key-field .password-reveal-control { right: 38px; }
-.ai-clear-key-button { position: absolute; top: 50%; right: 7px; display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; transform: translateY(-50%); border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.ai-api-key-field .password-input > input { padding-right: 84px; }
+.ai-api-key-field .password-reveal-control { right: 40px; z-index: 2; width: 30px; height: 30px; }
+.ai-clear-key-button { position: absolute; top: 50%; right: 5px; z-index: 3; display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; transform: translateY(-50%); border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; padding: 0; }
 .ai-clear-key-button:hover,
 .ai-clear-key-button.active { background: color-mix(in srgb, var(--danger, #bd4b5d) 14%, transparent); color: var(--danger, #bd4b5d); }
 .ai-clear-key { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .66rem; }
@@ -586,16 +585,18 @@
 .ai-result-empty { color: var(--muted); }
 .ai-result-list { display: grid; gap: 6px; }
 .ai-result-list > article { border-radius: 6px; background: color-mix(in srgb, var(--surface-strong) 62%, transparent); padding: 6px 8px; }
-.ai-draft-modal { width: min(700px, calc(100vw - 28px)); grid-template-rows: auto minmax(0, 1fr) auto auto; }
+.ai-draft-modal { width: min(700px, calc(100vw - 28px)); grid-template-rows: auto minmax(0, 1fr) auto; }
 .ai-draft-modal-fields { display: grid; min-height: 0; gap: 9px; overflow: auto; }
 .ai-draft-modal-fields label { display: grid; gap: 5px; color: var(--muted-strong); font-size: .68rem; }
 .ai-draft-modal-fields input, .ai-draft-modal-fields textarea { box-sizing: border-box; width: 100%; border: 1px solid color-mix(in srgb, var(--control-line) 72%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--surface-strong) 66%, transparent); color: var(--foreground); font: inherit; font-size: .72rem; outline: 0; padding: 8px 9px; resize: vertical; }
 .ai-draft-modal-fields input:focus, .ai-draft-modal-fields textarea:focus { border-color: color-mix(in srgb, var(--accent) 58%, var(--control-line)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent); }
-.ai-draft-modal-fields textarea { min-height: 170px; }
+.ai-draft-modal-fields textarea { min-height: 210px; }
 .ai-draft-preview { display: grid; min-height: 0; gap: 7px; overflow: auto; border-radius: 7px; background: color-mix(in srgb, var(--success, #32865b) 8%, transparent); padding: 9px; }
 .ai-draft-preview > span { display: inline-flex; align-items: center; gap: 5px; color: var(--success, #32865b); font-size: .65rem; }
-.ai-draft-preview > strong { color: var(--muted-strong); font-size: .78rem; }
-.ai-draft-preview > p { max-height: 220px; margin: 0; overflow: auto; color: var(--foreground); font-size: .7rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-draft-preview-field { display: grid; gap: 3px; border-top: 1px solid color-mix(in srgb, var(--control-line) 58%, transparent); padding-top: 6px; }
+.ai-draft-preview-field > span { color: var(--muted); font-size: .62rem; }
+.ai-draft-preview-field > strong { color: var(--muted-strong); font-size: .78rem; }
+.ai-draft-preview-field > p { max-height: 220px; margin: 0; overflow: auto; color: var(--foreground); font-size: .7rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ai-user-loading { display: flex; align-items: center; justify-content: center; min-height: 360px; gap: 7px; color: var(--muted); font-size: .75rem; }
 .spin { animation: ai-spin .9s linear infinite; }
 @keyframes ai-spin { to { transform: rotate(360deg); } }

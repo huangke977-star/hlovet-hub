@@ -38,7 +38,7 @@ const AI_TOOL_DEFINITIONS = [
   { name: "summarize_topic", label: "总结专题", description: "只总结当前账号有权限查看的专题文章。", readOnly: true, requiresConfirmation: false },
   { name: "summarize_collection", label: "总结合集", description: "只总结当前账号有权限查看的合集文章。", readOnly: true, requiresConfirmation: false },
   { name: "get_admin_overview", label: "解释后台概况", description: "读取管理员可见的运营概况，只返回汇总数据。", readOnly: true, requiresConfirmation: false },
-  { name: "create_article_draft", label: "创建文章草稿", description: "准备创建文章草稿，必须经过确认后才会写入。", readOnly: false, requiresConfirmation: true },
+  { name: "create_article_draft", label: "创建文章草稿", description: "根据文章描述生成标题、摘要、分类、标签和正文，预览后必须确认才会写入。", readOnly: false, requiresConfirmation: true },
 ] as const;
 
 type AiSource = { type: "article"; id: number; slug: string; title: string; author: string };
@@ -537,13 +537,53 @@ export class AiService {
   }
 
   private async prepareDraftConfirmation(user: AuthenticatedUser, input: Record<string, unknown>, conversationId: number | null) {
-    const title = this.readString(input.title, 120);
-    const content = this.readString(input.content, 60000);
-    if (!title || !content) throw new BadRequestException("准备草稿需要标题和正文。\nA title and body are required to prepare a draft.");
+    const description = this.readString(input.description, 4000);
+    if (!description) throw new BadRequestException("请先填写文章描述。\nPlease provide an article description first.");
+    const locale = this.readString(input.locale, 10) === "en-US" ? "en-US" : "zh-CN";
+    const result = await this.complete({
+      userId: user.id,
+      operation: "create_article_draft_preview",
+      messages: [
+        {
+          role: "system",
+          content: locale === "en-US"
+            ? "You are the site's article writing assistant. Based on the user's description, create a useful draft. Return only one valid JSON object with exactly these string fields: title, summary, category, tags, content. Use Markdown in content, put tags in one comma-separated string, and do not wrap the JSON in a markdown code fence. Do not add explanations outside the JSON."
+            : "你是站内文章写作助手。请根据用户的文章描述生成可用草稿。只能返回一个合法 JSON 对象，且必须包含这 5 个字符串字段：title、summary、category、tags、content。content 使用 Markdown，tags 使用逗号分隔的字符串，不要使用 Markdown 代码围栏包裹 JSON，也不要在 JSON 外补充解释。",
+        },
+        { role: "user", content: locale === "en-US" ? `Article description:\n${description}` : `文章描述：\n${description}` },
+      ],
+    });
+    const generated = this.parseDraftPreview(result.text, locale);
+    const generatedInput = { description, title: generated.title, summary: generated.summary, category: generated.category, tags: generated.tags, content: generated.content, contentFormat: "markdown" };
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-    const invocation = await this.prisma.aiToolInvocation.create({ data: { userId: user.id, conversationId, toolName: "create_article_draft", input: input as Prisma.InputJsonValue, status: "awaiting_confirmation", requiresConfirmation: true, confirmationTokenHash: createHash("sha256").update(token).digest("hex"), confirmationExpiresAt: expiresAt } });
-    return { invocationId: invocation.id, status: "awaiting_confirmation", requiresConfirmation: true, confirmationToken: token, expiresAt: expiresAt.toISOString(), preview: { title, summary: this.readString(input.summary, 300), category: this.readString(input.category, 80), tags: this.readString(input.tags, 500), content } };
+    const invocation = await this.prisma.aiToolInvocation.create({ data: { userId: user.id, conversationId, toolName: "create_article_draft", input: generatedInput as Prisma.InputJsonValue, status: "awaiting_confirmation", requiresConfirmation: true, confirmationTokenHash: createHash("sha256").update(token).digest("hex"), confirmationExpiresAt: expiresAt } });
+    return { invocationId: invocation.id, status: "awaiting_confirmation", requiresConfirmation: true, confirmationToken: token, expiresAt: expiresAt.toISOString(), preview: generated };
+  }
+
+  private parseDraftPreview(text: string, locale: "zh-CN" | "en-US") {
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
+    const source = fenced || text;
+    const start = source.indexOf("{");
+    const end = source.lastIndexOf("}");
+    let parsed: Record<string, unknown> = {};
+    if (start >= 0 && end > start) {
+      try {
+        const value: unknown = JSON.parse(source.slice(start, end + 1));
+        if (value && typeof value === "object" && !Array.isArray(value)) parsed = value as Record<string, unknown>;
+      } catch {
+        // Fall back to a readable body when a provider ignores the JSON-only instruction.
+      }
+    }
+    const content = this.readString(parsed.content, 60000) || text.trim().slice(0, 60000);
+    const firstLine = content.split(/\r?\n/).map((line) => line.replace(/^\s*#+\s*/, "").trim()).find(Boolean) || "";
+    return {
+      title: this.readString(parsed.title, 120) || firstLine.slice(0, 120) || (locale === "en-US" ? "AI generated draft" : "AI 生成文章"),
+      summary: this.readString(parsed.summary, 300) || content.replace(/[#*_`>-]/g, "").replace(/\s+/g, " ").slice(0, 300),
+      category: this.readString(parsed.category, 80),
+      tags: Array.isArray(parsed.tags) ? parsed.tags.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.trim()).filter(Boolean).slice(0, 6).join(", ") : this.readString(parsed.tags, 500),
+      content,
+    };
   }
 
   private async groupArticleContexts(user: AuthenticatedUser, kind: "topic" | "collection", key: string | number) {
