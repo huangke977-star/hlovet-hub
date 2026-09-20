@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   BadRequestException,
   Injectable,
+  NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import os from "node:os";
@@ -142,9 +143,9 @@ export class AiCapabilitiesService {
     try {
       const dataUrl = `data:${file.mimetype || "application/octet-stream"};base64,${file.buffer.toString("base64")}`;
       const result = await this.withCapabilityLimit(config, user.id, () => ocrWithProvider({ provider: config.provider as AiProvider, baseUrl: config.baseUrl!, apiKey: this.readApiKey(config)!, model: config.model!, imageDataUrl: dataUrl, prompt: prompt?.trim() || "请准确提取图片中的文字，保留段落、表格和代码结构；只返回识别结果。", timeoutSeconds: config.requestTimeoutSeconds }));
-      await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "completed", resultText: result.text, resultMetadata: result.usage as object, completedAt: new Date() } });
+      const completed = await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "completed", resultText: result.text, resultMetadata: result.usage as object, completedAt: new Date() } });
       await this.recordUsage(config, "ocr", user.id, file.size, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined);
-      return { id: task.id, capability: "ocr", status: "completed", text: result.text, usage: result.usage };
+      return { ...this.toMediaTaskDetail(completed), text: result.text, usage: result.usage };
     } catch (error) {
       const message = this.errorMessage(error);
       await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "failed", errorSummary: message.slice(0, 500), completedAt: new Date() } }).catch(() => undefined);
@@ -159,9 +160,9 @@ export class AiCapabilitiesService {
     const startedAt = Date.now();
     try {
       const result = await this.withCapabilityLimit(config, user.id, () => transcribeWithProvider({ provider: config.provider as AiProvider, baseUrl: config.baseUrl!, apiKey: this.readApiKey(config)!, model: config.model!, file: file.buffer, filename: file.originalname, mimeType: file.mimetype, timeoutSeconds: config.requestTimeoutSeconds }));
-      await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "completed", resultText: result.text, resultMetadata: result.usage as object, completedAt: new Date() } });
+      const completed = await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "completed", resultText: result.text, resultMetadata: result.usage as object, completedAt: new Date() } });
       await this.recordUsage(config, "transcription", user.id, file.size, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined);
-      return { id: task.id, capability: "transcription", status: "completed", text: result.text, usage: result.usage };
+      return { ...this.toMediaTaskDetail(completed), text: result.text, usage: result.usage };
     } catch (error) {
       const message = this.errorMessage(error);
       await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "failed", errorSummary: message.slice(0, 500), completedAt: new Date() } }).catch(() => undefined);
@@ -178,9 +179,10 @@ export class AiCapabilitiesService {
     const startedAt = Date.now();
     try {
       const result = await this.withCapabilityLimit(config, user.id, () => generateImageWithProvider({ provider: config.provider as AiProvider, baseUrl: config.baseUrl!, apiKey: this.readApiKey(config)!, model: config.model!, prompt, size: dto.size?.trim() || "1024x1024", timeoutSeconds: config.requestTimeoutSeconds }));
-      await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "completed", resultUrl: result.url, resultMetadata: { revisedPrompt: result.revisedPrompt, base64Available: Boolean(result.base64) }, completedAt: new Date() } });
+      const storedImage = result.base64 && this.isStorableImage(result.base64) ? result.base64 : null;
+      const completed = await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "completed", resultText: storedImage, resultUrl: result.url, resultMetadata: { revisedPrompt: result.revisedPrompt, base64Available: Boolean(result.base64), storedImage: Boolean(storedImage), imageMimeType: "image/png" }, completedAt: new Date() } });
       await this.recordUsage(config, "image_generation", user.id, 1, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined);
-      return { id: task.id, capability: "image_generation", status: "completed", url: result.url, base64: result.base64, revisedPrompt: result.revisedPrompt, usage: result.usage };
+      return { ...this.toMediaTaskDetail(completed), revisedPrompt: result.revisedPrompt, usage: result.usage };
     } catch (error) {
       const message = this.errorMessage(error);
       await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "failed", errorSummary: message.slice(0, 500), completedAt: new Date() } }).catch(() => undefined);
@@ -191,7 +193,31 @@ export class AiCapabilitiesService {
 
   async listMediaTasks(userId: number) {
     const items = await this.prisma.aiMediaTask.findMany({ where: { userId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 30 });
-    return { items: items.map((item) => ({ ...item, createdAt: item.createdAt.toISOString(), startedAt: item.startedAt?.toISOString() ?? null, completedAt: item.completedAt?.toISOString() ?? null })) };
+    return { items: items.map((item) => this.toMediaTaskSummary(item)) };
+  }
+
+  async getMediaTask(userId: number, id: number) {
+    const task = await this.prisma.aiMediaTask.findFirst({ where: { id, userId } });
+    if (!task) throw new NotFoundException("未找到该 AI 媒体任务。\nAI media task not found.");
+    return this.toMediaTaskDetail(task);
+  }
+
+  async getMediaTaskImage(userId: number, id: number): Promise<{ buffer: Buffer; mimeType: string }> {
+    const task = await this.prisma.aiMediaTask.findFirst({ where: { id, userId, capability: "image_generation", status: "completed" } });
+    if (!task?.resultText) throw new NotFoundException("该图片结果不可用或已过期。\nThe generated image is unavailable or has expired.");
+    const buffer = Buffer.from(task.resultText, "base64");
+    if (!buffer.length) throw new NotFoundException("该图片结果不可用或已损坏。\nThe generated image is unavailable or corrupted.");
+    return { buffer, mimeType: this.readImageMimeType(task.resultMetadata) };
+  }
+
+  async getUserMediaCapabilities() {
+    const capabilities = await Promise.all(["ocr", "transcription", "image_generation"].map(async (capability) => {
+      const config = await this.getConfiguration(capability as AiCapability);
+      const definition = CAPABILITY_LABELS[capability as AiCapability];
+      const available = Boolean(config.enabled && config.baseUrl && config.model && this.readApiKey(config));
+      return { capability, label: { zh: definition.zh, en: definition.en }, available, maxInputBytes: config.maxInputBytes, unitName: config.unitName };
+    }));
+    return { items: capabilities };
   }
 
   async usageOverview(days = 30) {
@@ -314,6 +340,54 @@ export class AiCapabilitiesService {
       pricingPresets: getAiPricingPresets(),
       updatedAt: config.updatedAt.toISOString(),
     };
+  }
+
+  private toMediaTaskSummary(task: { id: number; capability: string; status: string; prompt: string | null; inputMimeType: string | null; inputBytes: number | null; resultText: string | null; resultUrl: string | null; errorSummary: string | null; createdAt: Date; startedAt: Date | null; completedAt: Date | null }) {
+    return {
+      id: task.id,
+      capability: task.capability,
+      status: task.status,
+      prompt: task.prompt,
+      inputMimeType: task.inputMimeType,
+      inputBytes: task.inputBytes,
+      resultPreview: task.capability === "image_generation" ? null : task.resultText?.slice(0, 360) ?? null,
+      resultUrl: task.resultUrl,
+      hasStoredImage: task.capability === "image_generation" && Boolean(task.resultText),
+      errorSummary: task.errorSummary,
+      createdAt: task.createdAt.toISOString(),
+      startedAt: task.startedAt?.toISOString() ?? null,
+      completedAt: task.completedAt?.toISOString() ?? null,
+    };
+  }
+
+  private toMediaTaskDetail(task: { id: number; capability: string; status: string; prompt: string | null; inputMimeType: string | null; inputBytes: number | null; resultText: string | null; resultUrl: string | null; resultMetadata: unknown; errorSummary: string | null; createdAt: Date; startedAt: Date | null; completedAt: Date | null }) {
+    return {
+      ...this.toMediaTaskSummary(task),
+      resultText: task.capability === "image_generation" ? null : task.resultText,
+      revisedPrompt: this.readRevisedPrompt(task.resultMetadata),
+    };
+  }
+
+  private isStorableImage(base64: string): boolean {
+    // The persistent result is intentionally capped to protect the small VPS
+    // and MySQL from an unexpectedly large provider response.
+    return base64.length <= 12 * 1024 * 1024;
+  }
+
+  private readImageMimeType(metadata: unknown): string {
+    if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+      const value = (metadata as Record<string, unknown>).imageMimeType;
+      if (typeof value === "string" && /^image\/(png|jpeg|webp)$/i.test(value)) return value;
+    }
+    return "image/png";
+  }
+
+  private readRevisedPrompt(metadata: unknown): string | null {
+    if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+      const value = (metadata as Record<string, unknown>).revisedPrompt;
+      return typeof value === "string" ? value : null;
+    }
+    return null;
   }
 
   private toMediaException(error: unknown): Error {

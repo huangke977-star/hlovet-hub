@@ -8,6 +8,8 @@ P24 is implemented with the database migration, AI-focused tests, and the web bu
 
 Signed-in users open “AI assistant” from the top navigation. The page contains conversation history, the Q&A area, and controlled tools. Requests are sent only after a complete external-model configuration is enabled in the admin console.
 
+The “Media tools” section below the controlled tools provides user-facing entry points for image OCR, transcription, and image generation. Each capability is independently controlled by the admin configuration. An unconfigured capability is labelled “Not configured” and remains disabled. Completed tasks are scoped to the current account; OCR/transcription text is loaded from the owner-only task detail endpoint, and generated images are returned through an authenticated image endpoint instead of placing Base64 data in the task list.
+
 The assistant searches articles visible to the current account and can answer questions using an article, topic, or collection context. Visibility is filtered on the server before context is sent to the model. When Embeddings are configured, retrieval combines vector similarity with keyword matching; without Embeddings, article chunks are still built and keyword retrieval is used. Protected point-resource content continues to use the article response redaction rules and cannot be bypassed through AI.
 
 Conversation context uses recent messages plus automatic summaries. When the configured threshold is reached, older messages are compressed while goals, facts, sources, and unfinished items are retained; a failed summary never blocks the current chat request.
@@ -57,6 +59,7 @@ When the main model name exactly matches a small DeepSeek or common OpenAI-compa
 9. Click helpful or unhelpful under an AI answer, reload the conversation, and confirm the selected rating remains; verify the aggregate appears in the admin usage and quality area.
 10. Disable OCR, transcription, or image generation and call its endpoint to confirm a clear not-configured response. After enabling and configuring a real provider, use a real sample to verify the media task and usage record.
 11. Select `deepseek-chat`, `deepseek-reasoner`, `gpt-4o-mini`, `gpt-4o`, or `o3-mini` as the main model and verify that the pricing area offers the wand action. Apply it, check the currency and token prices, then compare them with the current provider invoice before saving.
+12. In “Media tools” on the “AI assistant” page, verify that unconfigured OCR, transcription, and image-generation actions are disabled. After configuring a real provider, upload an image or audio file or submit an image prompt, then verify the task status, result, and recent-task list for the current account. Generated-image history should load through task detail rather than exposing Base64 data in the list.
 
 ## Resource boundary
 

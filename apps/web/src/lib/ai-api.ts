@@ -1,4 +1,4 @@
-import { authHeaders, requestJson } from "./auth-api";
+import { authHeaders, requestBlob, requestJson } from "./auth-api";
 
 export type AiProvider = "openai-compatible" | "deepseek" | "custom" | "anthropic" | "google";
 
@@ -367,15 +367,60 @@ export function runAiOcr(accessToken: string, file: File, prompt?: string) {
   const form = new FormData();
   form.append("file", file);
   if (prompt?.trim()) form.append("prompt", prompt.trim());
-  return requestJson<{ id: number; capability: "ocr"; status: string; text: string }>("/ai/media/ocr", { method: "POST", headers: authHeaders(accessToken), body: form });
+  return requestJson<AiMediaTaskDetail & { text: string }>("/ai/media/ocr", { method: "POST", headers: authHeaders(accessToken), body: form });
 }
 
 export function runAiTranscription(accessToken: string, file: File) {
   const form = new FormData();
   form.append("file", file);
-  return requestJson<{ id: number; capability: "transcription"; status: string; text: string }>("/ai/media/transcription", { method: "POST", headers: authHeaders(accessToken), body: form });
+  return requestJson<AiMediaTaskDetail & { text: string }>("/ai/media/transcription", { method: "POST", headers: authHeaders(accessToken), body: form });
 }
 
 export function runAiImageGeneration(accessToken: string, prompt: string, size = "1024x1024") {
-  return requestJson<{ id: number; capability: "image_generation"; status: string; url: string | null; base64: string | null; revisedPrompt: string | null }>("/ai/media/image", { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify({ prompt, size }) });
+  return requestJson<AiMediaTaskDetail>("/ai/media/image", { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify({ prompt, size }) });
+}
+
+export interface AiUserMediaCapability {
+  capability: "ocr" | "transcription" | "image_generation";
+  label: { zh: string; en: string };
+  available: boolean;
+  maxInputBytes: number;
+  unitName: string;
+}
+
+export interface AiMediaTaskSummary {
+  id: number;
+  capability: "ocr" | "transcription" | "image_generation";
+  status: "queued" | "processing" | "completed" | "failed";
+  prompt: string | null;
+  inputMimeType: string | null;
+  inputBytes: number | null;
+  resultPreview: string | null;
+  resultUrl: string | null;
+  hasStoredImage: boolean;
+  errorSummary: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface AiMediaTaskDetail extends AiMediaTaskSummary {
+  resultText: string | null;
+  revisedPrompt: string | null;
+}
+
+export function getAiUserMediaCapabilities(accessToken: string) {
+  return requestJson<{ items: AiUserMediaCapability[] }>("/ai/media-capabilities", { headers: authHeaders(accessToken), cache: "no-store" });
+}
+
+export function listAiMediaTasks(accessToken: string) {
+  return requestJson<{ items: AiMediaTaskSummary[] }>("/ai/media-tasks", { headers: authHeaders(accessToken), cache: "no-store" });
+}
+
+export function getAiMediaTask(accessToken: string, id: number) {
+  return requestJson<AiMediaTaskDetail>(`/ai/media-tasks/${id}`, { headers: authHeaders(accessToken), cache: "no-store" });
+}
+
+export function downloadAiMediaTaskImage(accessToken: string, id: number) {
+  return requestBlob(`/ai/media-tasks/${id}/image`, { headers: authHeaders(accessToken), cache: "force-cache" });
 }

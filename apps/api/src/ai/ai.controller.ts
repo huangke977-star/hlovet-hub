@@ -1,5 +1,6 @@
-import { BadRequestException, Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Patch, Post, Query, Res, StreamableFile, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
+import type { Response } from "express";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { SuperAdminGuard } from "../auth/guards/super-admin.guard";
 import { UserManagementGuard } from "../auth/guards/user-management.guard";
@@ -139,6 +140,23 @@ export class ArticleAiController {
   @Get("media-tasks")
   listMediaTasks(@CurrentUser() user: AuthenticatedUser) {
     return this.capabilities.listMediaTasks(user.id);
+  }
+
+  @Get("media-capabilities")
+  getMediaCapabilities() {
+    return this.capabilities.getUserMediaCapabilities();
+  }
+
+  @Get("media-tasks/:id")
+  getMediaTask(@CurrentUser() user: AuthenticatedUser, @Param("id", ParseIntPipe) id: number) {
+    return this.capabilities.getMediaTask(user.id, id);
+  }
+
+  @Get("media-tasks/:id/image")
+  async getMediaTaskImage(@CurrentUser() user: AuthenticatedUser, @Param("id", ParseIntPipe) id: number, @Res({ passthrough: true }) response: Response): Promise<StreamableFile> {
+    const image = await this.capabilities.getMediaTaskImage(user.id, id);
+    response.set({ "Cache-Control": "private, max-age=86400", "Content-Type": image.mimeType, "Content-Length": String(image.buffer.length), "X-Content-Type-Options": "nosniff" });
+    return new StreamableFile(image.buffer);
   }
 
   @Post("media/ocr")

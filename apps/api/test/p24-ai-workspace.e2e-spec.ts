@@ -1,4 +1,5 @@
 import { AiService } from "../src/ai/ai.service";
+import { AiCapabilitiesService } from "../src/ai/ai-capabilities.service";
 import { createHash } from "node:crypto";
 import type { AuthenticatedUser } from "../src/auth/auth.types";
 
@@ -43,6 +44,16 @@ function createHarness() {
     create: jest.fn(),
   };
   return { prisma, articles, service: new AiService(prisma as never, crypto as never, redis as never, articles as never) };
+}
+
+function createMediaHarness() {
+  const prisma = {
+    aiCapabilityConfiguration: { upsert: jest.fn() },
+    aiMediaTask: { findMany: jest.fn(), findFirst: jest.fn() },
+  };
+  const crypto = { decrypt: jest.fn(() => "secret") };
+  const redis = { tryAcquireCounter: jest.fn(), releaseCounter: jest.fn() };
+  return { prisma, service: new AiCapabilitiesService(prisma as never, crypto as never, redis as never) };
 }
 
 describe("P24 AI workspace", () => {
@@ -144,5 +155,59 @@ describe("P24 AI workspace", () => {
     expect(result).toEqual({ id: 61, conversationId: 12, messageId: 51, rating: 1 });
     expect(harness.prisma.aiConversationMessage.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 51, conversationId: 12, role: "assistant", conversation: { userId: 9 } }) }));
     expect(harness.prisma.aiQualityFeedback.create).toHaveBeenCalledWith(expect.objectContaining({ data: { userId: 9, conversationId: 12, messageId: 51, rating: 1, note: null } }));
+  });
+
+  it("exposes only safe media capability status to users", async () => {
+    const harness = createMediaHarness();
+    harness.prisma.aiCapabilityConfiguration.upsert.mockImplementation(async ({ where }: { where: { capability: string } }) => ({
+      capability: where.capability,
+      enabled: false,
+      provider: "custom",
+      baseUrl: "https://provider.invalid",
+      model: "private-model",
+      apiKeyEncrypted: "encrypted-secret",
+      maxInputBytes: 1024,
+      unitName: "image",
+    }));
+
+    const result = await harness.service.getUserMediaCapabilities();
+
+    expect(result.items).toHaveLength(3);
+    expect(result.items.every((item) => item.available === false)).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("encrypted-secret");
+    expect(JSON.stringify(result)).not.toContain("private-model");
+  });
+
+  it("does not expose stored image data in the media task list", async () => {
+    const harness = createMediaHarness();
+    const imageData = Buffer.from("private-image").toString("base64");
+    harness.prisma.aiMediaTask.findMany.mockResolvedValue([{
+      id: 7,
+      capability: "image_generation",
+      status: "completed",
+      prompt: "cover",
+      inputMimeType: null,
+      inputBytes: null,
+      resultText: imageData,
+      resultUrl: null,
+      errorSummary: null,
+      createdAt: new Date("2026-09-18T01:00:00.000Z"),
+      startedAt: null,
+      completedAt: new Date("2026-09-18T01:00:01.000Z"),
+    }]);
+
+    const result = await harness.service.listMediaTasks(9);
+
+    expect(result.items[0]).toMatchObject({ id: 7, hasStoredImage: true, resultPreview: null });
+    expect(JSON.stringify(result)).not.toContain(imageData);
+  });
+
+  it("keeps media task reads scoped to the owning user", async () => {
+    const harness = createMediaHarness();
+    harness.prisma.aiMediaTask.findFirst.mockResolvedValue(null);
+
+    await expect(harness.service.getMediaTask(9, 100)).rejects.toThrow("未找到");
+    await expect(harness.service.getMediaTaskImage(9, 100)).rejects.toThrow("不可用");
+    expect(harness.prisma.aiMediaTask.findFirst).toHaveBeenLastCalledWith({ where: { id: 100, userId: 9, capability: "image_generation", status: "completed" } });
   });
 });
