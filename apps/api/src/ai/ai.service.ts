@@ -15,12 +15,13 @@ import { ArticlesService } from "../articles/articles.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RedisService } from "../redis/redis.service";
 import { SecretCryptoService } from "../security/secret-crypto.service";
-import { AiArticleOperation, AiChatDto, AiProvider, AiToolInputDto, AiToolName, ArticleAssistantDto, UpdateAiConfigurationDto } from "./dto/ai.dto";
+import { AiArticleOperation, AiChatDto, AiProvider, AiToolInputDto, AiToolName, ArticleAssistantDto, ListAiModelsDto, UpdateAiConfigurationDto } from "./dto/ai.dto";
 import {
   AiChatMessage,
   AiProviderClientError,
   AiProviderCompletion,
   completeWithProvider,
+  listModelsWithProvider,
 } from "./ai-provider.client";
 import os from "node:os";
 
@@ -140,6 +141,21 @@ export class AiService {
     };
   }
 
+  async listModels(dto: ListAiModelsDto) {
+    const config = await this.getConfiguration();
+    const apiKey = dto.apiKey?.trim() || this.readApiKey(config);
+    if (!apiKey) throw new BadRequestException("请先填写 API Key，或保留已保存的 API Key。\nEnter an API key or keep the saved key.");
+    const baseUrl = dto.baseUrl?.trim() || config.baseUrl?.trim();
+    if (!baseUrl) throw new BadRequestException("请先填写接口地址。\nEnter the AI base URL first.");
+    try {
+      const models = await listModelsWithProvider({ provider: dto.provider, baseUrl, apiKey, timeoutSeconds: config.requestTimeoutSeconds });
+      return { provider: dto.provider, models, fetchedAt: new Date().toISOString() };
+    } catch (error) {
+      if (error instanceof AiProviderClientError) throw new BadGatewayException(error.message);
+      throw error;
+    }
+  }
+
   async complete(options: AiCompletionOptions) {
     return this.execute(options);
   }
@@ -219,14 +235,27 @@ export class AiService {
       : await this.prisma.aiConversation.create({ data: { userId: user.id, title: message.slice(0, 60) } });
     if (!conversation) throw new BadRequestException("AI 对话不存在或不属于当前账号。\nThe AI conversation does not exist or does not belong to this account.");
 
-    const [history, context] = await Promise.all([
-      this.prisma.aiConversationMessage.findMany({ where: { conversationId: conversation.id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 12 }),
-      this.buildChatContext(user, dto),
-    ]);
+    const history = await this.prisma.aiConversationMessage.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 24,
+      select: { role: true, content: true, sources: true },
+    });
     const locale = dto.locale === "en-US" ? "en-US" : "zh-CN";
+    const config = await this.getConfiguration();
+    if (!config.enabled) throw new BadRequestException("AI 功能尚未启用。\nAI features are not enabled.");
+    const siteQuestion = this.isSiteRelatedQuestion(message, dto) || history.some((item) => item.role === "user" && this.isSiteRelatedQuestion(item.content));
+    const refusal = locale === "en-US"
+      ? "I am the site's assistant and can help with content and data that this account is allowed to access. I do not answer unrelated general questions here."
+      : "我是本站助手，只处理当前账号有权限访问的站内内容和数据。与本站无关的通用问题不在当前助手范围内。";
+    if (!siteQuestion) {
+      await this.persistChatTurn(conversation.id, message, refusal, []);
+      return { conversationId: conversation.id, title: conversation.title, text: refusal, sources: [], provider: config.provider as AiProvider, model: config.model ?? "", durationMs: 0, usage: { promptTokens: null, completionTokens: null, totalTokens: null } };
+    }
+    const context = await this.buildChatContext(user, dto, history);
     const system = locale === "en-US"
-      ? "You are a careful assistant for this site. The supplied site context has already been filtered for the current user's permissions. For questions about visible, latest, new, or recommended articles, use the supplied article index and context; do not claim that you cannot access site articles. Say clearly when the permitted scope contains no matching published content. Never reveal hidden content, credentials, tokens, or administrator-only data. Cite the numbered sources when you use them."
-      : "你是本站的谨慎助手。提供的站内上下文已经按当前账号权限过滤。遇到可见、最新、新增或推荐文章的问题，要使用提供的文章索引和正文上下文回答，不要说自己无法访问站内文章；如果当前权限范围内没有匹配的已发布内容，要明确说明没有可用内容。不得透露隐藏内容、凭据、令牌或仅管理员可见的数据；使用来源时请标注对应的来源编号。";
+      ? "You are the site's permission-aware assistant. The supplied context is the complete set of data this account may use for this request. Answer site questions flexibly and directly from it, including follow-up questions. Never invent or infer hidden content, credentials, tokens, or administrator-only data. If the permitted context has no matching data, say so clearly. Do not answer unrelated general questions. Cite numbered sources when you use them."
+      : "你是本站的权限感知助手。提供的上下文是当前账号本次请求可以使用的完整数据。请根据上下文灵活、直接地回答站内问题，包括连续追问；不得编造或推断隐藏内容、凭据、令牌或仅管理员可见的数据。如果权限范围内没有匹配数据，要明确说明。不要回答与本站无关的通用问题。使用来源时请标注对应的来源编号。";
     const contextMessage = locale === "en-US" ? `Readable site context:\n${context.text}` : `当前账号可读取的站内上下文：\n${context.text}`;
     const result = await this.complete({
       userId: user.id,
@@ -234,15 +263,11 @@ export class AiService {
       messages: [
         { role: "system", content: system },
         { role: "system", content: contextMessage },
-        ...history.reverse().map((item) => ({ role: item.role === "assistant" ? "assistant" as const : "user" as const, content: item.content })),
+        ...this.compactHistory(history),
         { role: "user", content: message },
       ],
     });
-    await this.prisma.$transaction([
-      this.prisma.aiConversationMessage.create({ data: { conversationId: conversation.id, role: "user", content: message } }),
-      this.prisma.aiConversationMessage.create({ data: { conversationId: conversation.id, role: "assistant", content: result.text.trim(), sources: context.sources as unknown as Prisma.InputJsonValue } }),
-      this.prisma.aiConversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } }),
-    ]);
+    await this.persistChatTurn(conversation.id, message, result.text.trim(), context.sources);
     return {
       conversationId: conversation.id,
       title: conversation.title,
@@ -307,8 +332,9 @@ export class AiService {
     return { items: items.map((item) => ({ id: item.id, toolName: item.toolName, status: item.status, requiresConfirmation: item.requiresConfirmation, username: item.user.username, nickname: item.user.nickname, createdAt: item.createdAt.toISOString(), completedAt: item.completedAt?.toISOString() ?? null })) };
   }
 
-  private async buildChatContext(user: AuthenticatedUser, dto: AiChatDto): Promise<{ text: string; sources: AiSource[] }> {
+  private async buildChatContext(user: AuthenticatedUser, dto: AiChatDto, history: Array<{ sources: Prisma.JsonValue | null }>): Promise<{ text: string; sources: AiSource[] }> {
     const contexts: Array<{ article: Awaited<ReturnType<ArticlesService["getAiReadableContext"]>>; source: AiSource }> = [];
+    const accountText = await this.buildAccountContext(user, dto.message);
     if (this.articles && (dto.articleId || dto.articleSlug)) {
       const article = await this.articles.getAiReadableContext(user, { id: dto.articleId, slug: dto.articleSlug });
       contexts.push({ article, source: { type: "article", id: article.id, slug: article.slug, title: article.title, author: article.author.nickname || article.author.username } });
@@ -317,16 +343,26 @@ export class AiService {
     } else if (this.articles && dto.collectionId) {
       contexts.push(...await this.groupArticleContexts(user, "collection", dto.collectionId));
     } else if (this.articles) {
+      const priorSources = this.readHistorySources(history);
+      const priorContexts: typeof contexts = [];
+      for (const source of priorSources.slice(0, 5)) {
+        try {
+          const article = await this.articles.getAiReadableContext(user, { id: source.id });
+          priorContexts.push({ article, source: { type: "article", id: article.id, slug: article.slug, title: article.title, author: article.author.nickname || article.author.username } });
+        } catch {
+          // The article may no longer be visible; do not reuse stale history as permission.
+        }
+      }
       const directMatches = await this.articles.searchAiReadableArticles(user, dto.message, 5);
       const broadRequest = /文章|专题|合集|推荐|最新|新增|可见|查看|阅读|内容|哪些|站内|article|topic|collection|recommend|latest|new|visible|readable|content/i.test(dto.message);
-      const latestMatches = broadRequest || directMatches.length === 0
+      const latestMatches = broadRequest || (directMatches.length === 0 && priorContexts.length === 0)
         ? await this.articles.searchAiReadableArticles(user, "", 8)
         : [];
       const recommendedMatches = broadRequest && typeof this.articles.listAiRecommendedArticles === "function"
         ? await this.articles.listAiRecommendedArticles(user, 6)
         : [];
       const seen = new Set<number>();
-      const matches = [...directMatches, ...latestMatches, ...recommendedMatches].filter((match) => {
+      const matches = [...priorContexts.map(({ article }) => article), ...directMatches, ...latestMatches, ...recommendedMatches].filter((match) => {
         if (seen.has(match.id)) return false;
         seen.add(match.id);
         return true;
@@ -340,7 +376,12 @@ export class AiService {
         }
       }
     }
-    if (!contexts.length) return { text: "当前权限范围内没有可用的已发布站内文章。\nNo readable published site articles are available within the current permission scope.", sources: [] };
+    if (!contexts.length) {
+      return {
+        text: accountText || "当前权限范围内没有可用的已发布站内文章。\nNo readable published site articles are available within the current permission scope.",
+        sources: [],
+      };
+    }
     let used = 0;
     const parts = contexts.map(({ article }, index) => {
       const remaining = Math.max(0, 22000 - used);
@@ -348,7 +389,86 @@ export class AiService {
       used += content.length;
       return `[${index + 1}] ${article.title}\n作者：${article.author.nickname || article.author.username}\n摘要：${article.summary || "无"}\n正文：\n${content}`;
     });
-    return { text: parts.join("\n\n"), sources: contexts.map(({ source }) => source) };
+    return { text: [accountText, parts.join("\n\n")].filter(Boolean).join("\n\n"), sources: contexts.map(({ source }) => source) };
+  }
+
+  private async buildAccountContext(user: AuthenticatedUser, message: string): Promise<string> {
+    const requests: Array<{ label: string; task: Promise<unknown> }> = [];
+    if (/(我的|账号|账户|积分|成长|经验|等级|points|profile|account|level)/i.test(message)) {
+      requests.push({ label: "当前账号概况", task: this.executeReadOnlyTool(user, "get_my_summary", {}) });
+    }
+    if (/(我的)?(待办|任务|通知|未读|提醒|task|notification|todo)/i.test(message)) {
+      requests.push({ label: "当前账号待办与通知", task: this.executeReadOnlyTool(user, "list_my_tasks", {}) });
+    }
+    if (/(我的)?(订阅|关注|作者|专题|合集|标签订阅|subscription|follow)/i.test(message)) {
+      requests.push({ label: "当前账号订阅", task: this.executeReadOnlyTool(user, "list_my_subscriptions", {}) });
+    }
+    if (/(我的)?(收益|收入|兑换|结算|退款|earning|income|settlement)/i.test(message)) {
+      requests.push({ label: "当前账号收益", task: this.executeReadOnlyTool(user, "list_my_earnings", {}) });
+    }
+    if (/(我的)?(文章|草稿|发布状态|审核状态|my articles|draft|published|review)/i.test(message)) {
+      requests.push({ label: "当前账号文章状态", task: this.executeReadOnlyTool(user, "list_my_articles", {}) });
+    }
+    if (/(后台|管理员|运营概况|审计|admin|overview|audit)/i.test(message)) {
+      requests.push({ label: "权限范围内的后台概况", task: this.executeReadOnlyTool(user, "get_admin_overview", {}) });
+    }
+    if (!requests.length) return "";
+    const sections: string[] = [];
+    for (const request of requests) {
+      try {
+        const output = await request.task;
+        sections.push(`${request.label}:\n${JSON.stringify(output, null, 2)}`);
+      } catch {
+        // A tool may be unavailable or forbidden; omitting it keeps the model from seeing unauthorized data.
+      }
+    }
+    return sections.join("\n\n");
+  }
+
+  private async persistChatTurn(conversationId: number, message: string, response: string, sources: AiSource[]) {
+    await this.prisma.$transaction([
+      this.prisma.aiConversationMessage.create({ data: { conversationId, role: "user", content: message } }),
+      this.prisma.aiConversationMessage.create({ data: { conversationId, role: "assistant", content: response, sources: sources as unknown as Prisma.InputJsonValue } }),
+      this.prisma.aiConversation.update({ where: { id: conversationId }, data: { updatedAt: new Date() } }),
+    ]);
+  }
+
+  private isSiteRelatedQuestion(message: string, dto?: Pick<AiChatDto, "articleId" | "articleSlug" | "topicSlug" | "collectionId">): boolean {
+    if (dto && (dto.articleId || dto.articleSlug || dto.topicSlug || dto.collectionId)) return true;
+    return /(本站|站内|文章|专题|合集|评论|回复|作者|用户|订阅|收藏|待办|任务|通知|聊天|群聊|积分|收益|资源|反馈|举报|阅读文章|推荐文章|搜索文章|登录|密码|邮箱|通行密钥|双因素|账号|账户|草稿|发布|发现|数据与隐私|我的数据|个人数据|能做什么|你是谁|ai\s*助手|site|site content|article|topic|collection|comment|reply|author|subscription|bookmark|task|notification|group chat|points|earnings|resource|feedback|report|read article|recommended articles|search articles|login|password|email|passkey|totp|account|draft|publish|discover|privacy|my data|what can you do|who are you)/i.test(message);
+  }
+
+  private compactHistory(history: Array<{ role: string; content: string }>): AiChatMessage[] {
+    const maxCharacters = 12_000;
+    let remaining = maxCharacters;
+    const selected: AiChatMessage[] = [];
+    for (const item of history.slice().reverse()) {
+      if (remaining <= 0) break;
+      const content = item.content.trim();
+      if (!content) continue;
+      const clipped = content.length > remaining ? `${content.slice(0, Math.max(0, remaining - 12))}\n[已截断]` : content;
+      selected.unshift({ role: item.role === "assistant" ? "assistant" : "user", content: clipped });
+      remaining -= clipped.length;
+    }
+    return selected;
+  }
+
+  private readHistorySources(history: Array<{ sources: Prisma.JsonValue | null }>): AiSource[] {
+    const sources: AiSource[] = [];
+    const seen = new Set<number>();
+    for (const item of history) {
+      if (!Array.isArray(item.sources)) continue;
+      for (const value of item.sources) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+        const source = value as Record<string, unknown>;
+        const id = typeof source.id === "number" ? source.id : Number(source.id);
+        if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+        if (typeof source.slug !== "string" || typeof source.title !== "string" || typeof source.author !== "string") continue;
+        seen.add(id);
+        sources.push({ type: "article", id, slug: source.slug, title: source.title, author: source.author });
+      }
+    }
+    return sources;
   }
 
   private async executeReadOnlyTool(user: AuthenticatedUser, name: Exclude<AiToolName, "create_article_draft">, input: Record<string, unknown>) {

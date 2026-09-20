@@ -4,7 +4,7 @@ import { SuperAdminGuard } from "../auth/guards/super-admin.guard";
 import { UserManagementGuard } from "../auth/guards/user-management.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { AuthenticatedUser } from "../auth/auth.types";
-import { AiChatDto, AiToolConfirmationDto, AiToolInputDto, ArticleAssistantDto, UpdateAiConfigurationDto } from "./dto/ai.dto";
+import { AiChatDto, AiToolConfirmationDto, AiToolInputDto, ArticleAssistantDto, ListAiModelsDto, UpdateAiConfigurationDto } from "./dto/ai.dto";
 import { AiService } from "./ai.service";
 
 @Controller("ai/admin")
@@ -25,6 +25,11 @@ export class AiController {
   @Post("test-connection")
   testConnection(@CurrentUser() user: AuthenticatedUser) {
     return this.ai.testConnection(user.id);
+  }
+
+  @Post("models")
+  listModels(@Body() dto: ListAiModelsDto) {
+    return this.ai.listModels(dto);
   }
 
   @Get("invocations")

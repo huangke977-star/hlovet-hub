@@ -90,6 +90,19 @@ export function testAiAdminConnection(token: string) {
   return requestJson<AiConnectionTestResult>("/ai/admin/test-connection", { method: "POST", headers: authHeaders(token) });
 }
 
+export interface AiModelOption {
+  id: string;
+  label: string;
+}
+
+export function listAiAdminModels(token: string, input: { provider: AiProvider; baseUrl: string; apiKey?: string }) {
+  return requestJson<{ provider: AiProvider; models: AiModelOption[]; fetchedAt: string }>("/ai/admin/models", {
+    method: "POST",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
 export function getAiAdminInvocations(token: string) {
   return requestJson<AiInvocationOverview>("/ai/admin/invocations?limit=30", { headers: authHeaders(token), cache: "no-store" });
 }

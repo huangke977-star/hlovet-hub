@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, BrainCircuit, CheckCircle2, CircleAlert, Cpu, Database, KeyRound, PlugZap, RefreshCw, Save, Server, ShieldCheck } from "lucide-react";
+import { Activity, BrainCircuit, CheckCircle2, CircleAlert, Cpu, Database, Download, KeyRound, PlugZap, RefreshCw, Save, Server, ShieldCheck, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminPageHeader, AdminPageLoading } from "@/components/admin-page-header";
@@ -10,7 +10,7 @@ import { PasswordInput } from "@/components/password-input";
 import { useLanguage } from "@/components/language-provider";
 import { type AuthUser, getMe, isAuthExpiredError } from "@/lib/auth-api";
 import { clearAuthTokens, readAccessToken } from "@/lib/auth-storage";
-import { getAiAdminConfiguration, getAiAdminInvocations, getAiAdminToolInvocations, testAiAdminConnection, type AiAdminConfiguration, type AiAdminConfigurationUpdate, type AiInvocationOverview, type AiProvider, type AiToolInvocationAudit, updateAiAdminConfiguration } from "@/lib/ai-api";
+import { getAiAdminConfiguration, getAiAdminInvocations, getAiAdminToolInvocations, listAiAdminModels, testAiAdminConnection, type AiAdminConfiguration, type AiAdminConfigurationUpdate, type AiInvocationOverview, type AiModelOption, type AiProvider, type AiToolInvocationAudit, updateAiAdminConfiguration } from "@/lib/ai-api";
 import { localizedPath } from "@/lib/i18n";
 
 type Draft = AiAdminConfigurationUpdate;
@@ -42,6 +42,8 @@ export default function AiAdminPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [clearApiKey, setClearApiKey] = useState(false);
+  const [models, setModels] = useState<AiModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -58,6 +60,7 @@ export default function AiAdminPage() {
     setToolAudits(nextToolAudits.items);
     setApiKey("");
     setClearApiKey(false);
+    setModels([]);
   }
 
   async function testConnection() {
@@ -116,11 +119,28 @@ export default function AiAdminPage() {
   }
 
   function handleProviderChange(provider: AiProvider) {
+    setModels([]);
     setDraft((current) => {
       if (!current) return current;
       const shouldUseDeepSeekDefault = provider === "deepseek" && (!current.baseUrl.trim() || current.baseUrl === "https://api.example.com/v1");
       return { ...current, provider, baseUrl: shouldUseDeepSeekDefault ? "https://api.deepseek.com/v1" : current.baseUrl };
     });
+  }
+
+  async function fetchModels() {
+    if (!token || !draft || modelsLoading) return;
+    setModelsLoading(true);
+    setError("");
+    try {
+      const result = await listAiAdminModels(token, { provider: draft.provider, baseUrl: draft.baseUrl, apiKey: apiKey.trim() || undefined });
+      setModels(result.models);
+      if (!draft.model && result.models[0]) update("model", result.models[0].id);
+      setNotice(phrase(`已获取 ${result.models.length} 个模型。`, `${result.models.length} models loaded.`));
+    } catch (modelError) {
+      setError(modelError instanceof Error ? modelError.message : phrase("模型列表获取失败。", "Could not load the model list."));
+    } finally {
+      setModelsLoading(false);
+    }
   }
 
   async function submit(event: FormEvent) {
@@ -152,6 +172,11 @@ export default function AiAdminPage() {
     { value: "anthropic" as const, label: "Anthropic" },
     { value: "google" as const, label: "Google" },
   ];
+  const modelOptions = [
+    ...(draft.model && !models.some((model) => model.id === draft.model) ? [{ value: draft.model, label: draft.model }] : []),
+    ...models.map((model) => ({ value: model.id, label: model.label })),
+    ...(!draft.model && !models.length ? [{ value: "", label: phrase("点击右侧图标获取模型", "Use the button to load models") }] : []),
+  ];
 
   return <section className="page-shell admin-shell ai-admin-page">
     <AdminPageHeader title={phrase("AI 配置", "AI settings")} description={phrase("配置外部模型、密钥和并发保护。未启用时不会产生 AI 请求。", "Configure the external model, key, and concurrency protection. No AI requests are made while disabled.")} actions={<button className="admin-header-icon-action" onClick={() => void refresh()} title={phrase("刷新", "Refresh")} type="button"><RefreshCw size={17} /></button>} />
@@ -163,8 +188,7 @@ export default function AiAdminPage() {
     <form className="ai-config-panel" onSubmit={(event) => void submit(event)}>
       <header><span><BrainCircuit size={17} />{phrase("模型连接", "Model connection")}</span><small>{config.encryptionConfigured ? phrase("密钥加密已就绪", "Secret encryption ready") : phrase("未配置密钥加密", "Secret encryption unavailable")}</small></header>
       <label className="ai-config-toggle"><span>{phrase("启用 AI 功能", "Enable AI features")}</span><input checked={draft.enabled} onChange={(event) => update("enabled", event.target.checked)} type="checkbox" /></label>
-      <div className="ai-config-fields"><label><span>{phrase("供应商", "Provider")}</span><GlassSelect ariaLabel={phrase("供应商", "Provider")} leadingIcon={<BrainCircuit size={14} />} menuPortal onChange={(value) => handleProviderChange(value as AiProvider)} options={providerOptions} value={draft.provider} /></label><label><span>{phrase("接口地址", "Base URL")}</span><input onChange={(event) => update("baseUrl", event.target.value)} placeholder={draft.provider === "deepseek" ? "https://api.deepseek.com/v1" : "https://api.example.com/v1"} value={draft.baseUrl} /></label><label><span>{phrase("模型名称", "Model")}</span><input onChange={(event) => update("model", event.target.value)} placeholder={draft.provider === "deepseek" ? "例如 deepseek-chat" : "例如 gpt-4o-mini"} value={draft.model} /></label><label><span><KeyRound size={13} /> API Key {config.apiKeyConfigured ? phrase("（已配置，留空保持不变）", "(configured; leave blank to keep)") : ""}</span><PasswordInput autoComplete="new-password" disabled={!config.encryptionConfigured} onChange={(event) => setApiKey(event.target.value)} placeholder={config.apiKeyConfigured ? phrase("已配置，留空保持不变", "Configured; leave blank to keep") : phrase("输入 API Key", "Enter API key")} value={apiKey} /></label></div>
-      {config.apiKeyConfigured ? <label className="ai-clear-key"><input checked={clearApiKey} onChange={(event) => setClearApiKey(event.target.checked)} type="checkbox" />{phrase("清除已保存的 API Key", "Clear the saved API key")}</label> : null}
+      <div className="ai-config-fields"><label><span>{phrase("供应商", "Provider")}</span><GlassSelect ariaLabel={phrase("供应商", "Provider")} leadingIcon={<BrainCircuit size={14} />} menuPortal onChange={(value) => handleProviderChange(value as AiProvider)} options={providerOptions} value={draft.provider} /></label><label><span>{phrase("接口地址", "Base URL")}</span><input onChange={(event) => update("baseUrl", event.target.value)} placeholder={draft.provider === "deepseek" ? "https://api.deepseek.com/v1" : "https://api.example.com/v1"} value={draft.baseUrl} /></label><label><span>{phrase("模型名称", "Model")}</span><div className="ai-model-picker"><GlassSelect ariaLabel={phrase("模型名称", "Model")} leadingIcon={<BrainCircuit size={14} />} menuClassName="ai-model-menu" menuPortal onChange={(value) => update("model", value)} options={modelOptions} value={draft.model} /><button aria-label={phrase("获取模型列表", "Load models")} className="ai-model-fetch-button" disabled={modelsLoading || !draft.baseUrl.trim()} onClick={() => void fetchModels()} title={phrase("获取模型列表", "Load model list")} type="button">{modelsLoading ? <RefreshCw className="spin" size={15} /> : <Download size={15} />}</button></div><small className="ai-model-help">{models.length ? phrase(`已获取 ${models.length} 个模型，可从下拉列表选择。`, `${models.length} models loaded. Choose one from the list.`) : phrase("点击右侧图标从当前供应商获取模型。", "Use the button to load models from the current provider.")}</small></label><label><span><KeyRound size={13} /> API Key {config.apiKeyConfigured ? phrase("（已配置，留空保持不变）", "(configured; leave blank to keep)") : ""}</span><div className="ai-api-key-field"><PasswordInput autoComplete="new-password" disabled={!config.encryptionConfigured} onChange={(event) => { setApiKey(event.target.value); if (event.target.value) setClearApiKey(false); }} placeholder={config.apiKeyConfigured ? phrase("已配置，留空保持不变", "Configured; leave blank to keep") : phrase("输入 API Key", "Enter API key")} value={apiKey} />{config.apiKeyConfigured ? <button aria-pressed={clearApiKey} aria-label={phrase("清除已保存的 API Key", "Clear the saved API key")} className={`ai-clear-key-button${clearApiKey ? " active" : ""}`} onClick={() => { setClearApiKey((current) => !current); setApiKey(""); }} title={phrase("清除已保存的 API Key", "Clear the saved API key")} type="button"><Trash2 size={15} /></button> : null}</div></label></div>
       <div className="ai-config-fields ai-limit-fields"><label><span>{phrase("全站并发", "Global concurrency")}</span><input max={recommendation.maxGlobalConcurrency} min={1} onChange={(event) => update("globalConcurrency", Number(event.target.value))} type="number" value={draft.globalConcurrency} /></label><label><span>{phrase("单用户并发", "Per-user concurrency")}</span><input max={recommendation.maxUserConcurrency} min={1} onChange={(event) => update("userConcurrency", Number(event.target.value))} type="number" value={draft.userConcurrency} /></label><label><span>{phrase("最大输出 tokens", "Max output tokens")}</span><input max={8000} min={256} onChange={(event) => update("maxOutputTokens", Number(event.target.value))} type="number" value={draft.maxOutputTokens} /></label><label><span>{phrase("请求超时（秒）", "Request timeout (seconds)")}</span><input max={300} min={10} onChange={(event) => update("requestTimeoutSeconds", Number(event.target.value))} type="number" value={draft.requestTimeoutSeconds} /></label><label><span>{phrase("全站每日请求上限（0 为不限）", "Global daily request limit (0 = unlimited)")}</span><input max={100000} min={0} onChange={(event) => update("dailyRequestLimit", Number(event.target.value))} type="number" value={draft.dailyRequestLimit} /></label><label className="ai-currency-field"><span>{phrase("计价币种", "Billing currency")}</span><GlassSelect ariaLabel={phrase("计价币种", "Billing currency")} leadingIcon={<Activity size={14} />} menuClassName="ai-currency-menu" menuPortal onChange={(value) => update("billingCurrency", value)} options={[{ value: "USD", label: "USD" }, { value: "CNY", label: "CNY" }]} value={draft.billingCurrency} /></label><label><span>{phrase("输入价 / 百万 tokens", "Input price / million tokens")}</span><input min={0} onChange={(event) => update("inputCostPerMillionMicros", Math.round(Number(event.target.value) * 1000000))} step={0.000001} type="number" value={draft.inputCostPerMillionMicros / 1000000} /></label><label><span>{phrase("输出价 / 百万 tokens", "Output price / million tokens")}</span><input min={0} onChange={(event) => update("outputCostPerMillionMicros", Math.round(Number(event.target.value) * 1000000))} step={0.000001} type="number" value={draft.outputCostPerMillionMicros / 1000000} /></label></div>
       <footer><small>{phrase("密钥仅用于服务端调用，不会返回到浏览器；价格填 0 表示只统计 tokens，不估算费用。", "The key is used only for server-side calls and is never returned to the browser. A price of 0 records tokens without estimating cost.")}</small><div className="ai-config-actions"><button className="button ai-test-button" disabled={testing || saving || !config.apiKeyConfigured} onClick={() => void testConnection()} type="button"><PlugZap size={15} />{testing ? phrase("测试中", "Testing") : phrase("测试连接", "Test connection")}</button><button className="button" disabled={saving || !config.encryptionConfigured} type="submit"><Save size={15} />{saving ? phrase("保存中", "Saving") : phrase("保存配置", "Save settings")}</button></div></footer>
     </form>

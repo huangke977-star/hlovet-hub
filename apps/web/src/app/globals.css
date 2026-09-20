@@ -439,6 +439,19 @@
 .ai-config-fields input { box-sizing: border-box; width: 100%; min-height: 35px; border: 1px solid color-mix(in srgb, var(--control-line) 70%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--surface-strong) 72%, transparent); color: var(--foreground); font: inherit; font-size: .73rem; outline: 0; padding: 7px 9px; }
 .ai-config-fields input:focus,
 .ai-config-fields .announcement-editor-select-trigger:focus { border-color: color-mix(in srgb, var(--accent) 58%, var(--control-line)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent); }
+.ai-model-picker { display: flex; min-width: 0; align-items: center; gap: 5px; }
+.ai-model-picker .announcement-editor-select { flex: 1 1 auto; min-width: 0; }
+.ai-model-picker .announcement-editor-select-trigger { min-width: 0; }
+.ai-model-fetch-button { display: inline-flex; width: 35px; min-width: 35px; height: 35px; align-items: center; justify-content: center; border: 1px solid color-mix(in srgb, var(--control-line) 70%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--surface-strong) 72%, transparent); color: var(--muted-strong); cursor: pointer; }
+.ai-model-fetch-button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 58%, var(--control-line)); background: color-mix(in srgb, var(--accent-soft) 42%, var(--surface-strong)); color: var(--accent-strong); }
+.ai-model-fetch-button:disabled { cursor: wait; opacity: .55; }
+.ai-model-help { display: block; color: var(--muted); font-size: .61rem; line-height: 1.35; }
+.ai-api-key-field { position: relative; min-width: 0; }
+.ai-api-key-field .password-input > input { padding-right: 78px; }
+.ai-api-key-field .password-reveal-control { right: 38px; }
+.ai-clear-key-button { position: absolute; top: 50%; right: 7px; display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; transform: translateY(-50%); border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.ai-clear-key-button:hover,
+.ai-clear-key-button.active { background: color-mix(in srgb, var(--danger, #bd4b5d) 14%, transparent); color: var(--danger, #bd4b5d); }
 .ai-clear-key { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .66rem; }
 .ai-config-panel > footer { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--control-line); padding-top: 9px; }
 .ai-config-panel > footer small { min-width: 0; color: var(--muted); font-size: .64rem; line-height: 1.4; }

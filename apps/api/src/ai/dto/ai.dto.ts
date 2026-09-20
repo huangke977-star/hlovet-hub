@@ -107,6 +107,21 @@ export class UpdateAiConfigurationDto {
   outputCostPerMillionMicros!: number;
 }
 
+export class ListAiModelsDto {
+  @IsIn(AI_PROVIDERS)
+  provider!: AiProvider;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  baseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  apiKey?: string;
+}
+
 export class ArticleAssistantDto {
   @IsIn(AI_ARTICLE_OPERATIONS)
   operation!: AiArticleOperation;

@@ -16,6 +16,11 @@ export interface AiProviderCompletion {
   usage: AiProviderUsage;
 }
 
+export interface AiProviderModel {
+  id: string;
+  label: string;
+}
+
 export interface AiProviderRequest {
   provider: AiProvider;
   baseUrl: string;
@@ -41,6 +46,18 @@ export async function completeWithProvider(input: AiProviderRequest): Promise<Ai
     return completeAnthropic(input);
   }
   return completeGoogle(input);
+}
+
+export async function listModelsWithProvider(input: Pick<AiProviderRequest, "provider" | "baseUrl" | "apiKey" | "timeoutSeconds">): Promise<AiProviderModel[]> {
+  if (input.provider === "anthropic") {
+    throw new AiProviderClientError("Anthropic 暂不提供标准的模型列表接口，请手动填写模型名称。\nAnthropic does not expose a standard model-list endpoint; enter the model name manually.");
+  }
+  const response = input.provider === "google"
+    ? await getJson(appendGoogleModelsEndpoint(input.baseUrl), {}, input.timeoutSeconds, input.apiKey)
+    : await getJson(appendEndpoint(input.baseUrl, "models"), { Authorization: `Bearer ${input.apiKey}` }, input.timeoutSeconds);
+  const models = input.provider === "google" ? readGoogleModels(response) : readOpenAiModels(response);
+  if (!models.length) throw new AiProviderClientError("AI 服务没有返回可用模型。\nThe AI service returned no usable models.");
+  return models;
 }
 
 async function completeOpenAiCompatible(input: AiProviderRequest): Promise<AiProviderCompletion> {
@@ -159,6 +176,36 @@ async function postJson(
   }
 }
 
+async function getJson(
+  endpoint: string,
+  headers: Record<string, string>,
+  timeoutSeconds: number,
+  apiKey?: string,
+): Promise<Record<string, unknown>> {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new AiProviderClientError("AI 接口地址无效。\nThe AI base URL is invalid.");
+  }
+  if (apiKey) url.searchParams.set("key", apiKey);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
+  try {
+    const response = await fetch(url, { headers: { Accept: "application/json", ...headers }, signal: controller.signal });
+    if (!response.ok) throw new AiProviderClientError(`AI 模型列表请求失败（HTTP ${response.status}）。`);
+    const parsed: unknown = await response.json();
+    if (!isRecord(parsed)) throw new AiProviderClientError("AI 服务返回了无效的模型列表。\nThe AI service returned an invalid model list.");
+    return parsed;
+  } catch (error) {
+    if (error instanceof AiProviderClientError) throw error;
+    if (error instanceof Error && error.name === "AbortError") throw new AiProviderClientError("AI 模型列表请求超时，请稍后重试。\nThe model-list request timed out.");
+    throw new AiProviderClientError("AI 模型列表暂时无法读取。\nThe model list is temporarily unavailable.");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function appendEndpoint(baseUrl: string, suffix: string): string {
   const base = baseUrl.trim().replace(/\/+$/, "");
   return base.endsWith(`/${suffix}`) ? base : `${base}/${suffix}`;
@@ -174,6 +221,34 @@ function appendGoogleEndpoint(baseUrl: string, model: string): string {
   const base = baseUrl.trim().replace(/\/+$/, "");
   if (base.includes(":generateContent")) return base;
   return `${base}/models/${encodeURIComponent(model)}:generateContent`;
+}
+
+function appendGoogleModelsEndpoint(baseUrl: string): string {
+  const base = baseUrl.trim().replace(/\/+$/, "");
+  if (base.endsWith("/models")) return base;
+  return `${base}/models`;
+}
+
+function readOpenAiModels(value: Record<string, unknown>): AiProviderModel[] {
+  const items = Array.isArray(value.data) ? value.data : Array.isArray(value.models) ? value.models : [];
+  return items.map((item) => {
+    if (!isRecord(item) || typeof item.id !== "string") return null;
+    const id = item.id.trim();
+    return id ? { id, label: id } : null;
+  }).filter((item): item is AiProviderModel => Boolean(item));
+}
+
+function readGoogleModels(value: Record<string, unknown>): AiProviderModel[] {
+  const items = Array.isArray(value.models) ? value.models : [];
+  return items.map((item) => {
+    if (!isRecord(item) || typeof item.name !== "string") return null;
+    const methods = Array.isArray(item.supportedGenerationMethods) ? item.supportedGenerationMethods : [];
+    if (methods.length && !methods.includes("generateContent")) return null;
+    const id = item.name.replace(/^models\//, "").trim();
+    if (!id) return null;
+    const label = typeof item.displayName === "string" && item.displayName.trim() ? `${item.displayName.trim()} (${id})` : id;
+    return { id, label };
+  }).filter((item): item is AiProviderModel => Boolean(item));
 }
 
 function readString(value: unknown, path: Array<string | number>): string | null {
