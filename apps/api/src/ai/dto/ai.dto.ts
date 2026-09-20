@@ -4,6 +4,9 @@ import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, Is
 export const AI_PROVIDERS = ["openai-compatible", "deepseek", "custom", "anthropic", "google"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
+export const AI_CAPABILITIES = ["embedding", "ocr", "transcription", "image_generation"] as const;
+export type AiCapability = (typeof AI_CAPABILITIES)[number];
+
 export const AI_ARTICLE_OPERATIONS = [
   "title",
   "outline",
@@ -105,6 +108,164 @@ export class UpdateAiConfigurationDto {
   @Min(0)
   @Max(1000000000)
   outputCostPerMillionMicros!: number;
+
+  @IsOptional()
+  @IsBoolean()
+  ragEnabled?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  ragTopK?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(4)
+  @Max(80)
+  contextMaxMessages?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(8)
+  @Max(200)
+  contextSummaryThreshold?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  contextRetentionDays?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  qualityEvaluationEnabled?: boolean;
+}
+
+export class UpdateAiCapabilityConfigurationDto {
+  @IsBoolean()
+  enabled!: boolean;
+
+  @IsIn(AI_PROVIDERS)
+  provider!: AiProvider;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  baseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  model?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  apiKey?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  clearApiKey?: boolean;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  globalConcurrency!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  userConcurrency!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(10)
+  @Max(600)
+  requestTimeoutSeconds!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100000)
+  dailyRequestLimit!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(2000000000)
+  monthlyBudgetMicros!: number;
+
+  @IsIn(["USD", "CNY"])
+  billingCurrency!: "USD" | "CNY";
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000000)
+  inputCostPerMillionMicros!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000000)
+  outputCostPerMillionMicros!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000000)
+  unitCostMicros!: number;
+
+  @IsString()
+  @MaxLength(32)
+  unitName!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1024)
+  @Max(52428800)
+  maxInputBytes!: number;
+}
+
+export class AiMediaPromptDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  prompt?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  size?: string;
+}
+
+export class AiQualityFeedbackDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  conversationId!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  messageId!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsIn([-1, 1])
+  rating!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
 }
 
 export class ListAiModelsDto {

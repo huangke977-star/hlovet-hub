@@ -16,6 +16,23 @@ export interface AiProviderCompletion {
   usage: AiProviderUsage;
 }
 
+export interface AiProviderEmbedding {
+  embeddings: number[][];
+  usage: AiProviderUsage;
+}
+
+export interface AiProviderTranscription {
+  text: string;
+  usage: AiProviderUsage;
+}
+
+export interface AiProviderImage {
+  url: string | null;
+  base64: string | null;
+  revisedPrompt: string | null;
+  usage: AiProviderUsage;
+}
+
 export interface AiProviderModel {
   id: string;
   label: string;
@@ -58,6 +75,111 @@ export async function listModelsWithProvider(input: Pick<AiProviderRequest, "pro
   const models = input.provider === "google" ? readGoogleModels(response) : readOpenAiModels(response);
   if (!models.length) throw new AiProviderClientError("AI 服务没有返回可用模型。\nThe AI service returned no usable models.");
   return models;
+}
+
+export async function createEmbeddingsWithProvider(input: {
+  provider: AiProvider;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  texts: string[];
+  timeoutSeconds: number;
+}): Promise<AiProviderEmbedding> {
+  if (!(input.provider === "openai-compatible" || input.provider === "deepseek" || input.provider === "custom")) {
+    throw new AiProviderClientError("当前供应商未提供标准 Embedding 接口，请改用 OpenAI 兼容供应商或配置专用接口。\nThis provider does not expose a standard embeddings endpoint.");
+  }
+  const response = await postJson(
+    appendEndpoint(input.baseUrl, "embeddings"),
+    { model: input.model, input: input.texts },
+    { Authorization: `Bearer ${input.apiKey}` },
+    input.timeoutSeconds,
+  );
+  const items = Array.isArray(response.data) ? response.data : [];
+  const embeddings = items
+    .map((item) => isRecord(item) && Array.isArray(item.embedding) ? item.embedding.filter((value): value is number => typeof value === "number" && Number.isFinite(value)) : null)
+    .filter((item): item is number[] => Boolean(item?.length));
+  if (embeddings.length !== input.texts.length) throw new AiProviderClientError("Embedding 服务返回的向量数量不完整。\nThe embeddings service returned an incomplete vector set.");
+  return { embeddings, usage: readUsage(response, { prompt: ["usage", "prompt_tokens"], completion: [], total: ["usage", "total_tokens"] }) };
+}
+
+export async function transcribeWithProvider(input: {
+  provider: AiProvider;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  file: Buffer;
+  filename: string;
+  mimeType: string;
+  timeoutSeconds: number;
+}): Promise<AiProviderTranscription> {
+  if (!(input.provider === "openai-compatible" || input.provider === "deepseek" || input.provider === "custom")) {
+    throw new AiProviderClientError("当前供应商未提供标准语音转文字接口，请配置 OpenAI 兼容的 audio/transcriptions 接口。\nThis provider does not expose a standard transcription endpoint.");
+  }
+  const form = new FormData();
+  form.append("model", input.model);
+  form.append("file", new Blob([input.file as unknown as BlobPart], { type: input.mimeType || "application/octet-stream" }), input.filename || "audio.bin");
+  const response = await postForm(appendEndpoint(input.baseUrl, "audio/transcriptions"), form, { Authorization: `Bearer ${input.apiKey}` }, input.timeoutSeconds);
+  const text = typeof response.text === "string" ? response.text.trim() : "";
+  if (!text) throw new AiProviderClientError("语音服务返回了空内容。\nThe transcription service returned empty content.");
+  return { text, usage: readUsage(response, { prompt: ["usage", "prompt_tokens"], completion: ["usage", "completion_tokens"], total: ["usage", "total_tokens"] }) };
+}
+
+export async function ocrWithProvider(input: {
+  provider: AiProvider;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  imageDataUrl: string;
+  prompt: string;
+  timeoutSeconds: number;
+}): Promise<AiProviderCompletion> {
+  if (!(input.provider === "openai-compatible" || input.provider === "deepseek" || input.provider === "custom" || input.provider === "google")) {
+    throw new AiProviderClientError("当前供应商未提供图片理解接口。\nThis provider does not expose a vision endpoint.");
+  }
+  if (input.provider === "google") {
+    throw new AiProviderClientError("Google 图片识别适配将在配置 Gemini 视觉模型后启用，请先使用 OpenAI 兼容视觉接口。\nConfigure a Gemini vision model or use an OpenAI-compatible vision endpoint.");
+  }
+  const response = await postJson(
+    appendEndpoint(input.baseUrl, "chat/completions"),
+    {
+      model: input.model,
+      messages: [{ role: "user", content: [{ type: "text", text: input.prompt }, { type: "image_url", image_url: { url: input.imageDataUrl } }] }],
+      max_tokens: 4000,
+    },
+    { Authorization: `Bearer ${input.apiKey}` },
+    input.timeoutSeconds,
+  );
+  const text = readString(response, ["choices", 0, "message", "content"]);
+  if (!text) throw new AiProviderClientError("图片识别服务返回了空内容。\nThe vision service returned empty content.");
+  return { text, usage: readUsage(response, { prompt: ["usage", "prompt_tokens"], completion: ["usage", "completion_tokens"], total: ["usage", "total_tokens"] }) };
+}
+
+export async function generateImageWithProvider(input: {
+  provider: AiProvider;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  prompt: string;
+  size: string;
+  timeoutSeconds: number;
+}): Promise<AiProviderImage> {
+  if (!(input.provider === "openai-compatible" || input.provider === "custom" || input.provider === "google")) {
+    throw new AiProviderClientError("当前供应商未提供标准图片生成接口。\nThis provider does not expose a standard image generation endpoint.");
+  }
+  if (input.provider === "google") {
+    throw new AiProviderClientError("Google 图片生成需要 Imagen 专用适配，请先使用 OpenAI 兼容图片生成接口。\nGoogle image generation requires an Imagen-specific adapter.");
+  }
+  const response = await postJson(
+    appendEndpoint(input.baseUrl, "images/generations"),
+    { model: input.model, prompt: input.prompt, size: input.size, n: 1 },
+    { Authorization: `Bearer ${input.apiKey}` },
+    input.timeoutSeconds,
+  );
+  const first = Array.isArray(response.data) && isRecord(response.data[0]) ? response.data[0] : null;
+  const url = first && typeof first.url === "string" ? first.url : null;
+  const base64 = first && typeof first.b64_json === "string" ? first.b64_json : null;
+  if (!url && !base64) throw new AiProviderClientError("图片生成服务没有返回图片。\nThe image generation service returned no image.");
+  return { url, base64, revisedPrompt: first && typeof first.revised_prompt === "string" ? first.revised_prompt : null, usage: readUsage(response, { prompt: ["usage", "prompt_tokens"], completion: ["usage", "completion_tokens"], total: ["usage", "total_tokens"] }) };
 }
 
 async function completeOpenAiCompatible(input: AiProviderRequest): Promise<AiProviderCompletion> {
@@ -171,6 +293,35 @@ async function postJson(
       throw new AiProviderClientError("AI 请求超时，请稍后重试。");
     }
     throw new AiProviderClientError("AI 服务暂时无法连接。");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function postForm(
+  endpoint: string,
+  body: FormData,
+  headers: Record<string, string>,
+  timeoutSeconds: number,
+): Promise<Record<string, unknown>> {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new AiProviderClientError("AI 接口地址无效。\nThe AI base URL is invalid.");
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
+  try {
+    const response = await fetch(url, { method: "POST", headers: { Accept: "application/json", ...headers }, body, signal: controller.signal });
+    if (!response.ok) throw new AiProviderClientError(`AI 服务请求失败（HTTP ${response.status}）。`);
+    const parsed: unknown = await response.json();
+    if (!isRecord(parsed)) throw new AiProviderClientError("AI 服务返回了无效响应。\nThe AI service returned an invalid response.");
+    return parsed;
+  } catch (error) {
+    if (error instanceof AiProviderClientError) throw error;
+    if (error instanceof Error && error.name === "AbortError") throw new AiProviderClientError("AI 请求超时，请稍后重试。\nThe AI request timed out.");
+    throw new AiProviderClientError("AI 服务暂时无法连接。\nThe AI service is temporarily unavailable.");
   } finally {
     clearTimeout(timeout);
   }

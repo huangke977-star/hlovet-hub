@@ -1,16 +1,19 @@
-import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { SuperAdminGuard } from "../auth/guards/super-admin.guard";
 import { UserManagementGuard } from "../auth/guards/user-management.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { AuthenticatedUser } from "../auth/auth.types";
-import { AiChatDto, AiToolConfirmationDto, AiToolInputDto, ArticleAssistantDto, ListAiModelsDto, UpdateAiConfigurationDto } from "./dto/ai.dto";
+import { AI_CAPABILITIES, AiCapability, AiChatDto, AiMediaPromptDto, AiQualityFeedbackDto, AiToolConfirmationDto, AiToolInputDto, ArticleAssistantDto, ListAiModelsDto, UpdateAiCapabilityConfigurationDto, UpdateAiConfigurationDto } from "./dto/ai.dto";
 import { AiService } from "./ai.service";
+import { AiCapabilitiesService } from "./ai-capabilities.service";
+import { AiKnowledgeService } from "./ai-knowledge.service";
 
 @Controller("ai/admin")
 @UseGuards(JwtAuthGuard, UserManagementGuard, SuperAdminGuard)
 export class AiController {
-  constructor(private readonly ai: AiService) {}
+  constructor(private readonly ai: AiService, private readonly capabilities: AiCapabilitiesService, private readonly knowledge: AiKnowledgeService) {}
 
   @Get("configuration")
   getConfiguration() {
@@ -41,12 +44,57 @@ export class AiController {
   getToolInvocations(@Query("limit", new DefaultValuePipe(50), ParseIntPipe) limit: number) {
     return this.ai.getAdminToolInvocations(limit);
   }
+
+  @Get("capabilities")
+  getCapabilities() {
+    return this.capabilities.listConfigurations();
+  }
+
+  @Patch("capabilities/:capability")
+  updateCapability(@Param("capability") capability: string, @Body() dto: UpdateAiCapabilityConfigurationDto) {
+    return this.capabilities.updateConfiguration(this.readCapability(capability), dto);
+  }
+
+  @Post("capabilities/:capability/test")
+  testCapability(@Param("capability") capability: string) {
+    return this.capabilities.testConfiguration(this.readCapability(capability));
+  }
+
+  @Get("usage")
+  getUsage(@Query("days", new DefaultValuePipe(30), ParseIntPipe) days: number) {
+    return this.capabilities.usageOverview(days);
+  }
+
+  @Get("knowledge")
+  getKnowledgeOverview() {
+    return this.knowledge.getOverview();
+  }
+
+  @Get("knowledge/documents")
+  getKnowledgeDocuments(@Query("limit", new DefaultValuePipe(100), ParseIntPipe) limit: number) {
+    return this.knowledge.listDocuments(limit);
+  }
+
+  @Post("knowledge/documents/:id/reindex")
+  reindexKnowledgeDocument(@Param("id", ParseIntPipe) id: number) {
+    return this.knowledge.reindexDocument(id);
+  }
+
+  @Post("knowledge/reindex")
+  reindexKnowledge(@Query("limit", new DefaultValuePipe(50), ParseIntPipe) limit: number) {
+    return this.knowledge.reindex(limit);
+  }
+
+  private readCapability(value: string): AiCapability {
+    if (!AI_CAPABILITIES.includes(value as AiCapability)) throw new BadRequestException("不支持的 AI 能力。\nUnsupported AI capability.");
+    return value as AiCapability;
+  }
 }
 
 @Controller("ai")
 @UseGuards(JwtAuthGuard)
 export class ArticleAiController {
-  constructor(private readonly ai: AiService) {}
+  constructor(private readonly ai: AiService, private readonly capabilities: AiCapabilitiesService, private readonly knowledge: AiKnowledgeService) {}
 
   @Post("article-assistant")
   articleAssistant(@CurrentUser() user: AuthenticatedUser, @Body() dto: ArticleAssistantDto) {
@@ -73,6 +121,11 @@ export class ArticleAiController {
     return this.ai.chat(user, dto);
   }
 
+  @Post("quality-feedback")
+  recordQualityFeedback(@CurrentUser() user: AuthenticatedUser, @Body() dto: AiQualityFeedbackDto) {
+    return this.ai.recordQualityFeedback(user.id, dto);
+  }
+
   @Post("tools/:name")
   executeTool(@CurrentUser() user: AuthenticatedUser, @Param("name") name: string, @Body() dto: AiToolInputDto) {
     return this.ai.executeTool(user, name, dto);
@@ -81,5 +134,34 @@ export class ArticleAiController {
   @Post("tool-invocations/:id/confirm")
   confirmTool(@CurrentUser() user: AuthenticatedUser, @Param("id", ParseIntPipe) id: number, @Body() dto: AiToolConfirmationDto) {
     return this.ai.confirmTool(user, id, dto.confirmationToken, dto.selectedSuggestedTags ?? []);
+  }
+
+  @Get("media-tasks")
+  listMediaTasks(@CurrentUser() user: AuthenticatedUser) {
+    return this.capabilities.listMediaTasks(user.id);
+  }
+
+  @Post("media/ocr")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024 } }))
+  ocr(@CurrentUser() user: AuthenticatedUser, @UploadedFile() file: { buffer: Buffer; originalname: string; mimetype: string; size: number } | undefined, @Body("prompt") prompt?: string) {
+    if (!file?.buffer) throw new BadRequestException("请选择图片文件。\nChoose an image file.");
+    return this.capabilities.processOcr(user, file, prompt);
+  }
+
+  @Post("media/transcription")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 20 * 1024 * 1024 } }))
+  transcription(@CurrentUser() user: AuthenticatedUser, @UploadedFile() file: { buffer: Buffer; originalname: string; mimetype: string; size: number } | undefined) {
+    if (!file?.buffer) throw new BadRequestException("请选择音频文件。\nChoose an audio file.");
+    return this.capabilities.processTranscription(user, file);
+  }
+
+  @Post("media/image")
+  image(@CurrentUser() user: AuthenticatedUser, @Body() dto: AiMediaPromptDto) {
+    return this.capabilities.generateImage(user, dto);
+  }
+
+  @Get("knowledge/search")
+  searchKnowledge(@CurrentUser() user: AuthenticatedUser, @Query("q") query: string, @Query("limit", new DefaultValuePipe(6), ParseIntPipe) limit: number) {
+    return this.knowledge.search(user, query ?? "", limit);
   }
 }

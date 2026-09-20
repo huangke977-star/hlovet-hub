@@ -745,7 +745,7 @@ Necessity: High. P22 adds no always-on monitoring platform and reuses Redis, Sys
 - Added `scripts/p22-browser-smoke.py` and `scripts/p22-release-check.mjs`. Browser checks visit public routes only and require an explicit `--update-baseline` for first-time visual baselines.
 - Added `docs/p22-production-quality.zh-CN.md` and the English version with commands, result meanings, release checks, and failure handling.
 
-### Phase 23: AI Foundation And Writing Assistant (In Progress)
+### Phase 23: AI Foundation And Writing Assistant (Completed)
 
 Goal: connect external model APIs and make credentials, models, and resource consumption manageable from the admin console without running a local model or adding always-on AI infrastructure.
 
@@ -769,9 +769,10 @@ Goal: add permission-bounded site Q&A and low-risk tool calls after the AI found
 | P24-01 | Permission-aware Q&A for the current article, topic/collection summaries, and visible site articles; filter access before sending context to the model | Completed |
 | P24-02 | Controlled AI tools for a user’s own points, earnings, subscriptions, article status, draft generation, task organization, and admin-data explanations | Completed |
 | P24-03 | Tool permissions, audit, and human confirmation; read-only by default, with short-lived confirmation for write actions | Completed |
-| P24-04 | Evaluate lightweight vector retrieval/RAG only after enough content exists; do not pre-install Elasticsearch, a vector database, or another always-on heavy service | Not started |
+| P24-04 | Evaluate lightweight vector retrieval/RAG only after enough content exists; do not pre-install Elasticsearch, a vector database, or another always-on heavy service | Completed |
+| P24-05 | Add OCR, transcription, and image generation as independently switchable external capabilities protected by size, concurrency, quota, and budget limits | Completed |
 
-Outside the core scope for now: image OCR, speech-to-text, image generation, and a local server-side model. Reassess them after real usage and resource measurements.
+Image OCR, speech-to-text, and image generation are now implemented as disabled-by-default external capabilities. A local server-side model remains outside the scope.
 
 ### P24 Acceptance Record (Local)
 
@@ -781,11 +782,11 @@ Outside the core scope for now: image OCR, speech-to-text, image generation, and
 - All 11 P24-focused tests passed; the full API suite passed with 51 suites and 352 tests; API/Web builds, lint, Prisma validation, and `git diff --check` passed.
 - Docker Desktop was not running locally, so the migration was not applied to a local database. Before production deployment, `backups/pre-06d9587-20260918-1217.sql.gz` was created and passed gzip validation, and the additive P24 migration was applied successfully.
 - Production verification passed: `/api/health`, `/api/health/ready`, `/`, `/ai`, `/en`, and `/en/ai` all returned 200. The readiness check confirmed MySQL and Redis; API startup logs registered the P24 routes without errors. Only API/Web were recreated; MySQL, Redis, Caddy, TURN, and data volumes remained running.
-- Production retained only the current `main` API/Web images; no unused older API/Web images were found, so no image deletion was performed. P24-04 vector retrieval/RAG has not started.
+- Production retained only the current `main` API/Web images; no unused older API/Web images were found, so no image deletion was performed. P24-04 now provides lightweight RAG with MySQL article chunks and JSON vectors, falling back to keyword retrieval when Embeddings are unavailable. OCR, transcription, and image generation are managed from the same AI console; real media-sample acceptance remains an external-provider regression check.
 
 ### Later-Phase Dependencies And Order
 
-Phases 15 through 24 are complete. P17-05 requires SMTP, and manual Google sign-in acceptance for P19 requires Google Cloud OAuth configuration. The P21 OSS/R2 remote drill remains dependent on an external provider and does not block completed P24. P24-04 vector retrieval/RAG remains an evaluation item. P24 uses the existing MySQL, Redis, and external model gateway and does not require OSS/R2.
+Phases 15 through 24 are complete. P17-05 requires SMTP, and manual Google sign-in acceptance for P19 requires Google Cloud OAuth configuration. The P21 OSS/R2 remote drill remains dependent on an external provider and does not block completed P24. P24 uses the existing MySQL, Redis, and external model gateway and does not require OSS/R2; media capabilities and Embeddings remain disabled or degraded when not configured.
 
 P23-01 through P23-03 were pushed and deployed on 2026-09-11 in commit `60efb96`. P23-04 now includes the article assistant API, editor preview, and apply flow, and passed the local API suite, both production builds, and lint. GitHub Actions run `34550803526` built both API and Web images successfully. The pre-deployment backup `backups/pre-60efb96-20260911-093422.sql.gz` was created and passed gzip validation. Production applied all 76 migrations with none pending; only API/Web were recreated, while MySQL, Redis, Caddy, TURN, and data volumes remained running. After deployment, `/api/health`, `/api/health/ready`, the Chinese homepage, and the English homepage all passed.
 

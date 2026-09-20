@@ -452,11 +452,67 @@
 .ai-clear-key-button:hover,
 .ai-clear-key-button.active { background: color-mix(in srgb, var(--danger, #bd4b5d) 14%, transparent); color: var(--danger, #bd4b5d); }
 .ai-clear-key { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .66rem; }
+.ai-context-settings { display: grid; min-width: 0; grid-template-columns: minmax(180px, 1.3fr) repeat(4, minmax(110px, .7fr)) minmax(180px, 1.2fr); align-items: end; gap: 8px; border-top: 1px solid var(--control-line); padding-top: 9px; }
+.ai-context-settings > label:not(.ai-config-toggle) { display: grid; gap: 4px; color: var(--muted-strong); font-size: .64rem; }
+.ai-context-settings input[type="number"] { box-sizing: border-box; width: 100%; min-height: 31px; border: 1px solid color-mix(in srgb, var(--control-line) 72%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--surface-strong) 72%, transparent); color: var(--foreground); font: inherit; font-size: .68rem; outline: 0; padding: 6px 7px; }
+.ai-context-settings input[type="number"]:focus { border-color: color-mix(in srgb, var(--accent) 58%, var(--control-line)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent); }
 .ai-config-panel > footer { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--control-line); padding-top: 9px; }
 .ai-config-panel > footer small { min-width: 0; color: var(--muted); font-size: .64rem; line-height: 1.4; }
 .ai-config-panel > footer .button { display: inline-flex; min-height: 31px; flex: 0 0 auto; align-items: center; gap: 5px; border-radius: 6px; font-size: .68rem; padding: 0 9px; }
 .ai-config-actions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; }
 .ai-test-button { background: color-mix(in srgb, var(--surface-strong) 72%, transparent); color: var(--muted-strong); }
+.ai-capabilities-panel { display: grid; min-width: 0; gap: 10px; border-radius: 8px; background: color-mix(in srgb, var(--panel) 84%, transparent); box-shadow: var(--panel-shadow); padding: 13px; }
+.ai-capabilities-header,
+.ai-knowledge-summary > header,
+.ai-usage-summary > header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--control-line); padding-bottom: 8px; }
+.ai-capabilities-header > div,
+.ai-knowledge-summary > header > span,
+.ai-usage-summary > header > span { display: grid; min-width: 0; gap: 4px; }
+.ai-capabilities-header > div > span,
+.ai-knowledge-summary > header > span,
+.ai-usage-summary > header > span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-strong); font-size: .78rem; font-weight: 620; }
+.ai-capabilities-header small,
+.ai-usage-summary > header small { color: var(--muted); font-size: .64rem; }
+.ai-capabilities-header svg,
+.ai-knowledge-summary svg,
+.ai-usage-summary svg { color: var(--accent-strong); }
+.ai-capability-grid { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.ai-capability-card { display: grid; min-width: 0; gap: 8px; border: 1px solid var(--control-line); border-radius: 7px; background: color-mix(in srgb, var(--surface-strong) 56%, transparent); padding: 10px; }
+.ai-capability-card > header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
+.ai-capability-card > header > span { display: inline-flex; min-width: 0; align-items: center; gap: 5px; color: var(--muted-strong); font-size: .74rem; }
+.ai-capability-card > header svg { color: var(--accent-strong); }
+.ai-capability-toggle { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: .62rem; }
+.ai-capability-toggle input { width: 14px; height: 14px; accent-color: var(--accent); margin: 0; }
+.ai-capability-note { margin: 0; color: var(--muted); font-size: .62rem; line-height: 1.4; }
+.ai-capability-fields { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.ai-capability-fields > label,
+.ai-capability-numbers > label { display: grid; min-width: 0; gap: 4px; color: var(--muted-strong); font-size: .62rem; }
+.ai-capability-fields input,
+.ai-capability-numbers input { box-sizing: border-box; width: 100%; min-height: 31px; border: 1px solid color-mix(in srgb, var(--control-line) 72%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--surface-strong) 72%, transparent); color: var(--foreground); font: inherit; font-size: .68rem; outline: 0; padding: 6px 7px; }
+.ai-capability-fields .announcement-editor-select-trigger { min-height: 31px; font-size: .68rem; }
+.ai-capability-fields input:focus,
+.ai-capability-numbers input:focus { border-color: color-mix(in srgb, var(--accent) 58%, var(--control-line)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent); }
+.ai-capability-key { position: relative; min-width: 0; }
+.ai-capability-key .password-input > input { padding-right: 38px; }
+.ai-capability-key .password-reveal-control { right: 32px; width: 26px; height: 26px; }
+.ai-capability-key .ai-clear-key-button { right: 2px; width: 26px; height: 26px; }
+.ai-capability-numbers { display: grid; min-width: 0; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.ai-capability-card > footer { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--control-line); padding-top: 7px; }
+.ai-capability-card > footer small { color: var(--muted); font-size: .6rem; }
+.ai-capability-card > footer > div { display: inline-flex; gap: 5px; }
+.ai-capability-card > footer .button,
+.ai-knowledge-summary .button { display: inline-flex; min-height: 28px; align-items: center; gap: 4px; border-radius: 6px; font-size: .64rem; padding: 0 8px; }
+.ai-knowledge-summary,
+.ai-usage-summary { display: grid; min-width: 0; gap: 8px; border-top: 1px solid var(--control-line); padding-top: 10px; }
+.ai-knowledge-summary > header .button { flex: 0 0 auto; }
+.ai-knowledge-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.ai-knowledge-stats > span { display: grid; gap: 2px; border-radius: 6px; background: color-mix(in srgb, var(--surface-strong) 54%, transparent); color: var(--muted); font-size: .6rem; padding: 8px; }
+.ai-knowledge-stats strong { color: var(--foreground); font-size: .84rem; }
+.ai-knowledge-stats .ready { color: var(--success, #32865b); }
+.ai-knowledge-stats .pending { color: var(--muted); }
+.ai-knowledge-summary > p { margin: 0; color: var(--muted); font-size: .64rem; line-height: 1.45; }
+.ai-usage-summary > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 8px; color: var(--muted); font-size: .64rem; }
+.ai-usage-summary > div strong { color: var(--foreground); font-size: .86rem; }
 .ai-log-panel { display: grid; min-width: 0; gap: 9px; border-radius: 8px; background: color-mix(in srgb, var(--panel) 84%, transparent); box-shadow: var(--panel-shadow); padding: 13px; }
 .ai-log-panel > header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--control-line); padding-bottom: 8px; }
 .ai-log-panel > header > span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-strong); font-size: .78rem; font-weight: 620; }
@@ -536,6 +592,14 @@
 .ai-chat-message.user .ai-chat-message-body { background: color-mix(in srgb, var(--accent-soft) 65%, transparent); }
 .ai-chat-message.user .ai-chat-message-body { text-align: left; }
 .ai-chat-message-body > p { margin: 0; color: var(--foreground); font-size: .74rem; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ai-quality-actions { display: flex; align-items: center; gap: 5px; margin-top: 7px; color: var(--muted); font-size: .58rem; }
+.ai-quality-actions button { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; padding: 0; }
+.ai-quality-actions button:hover, .ai-quality-actions button.active { background: color-mix(in srgb, var(--accent-soft) 60%, transparent); color: var(--accent-strong); }
+.ai-knowledge-documents { display: grid; max-height: 260px; gap: 1px; overflow: auto; border-top: 1px solid var(--control-line); }
+.ai-knowledge-document { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--control-line) 55%, transparent); padding: 6px 0; }
+.ai-knowledge-document > span { display: grid; min-width: 0; gap: 2px; }
+.ai-knowledge-document strong { overflow: hidden; color: var(--muted-strong); font-size: .66rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.ai-knowledge-document small { color: var(--muted); font-size: .58rem; }
 .ai-source-list { display: grid; gap: 3px; margin-top: 7px; border-top: 1px solid var(--control-line); padding-top: 6px; }
 .ai-source-list small { color: var(--muted); font-size: .6rem; }
 .ai-source-list a { overflow: hidden; color: var(--accent-strong); font-size: .63rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -607,9 +671,14 @@
 @media (max-width: 760px) {
   .ai-resource-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ai-config-fields { grid-template-columns: minmax(0, 1fr); }
+  .ai-context-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ai-context-settings > .ai-config-toggle { grid-column: span 2; }
   .ai-config-panel > footer { align-items: flex-start; flex-direction: column; }
   .ai-config-actions { width: 100%; }
   .ai-config-actions .button { flex: 1 1 0; justify-content: center; }
+  .ai-capability-grid { grid-template-columns: minmax(0, 1fr); }
+  .ai-capability-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ai-knowledge-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ai-user-header { align-items: flex-start; flex-direction: column; }
   .ai-user-header p { display: none; }
   .page-shell.ai-user-page { gap: 3px; }
@@ -22676,8 +22745,12 @@ textarea::-webkit-scrollbar { display: none; width: 0; height: 0; }
   font-size: .72rem;
 }
 .ai-config-fields .ai-currency-field .announcement-editor-select-trigger {
-  font-size: .68rem;
-}
+    font-size: .68rem;
+  }
+.ai-pricing-label { display: inline-flex; align-items: center; justify-content: space-between; gap: 5px; width: 100%; }
+.ai-pricing-preset-button { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border: 0; border-radius: 50%; background: transparent; color: var(--accent-strong); cursor: pointer; padding: 0; }
+.ai-pricing-preset-button:hover { background: var(--accent-soft); }
+.ai-pricing-preset-note { grid-column: 1 / -1; margin: -2px 0 0; color: var(--muted); font-size: .61rem; line-height: 1.35; }
 .announcement-editor-select-menu-portal.ai-currency-menu {
   min-width: 132px;
 }

@@ -11,6 +11,8 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  ThumbsDown,
+  ThumbsUp,
   UserRound,
   Wrench,
   X,
@@ -32,10 +34,11 @@ import {
   type AiConversationListItem,
   type AiSource,
   type AiToolDefinition,
+  sendAiQualityFeedback,
 } from "@/lib/ai-api";
 import { localizedPath } from "@/lib/i18n";
 
-type Message = { role: "user" | "assistant"; content: string; sources?: AiSource[] | null };
+type Message = { id?: number; role: "user" | "assistant"; content: string; sources?: AiSource[] | null; qualityRating?: -1 | 1 };
 type ToolModalState = { tool: AiToolDefinition; output: unknown | null };
 
 const TOOL_FIELD_LABELS: Record<string, string> = {
@@ -111,7 +114,7 @@ export default function AiPage() {
       const conversation = await getAiConversation(token, id);
       keepMessagesAtBottomRef.current = true;
       setConversationId(conversation.id);
-      setMessages(conversation.messages.map((message) => ({ role: message.role, content: message.content, sources: message.sources })));
+      setMessages(conversation.messages.map((message) => ({ id: message.id, role: message.role, content: message.content, sources: message.sources, qualityRating: message.qualityRating ?? undefined })));
       setPendingDraft(null);
       setToolModal(null);
       setDraftModalOpen(false);
@@ -140,7 +143,7 @@ export default function AiPage() {
     try {
       const result = await runAiChat(token, { conversationId, message, locale });
       setConversationId(result.conversationId);
-      setMessages((current) => [...current, { role: "assistant", content: result.text, sources: result.sources }]);
+      setMessages((current) => [...current, { id: result.messageId, role: "assistant", content: result.text, sources: result.sources }]);
       setNotice(phrase(`已生成回答，耗时 ${result.durationMs} ms。`, `Answer generated in ${result.durationMs} ms.`));
       await load(token);
     } catch (sendError) {
@@ -148,6 +151,19 @@ export default function AiPage() {
       setError(sendError instanceof Error ? sendError.message : phrase("AI 请求失败。", "The AI request failed."));
     } finally {
       setSending(false);
+    }
+  }
+
+  async function rateMessage(message: Message, rating: -1 | 1) {
+    if (!token || !conversationId || !message.id) return;
+    const previous = message.qualityRating;
+    setMessages((current) => current.map((item) => item.id === message.id ? { ...item, qualityRating: rating } : item));
+    try {
+      await sendAiQualityFeedback(token, { conversationId, messageId: message.id, rating });
+      setNotice(phrase("感谢反馈，已记录这条回答的质量评价。", "Thanks, your quality feedback was recorded."));
+    } catch (feedbackError) {
+      setMessages((current) => current.map((item) => item.id === message.id ? { ...item, qualityRating: previous } : item));
+      setError(feedbackError instanceof Error ? feedbackError.message : phrase("质量反馈提交失败。", "Could not submit quality feedback."));
     }
   }
 
@@ -164,7 +180,7 @@ export default function AiPage() {
     try {
       const result = await executeAiTool(token, tool.name, tool.name === "search_visible_articles" ? { query: draft || phrase("最新文章", "recent articles") } : undefined, conversationId);
       setToolModal((current) => current?.tool.name === tool.name ? { ...current, output: result.output ?? result } : current);
-      setNotice(phrase(`${tool.label}已完成。`, `${tool.label} completed.`));
+      setNotice(phrase(`${tool.label}已完成。`, `${tool.labelEn ?? tool.label} completed.`));
     } catch (toolError) {
       setError(toolError instanceof Error ? toolError.message : phrase("工具执行失败。", "The tool failed."));
     } finally {
@@ -219,8 +235,8 @@ export default function AiPage() {
     <header className="ai-user-header"><div><span className="section-label">{locale === "zh-CN" ? "智能工作台" : "AI workspace"}</span><h1><BrainCircuit aria-hidden="true" size={23} />{phrase("AI 助手", "AI assistant")}</h1><p>{phrase("只回答当前账号有权限查看的站内内容；无关问题不会调用模型，涉及写入的操作会先预览并确认。", "Answers use only site content visible to this account. Unrelated questions do not call the model, and write actions are previewed first.")}</p></div></header>
     <div className="ai-user-layout">
       <aside className="ai-conversation-sidebar"><button aria-label={phrase("新对话", "New chat")} className="ai-new-conversation" onClick={newConversation} type="button"><span><MessageSquare aria-hidden="true" size={15} />{phrase("新对话", "New chat")}</span><Plus aria-hidden="true" size={15} /></button>{conversations.length ? conversations.map((item) => <button className={item.id === conversationId ? "active" : ""} key={item.id} onClick={() => void openConversation(item.id)} type="button"><strong>{item.title}</strong><small>{item._count.messages} {phrase("条消息", "messages")}</small></button>) : <p>{phrase("还没有历史对话。", "No conversations yet.")}</p>}</aside>
-      <main className="ai-chat-panel"><header><span><Sparkles size={16} />{activeTitle}</span><small><ShieldCheck size={13} />{phrase("权限过滤已启用", "Permission filter on")}</small></header><div className="ai-chat-messages" onScroll={trackMessagesScroll} ref={messagesRef}>{messages.length ? messages.map((message, index) => <article className={`ai-chat-message ${message.role}`} key={`${index}-${message.content.slice(0, 12)}`}><div aria-label={message.role === "user" ? phrase("你的消息", "Your message") : phrase("AI 消息", "AI message")} className="ai-chat-message-label" title={message.role === "user" ? phrase("你的消息", "Your message") : phrase("AI 消息", "AI message")}>{message.role === "user" ? <UserRound aria-hidden="true" size={15} /> : <Sparkles aria-hidden="true" size={15} />}</div><div className="ai-chat-message-body"><p>{message.content}</p>{message.sources?.length ? <div className="ai-source-list"><small>{phrase("引用来源", "Sources")}</small>{message.sources.map((source, sourceIndex) => <Link href={localizedPath(`/articles/${source.slug}`, locale)} key={source.id}>[{sourceIndex + 1}] {source.title}</Link>)}</div> : null}</div></article>) : <div className="ai-chat-empty"><BrainCircuit size={30} /><strong>{phrase("问问站内内容或你的个人数据", "Ask about site content or your own data")}</strong><span>{phrase("例如：总结当前文章、查询我的积分、列出我的订阅。", "For example: summarize this article, show my points, or list your subscriptions.")}</span></div>}</div><form className="ai-chat-composer" onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}><textarea aria-label={phrase("向 AI 提问", "Ask AI")} disabled={sending} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder={phrase("输入问题，Enter 发送，Shift+Enter 换行", "Ask a question. Enter sends; Shift+Enter adds a line break.")} rows={3} value={draft} /><button aria-label={phrase("发送", "Send")} disabled={sending || !draft.trim()} title={phrase("发送", "Send")} type="submit">{sending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={17} />}</button></form></main>
-      <aside className="ai-tools-sidebar"><header><span><Wrench size={15} />{phrase("受控工具", "Controlled tools")}</span><small>{phrase("默认只读", "Read-only by default")}</small></header>{tools.map((tool) => <button className="ai-tool-button" disabled={Boolean(toolRunning)} key={tool.name} onClick={() => void runTool(tool)} type="button"><span><strong>{tool.label}</strong><small>{tool.description}</small></span>{tool.readOnly ? <Search size={14} /> : <FilePlus2 size={14} />}</button>)}</aside>
+      <main className="ai-chat-panel"><header><span><Sparkles size={16} />{activeTitle}</span><small><ShieldCheck size={13} />{phrase("权限过滤已启用", "Permission filter on")}</small></header><div className="ai-chat-messages" onScroll={trackMessagesScroll} ref={messagesRef}>{messages.length ? messages.map((message, index) => <article className={`ai-chat-message ${message.role}`} key={message.id ?? `${index}-${message.content.slice(0, 12)}`}><div aria-label={message.role === "user" ? phrase("你的消息", "Your message") : phrase("AI 消息", "AI message")} className="ai-chat-message-label" title={message.role === "user" ? phrase("你的消息", "Your message") : phrase("AI 消息", "AI message")}>{message.role === "user" ? <UserRound aria-hidden="true" size={15} /> : <Sparkles aria-hidden="true" size={15} />}</div><div className="ai-chat-message-body"><p>{message.content}</p>{message.sources?.length ? <div className="ai-source-list"><small>{phrase("引用来源", "Sources")}</small>{message.sources.map((source, sourceIndex) => <Link href={localizedPath(`/articles/${source.slug}`, locale)} key={source.id}>[{sourceIndex + 1}] {source.title}</Link>)}</div> : null}{message.role === "assistant" && message.id ? <div className="ai-quality-actions"><span>{phrase("这条回答有帮助吗？", "Was this answer helpful?")}</span><button aria-label={phrase("回答有帮助", "Helpful answer")} aria-pressed={message.qualityRating === 1} className={message.qualityRating === 1 ? "active" : ""} onClick={() => void rateMessage(message, 1)} title={phrase("有帮助", "Helpful")} type="button"><ThumbsUp size={13} /></button><button aria-label={phrase("回答没帮助", "Unhelpful answer")} aria-pressed={message.qualityRating === -1} className={message.qualityRating === -1 ? "active" : ""} onClick={() => void rateMessage(message, -1)} title={phrase("没帮助", "Not helpful")} type="button"><ThumbsDown size={13} /></button></div> : null}</div></article>) : <div className="ai-chat-empty"><BrainCircuit size={30} /><strong>{phrase("问问站内内容或你的个人数据", "Ask about site content or your own data")}</strong><span>{phrase("例如：总结当前文章、查询我的积分、列出我的订阅。", "For example: summarize this article, show my points, or list your subscriptions.")}</span></div>}</div><form className="ai-chat-composer" onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}><textarea aria-label={phrase("向 AI 提问", "Ask AI")} disabled={sending} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder={phrase("输入问题，Enter 发送，Shift+Enter 换行", "Ask a question. Enter sends; Shift+Enter adds a line break.")} rows={3} value={draft} /><button aria-label={phrase("发送", "Send")} disabled={sending || !draft.trim()} title={phrase("发送", "Send")} type="submit">{sending ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={17} />}</button></form></main>
+      <aside className="ai-tools-sidebar"><header><span><Wrench size={15} />{phrase("受控工具", "Controlled tools")}</span><small>{phrase("默认只读", "Read-only by default")}</small></header>{tools.map((tool) => <button className="ai-tool-button" disabled={Boolean(toolRunning)} key={tool.name} onClick={() => void runTool(tool)} type="button"><span><strong>{phrase(tool.label, tool.labelEn ?? tool.label)}</strong><small>{phrase(tool.description, tool.descriptionEn ?? tool.description)}</small></span>{tool.readOnly ? <Search size={14} /> : <FilePlus2 size={14} />}</button>)}</aside>
     </div>
     {toolModal && typeof document !== "undefined" ? createPortal(<div className="modal-backdrop ai-tool-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setToolModal(null); }} role="presentation"><section aria-modal="true" className="ai-tool-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><span><Wrench aria-hidden="true" size={17} /><strong>{toolModal.tool.label}</strong></span><button aria-label={phrase("关闭", "Close")} onClick={() => setToolModal(null)} title={phrase("关闭", "Close")} type="button"><X aria-hidden="true" size={17} /></button></header><p className="ai-tool-modal-description">{toolModal.tool.description}</p><div className="ai-tool-modal-content">{toolModal.output === null ? <div className="ai-tool-modal-loading"><LoaderCircle className="spin" size={19} />{phrase("正在读取结果", "Loading result")}</div> : renderToolValue(toolModal.output)}</div><footer><button className="button secondary" onClick={() => setToolModal(null)} type="button">{phrase("关闭", "Close")}</button></footer></section></div>, document.body) : null}
     {draftModalOpen && typeof document !== "undefined" ? createPortal(

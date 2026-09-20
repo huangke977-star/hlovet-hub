@@ -27,7 +27,11 @@ function createHarness() {
     articleTagSubscription: { findMany: jest.fn() },
     articleResourceExchange: { findMany: jest.fn() },
     article: { findMany: jest.fn() },
+    aiConfiguration: { upsert: jest.fn() },
+    articleTaxonomy: { findMany: jest.fn() },
     aiConversation: { findFirst: jest.fn() },
+    aiConversationMessage: { findFirst: jest.fn() },
+    aiQualityFeedback: { findFirst: jest.fn(), update: jest.fn(), create: jest.fn() },
     aiToolInvocation: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
   };
   const crypto = { isConfigured: jest.fn(() => true), encrypt: jest.fn(), decrypt: jest.fn() };
@@ -70,14 +74,15 @@ describe("P24 AI workspace", () => {
 
   it("loads latest readable and recommended articles for broad site-content questions", async () => {
     const harness = createHarness();
+    harness.prisma.aiConfiguration.upsert.mockResolvedValue({ ragEnabled: false, ragTopK: 6 });
     harness.articles.searchAiReadableArticles.mockImplementation(async (_currentUser, query: string) => query
       ? []
       : [{ id: 3, title: "最新可见文章", slug: "latest-visible", summary: "摘要", category: "", tags: [], publishedAt: null, author: { id: 1, username: "author", nickname: "Author" } }]);
     harness.articles.listAiRecommendedArticles.mockResolvedValue([{ id: 4, title: "推荐可见文章", slug: "recommended-visible", summary: "推荐摘要", category: "", tags: [], publishedAt: null, author: { id: 2, username: "author2", nickname: "Author 2" } }]);
     harness.articles.getAiReadableContext.mockImplementation(async (_currentUser, input: { id?: number }) => ({ id: input.id ?? 0, title: input.id === 4 ? "推荐可见文章" : "最新可见文章", slug: input.id === 4 ? "recommended-visible" : "latest-visible", content: "可读取正文", contentFormat: "markdown", summary: "摘要", category: "", tags: [], author: { username: "author", nickname: "Author" }, publishedAt: null }));
 
-    const buildContext = (harness.service as unknown as { buildChatContext: (currentUser: AuthenticatedUser, dto: { message: string }) => Promise<{ text: string; sources: Array<{ id: number }> }> }).buildChatContext.bind(harness.service);
-    const result = await buildContext(user, { message: "你能推荐一些适合我的文章，并列出最新内容吗？" });
+    const buildContext = (harness.service as unknown as { buildChatContext: (currentUser: AuthenticatedUser, dto: { message: string }, history: Array<{ sources: null }>) => Promise<{ text: string; sources: Array<{ id: number }> }> }).buildChatContext.bind(harness.service);
+    const result = await buildContext(user, { message: "你能推荐一些适合我的文章，并列出最新内容吗？" }, []);
 
     expect(harness.articles.searchAiReadableArticles).toHaveBeenCalledWith(user, "", 8);
     expect(harness.articles.listAiRecommendedArticles).toHaveBeenCalledWith(user, 6);
@@ -103,8 +108,10 @@ describe("P24 AI workspace", () => {
   it("requires a short-lived confirmation before creating an article draft", async () => {
     const harness = createHarness();
     harness.prisma.aiToolInvocation.create.mockResolvedValue({ id: 43 });
+    harness.prisma.articleTaxonomy.findMany.mockResolvedValue([]);
+    jest.spyOn(harness.service, "complete").mockResolvedValue({ text: JSON.stringify({ title: "待确认草稿", summary: "摘要", category: "", tags: "", content: "正文" }), provider: "custom", model: "test", durationMs: 1, usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } });
 
-    const prepared = await harness.service.executeTool(user, "create_article_draft", { input: { title: "待确认草稿", content: "正文" } }) as { status: string; confirmationToken?: string };
+    const prepared = await harness.service.executeTool(user, "create_article_draft", { input: { description: "写一篇待确认文章" } }) as { status: string; confirmationToken?: string };
 
     expect(prepared.status).toBe("awaiting_confirmation");
     expect(prepared.confirmationToken).toBeTruthy();
@@ -124,5 +131,18 @@ describe("P24 AI workspace", () => {
 
     expect(result.article.slug).toBe("confirmed-draft");
     expect(harness.articles.create).toHaveBeenCalledWith(user, expect.objectContaining({ status: "draft", title: "确认草稿", content: "正文" }));
+  });
+
+  it("stores feedback only for an assistant message owned by the current user", async () => {
+    const harness = createHarness();
+    harness.prisma.aiConversationMessage.findFirst.mockResolvedValue({ id: 51, conversationId: 12 });
+    harness.prisma.aiQualityFeedback.findFirst.mockResolvedValue(null);
+    harness.prisma.aiQualityFeedback.create.mockResolvedValue({ id: 61, conversationId: 12, messageId: 51, rating: 1 });
+
+    const result = await harness.service.recordQualityFeedback(9, { conversationId: 12, messageId: 51, rating: 1 });
+
+    expect(result).toEqual({ id: 61, conversationId: 12, messageId: 51, rating: 1 });
+    expect(harness.prisma.aiConversationMessage.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 51, conversationId: 12, role: "assistant", conversation: { userId: 9 } }) }));
+    expect(harness.prisma.aiQualityFeedback.create).toHaveBeenCalledWith(expect.objectContaining({ data: { userId: 9, conversationId: 12, messageId: 51, rating: 1, note: null } }));
   });
 });

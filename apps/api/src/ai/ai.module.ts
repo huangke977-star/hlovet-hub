@@ -9,10 +9,12 @@ import { SuperAdminGuard } from "../auth/guards/super-admin.guard";
 import { UserManagementGuard } from "../auth/guards/user-management.guard";
 import { AiController, ArticleAiController } from "./ai.controller";
 import { AiService } from "./ai.service";
+import { AiCapabilitiesService } from "./ai-capabilities.service";
+import { AiKnowledgeService } from "./ai-knowledge.service";
 
 @Module({
   imports: [JwtModule.register({}), RedisModule, SecurityModule, UsersModule, ArticlesModule],
   controllers: [AiController, ArticleAiController],
-  providers: [AiService, JwtAuthGuard, SuperAdminGuard, UserManagementGuard],
+  providers: [AiService, AiCapabilitiesService, AiKnowledgeService, JwtAuthGuard, SuperAdminGuard, UserManagementGuard],
 })
 export class AiModule {}
