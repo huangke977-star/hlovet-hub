@@ -295,7 +295,7 @@ export class AiService {
     return { invocationId: invocation.id, tool: definition, status: "success", output, createdAt: invocation.createdAt.toISOString() };
   }
 
-  async confirmTool(user: AuthenticatedUser, invocationId: number, confirmationToken: string) {
+  async confirmTool(user: AuthenticatedUser, invocationId: number, confirmationToken: string, selectedSuggestedTags: string[] = []) {
     const invocation = await this.prisma.aiToolInvocation.findFirst({ where: { id: invocationId, userId: user.id, toolName: "create_article_draft", status: "awaiting_confirmation" } });
     if (!invocation || !invocation.confirmationTokenHash || !invocation.confirmationExpiresAt || invocation.confirmationExpiresAt.getTime() < Date.now() || !this.sameSecret(confirmationToken, invocation.confirmationTokenHash)) {
       throw new BadRequestException("确认令牌无效或已过期，请重新准备草稿。\nThe confirmation token is invalid or expired; prepare the draft again.");
@@ -304,13 +304,18 @@ export class AiService {
     const title = this.readString(input.title, 120);
     const content = this.readString(input.content, 60000);
     if (!title || !content) throw new BadRequestException("草稿标题和正文不能为空。\nA draft title and body are required.");
+    const candidateSuggestedTags = this.readStringArray(input.suggestedTags, 6, 80);
+    const allowedSuggestedTags = new Set(candidateSuggestedTags);
+    const confirmedSuggestedTags = [...new Set(selectedSuggestedTags.map((tag) => tag.trim()).filter((tag) => allowedSuggestedTags.has(tag)))].slice(0, 6);
+    const configuredTags = this.readString(input.tags, 500);
+    const finalTags = [...new Set([...configuredTags.split(","), ...confirmedSuggestedTags].map((tag) => tag.trim()).filter(Boolean))].slice(0, 12).join(",");
     try {
       const article = this.articles ? await this.articles.create(user, {
         title,
         content,
         summary: this.readString(input.summary, 300),
         category: this.readString(input.category, 80),
-        tags: this.readString(input.tags, 500),
+        tags: finalTags,
         contentFormat: this.readString(input.contentFormat, 10) === "html" ? "html" : "markdown",
         status: "draft",
       }) : null;
@@ -540,6 +545,16 @@ export class AiService {
     const description = this.readString(input.description, 4000);
     if (!description) throw new BadRequestException("请先填写文章描述。\nPlease provide an article description first.");
     const locale = this.readString(input.locale, 10) === "en-US" ? "en-US" : "zh-CN";
+    const taxonomies = await this.prisma.articleTaxonomy.findMany({
+      where: { enabled: true },
+      orderBy: [{ kind: "asc" }, { sortOrder: "asc" }, { id: "asc" }],
+      select: { kind: true, name: true },
+    });
+    const categories = taxonomies.filter((item) => item.kind === "category").map((item) => item.name);
+    const tags = taxonomies.filter((item) => item.kind === "tag").map((item) => item.name);
+    const taxonomyInstruction = locale === "en-US"
+      ? `Use an exact category from this configured list, or an empty string if the list is empty: ${categories.join(", ") || "(none)"}. Prefer exact tags from this configured list: ${tags.join(", ") || "(none)"}. You may suggest other short tags, but they must be returned in the tags field and will require explicit confirmation before they are saved.`
+      : `分类必须从以下已配置分类中原样选择；如果列表为空则返回空字符串：${categories.join("、") || "（暂无）"}。标签优先从以下已配置标签中原样选择：${tags.join("、") || "（暂无）"}。可以建议少量其它简短标签，但它们必须放在 tags 字段中，保存前会要求用户明确确认。`;
     const result = await this.complete({
       userId: user.id,
       operation: "create_article_draft_preview",
@@ -547,18 +562,24 @@ export class AiService {
         {
           role: "system",
           content: locale === "en-US"
-            ? "You are the site's article writing assistant. Based on the user's description, create a useful draft. Return only one valid JSON object with exactly these string fields: title, summary, category, tags, content. Use Markdown in content, put tags in one comma-separated string, and do not wrap the JSON in a markdown code fence. Do not add explanations outside the JSON."
-            : "你是站内文章写作助手。请根据用户的文章描述生成可用草稿。只能返回一个合法 JSON 对象，且必须包含这 5 个字符串字段：title、summary、category、tags、content。content 使用 Markdown，tags 使用逗号分隔的字符串，不要使用 Markdown 代码围栏包裹 JSON，也不要在 JSON 外补充解释。",
+            ? `You are the site's article writing assistant. Based on the user's description, create a useful draft. Return only one valid JSON object with exactly these string fields: title, summary, category, tags, content. Use Markdown in content, put tags in one comma-separated string, and do not wrap the JSON in a markdown code fence. Do not add explanations outside the JSON. ${taxonomyInstruction}`
+            : `你是站内文章写作助手。请根据用户的文章描述生成可用草稿。只能返回一个合法 JSON 对象，且必须包含这 5 个字符串字段：title、summary、category、tags、content。content 使用 Markdown，tags 使用逗号分隔的字符串，不要使用 Markdown 代码围栏包裹 JSON，也不要在 JSON 外补充解释。${taxonomyInstruction}`,
         },
         { role: "user", content: locale === "en-US" ? `Article description:\n${description}` : `文章描述：\n${description}` },
       ],
     });
     const generated = this.parseDraftPreview(result.text, locale);
-    const generatedInput = { description, title: generated.title, summary: generated.summary, category: generated.category, tags: generated.tags, content: generated.content, contentFormat: "markdown" };
+    const configuredCategory = categories.find((category) => category === generated.category) ?? categories[0] ?? "";
+    const configuredTagSet = new Set(tags);
+    const generatedTags = generated.tags.split(",").map((tag) => tag.trim()).filter(Boolean);
+    const configuredTags = [...new Set(generatedTags.filter((tag) => configuredTagSet.has(tag)))].slice(0, 6);
+    const suggestedTags = [...new Set(generatedTags.filter((tag) => !configuredTagSet.has(tag)))].slice(0, 6);
+    const preview = { ...generated, category: configuredCategory, tags: configuredTags.join(", "), suggestedTags };
+    const generatedInput = { description, title: preview.title, summary: preview.summary, category: preview.category, tags: preview.tags, suggestedTags, content: preview.content, contentFormat: "markdown" };
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     const invocation = await this.prisma.aiToolInvocation.create({ data: { userId: user.id, conversationId, toolName: "create_article_draft", input: generatedInput as Prisma.InputJsonValue, status: "awaiting_confirmation", requiresConfirmation: true, confirmationTokenHash: createHash("sha256").update(token).digest("hex"), confirmationExpiresAt: expiresAt } });
-    return { invocationId: invocation.id, status: "awaiting_confirmation", requiresConfirmation: true, confirmationToken: token, expiresAt: expiresAt.toISOString(), preview: generated };
+    return { invocationId: invocation.id, status: "awaiting_confirmation", requiresConfirmation: true, confirmationToken: token, expiresAt: expiresAt.toISOString(), preview };
   }
 
   private parseDraftPreview(text: string, locale: "zh-CN" | "en-US") {
@@ -637,6 +658,11 @@ export class AiService {
 
   private readString(value: unknown, maxLength: number): string {
     return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+  }
+
+  private readStringArray(value: unknown, maxItems: number, maxLength: number): string[] {
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value.filter((item): item is string => typeof item === "string").map((item) => item.trim().slice(0, maxLength)).filter(Boolean))].slice(0, maxItems);
   }
 
   private readNumber(value: unknown, fallback: number): number {

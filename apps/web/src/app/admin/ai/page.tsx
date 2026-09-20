@@ -147,7 +147,7 @@ export default function AiAdminPage() {
     event.preventDefault();
     event.stopPropagation();
     setApiKey("");
-    setClearApiKey(true);
+    setClearApiKey((current) => !current);
   }
 
   async function submit(event: FormEvent) {

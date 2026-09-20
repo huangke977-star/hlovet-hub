@@ -842,7 +842,7 @@ export function ArticleEditor({ articleId }: { articleId?: number }) {
                     type="button"
                   >
                     <Shapes aria-hidden="true" size={15} />
-                    <span>{draft.category ? displayArticleTaxonomy(draft.category, locale) : phrase("随笔", "Essay")}</span>
+                    <span data-taxonomy-kind="category" data-taxonomy-name={draft.category || undefined}>{draft.category ? displayArticleTaxonomy(draft.category, locale) : phrase("随笔", "Essay")}</span>
                     <ChevronDown aria-hidden="true" size={15} />
                   </button>
                   {isCategoryPickerOpen ? (
@@ -860,7 +860,7 @@ export function ArticleEditor({ articleId }: { articleId?: number }) {
                             }}
                             type="button"
                           >
-                            <span>{displayArticleTaxonomy(category, locale)}</span>{selected ? <Check aria-hidden="true" size={14} /> : null}
+                            <span data-taxonomy-kind="category" data-taxonomy-name={category}>{displayArticleTaxonomy(category, locale)}</span>{selected ? <Check aria-hidden="true" size={14} /> : null}
                           </button>
                         );
                       })}
@@ -880,7 +880,7 @@ export function ArticleEditor({ articleId }: { articleId?: number }) {
                     <Tags aria-hidden="true" size={16} />
                     <span className={`article-tag-picker-values${selectedTags.length ? " selected" : ""}`}>
                       {selectedTags.length
-                        ? selectedTags.map((tag) => <span key={tag}>#{displayArticleTaxonomy(tag, locale)}</span>)
+                        ? selectedTags.map((tag) => <span data-taxonomy-kind="tag" data-taxonomy-name={tag} key={tag}>#{displayArticleTaxonomy(tag, locale)}</span>)
                         : phrase("选择标签", "Choose tags")}
                     </span>
                     <ChevronDown aria-hidden="true" size={15} />
@@ -891,7 +891,7 @@ export function ArticleEditor({ articleId }: { articleId?: number }) {
                         const selected = selectedTags.includes(tag);
                         return (
                           <button aria-pressed={selected} className={selected ? "selected" : undefined} key={tag} onClick={() => toggleTag(tag)} type="button">
-                            <span>{displayArticleTaxonomy(tag, locale)}</span>{selected ? <Check aria-hidden="true" size={14} /> : null}
+                            <span data-taxonomy-kind="tag" data-taxonomy-name={tag}>{displayArticleTaxonomy(tag, locale)}</span>{selected ? <Check aria-hidden="true" size={14} /> : null}
                           </button>
                         );
                       })}
@@ -923,8 +923,8 @@ export function ArticleEditor({ articleId }: { articleId?: number }) {
                   <div className="article-publish-preview-title-line">
                     <h1 style={draft.titleColor ? { color: draft.titleColor } : undefined}>{draft.title || phrase("未命名文章", "Untitled article")}</h1>
                     <div aria-label={phrase("分类与标签", "Category and tags")} className="article-publish-preview-taxonomy">
-                      <span className="article-publish-preview-category">{draft.category ? displayArticleTaxonomy(draft.category, locale) : phrase("随笔", "Essay")}</span>
-                      {selectedTags.map((tag) => <span className="article-publish-preview-tag" key={tag}>#{displayArticleTaxonomy(tag, locale)}</span>)}
+                      <span className="article-publish-preview-category" data-taxonomy-kind="category" data-taxonomy-name={draft.category || undefined}>{draft.category ? displayArticleTaxonomy(draft.category, locale) : phrase("随笔", "Essay")}</span>
+                      {selectedTags.map((tag) => <span className="article-publish-preview-tag" data-taxonomy-kind="tag" data-taxonomy-name={tag} key={tag}>#{displayArticleTaxonomy(tag, locale)}</span>)}
                     </div>
                   </div>
                   <div className="article-reading-author"><span>{user?.nickname || user?.username || phrase("当前用户", "Current user")}</span><span className="article-reading-divider" /><span>{phrase(`预览于 ${formatArticleDate(new Date().toISOString(), locale)}`, `Previewed ${formatArticleDate(new Date().toISOString(), locale)}`)}</span><span className="article-reading-divider" /><span>{visibilityLabel(draft.visibility)}</span></div>

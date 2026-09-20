@@ -80,6 +80,6 @@ export class ArticleAiController {
 
   @Post("tool-invocations/:id/confirm")
   confirmTool(@CurrentUser() user: AuthenticatedUser, @Param("id", ParseIntPipe) id: number, @Body() dto: AiToolConfirmationDto) {
-    return this.ai.confirmTool(user, id, dto.confirmationToken);
+    return this.ai.confirmTool(user, id, dto.confirmationToken, dto.selectedSuggestedTags ?? []);
   }
 }

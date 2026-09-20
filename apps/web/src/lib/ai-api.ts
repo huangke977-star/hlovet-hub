@@ -217,13 +217,13 @@ export interface AiToolExecutionResult {
   requiresConfirmation?: boolean;
   confirmationToken?: string;
   expiresAt?: string;
-  preview?: { title: string; summary: string; category: string; tags: string; content: string };
+  preview?: { title: string; summary: string; category: string; tags: string; suggestedTags: string[]; content: string };
 }
 
 export function executeAiTool(accessToken: string, name: string, input?: Record<string, unknown>, conversationId?: number) {
   return requestJson<AiToolExecutionResult>(`/ai/tools/${encodeURIComponent(name)}`, { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify({ input, conversationId }) });
 }
 
-export function confirmAiTool(accessToken: string, invocationId: number, confirmationToken: string) {
-  return requestJson<{ success: true; invocationId: number; article: { id: number; slug: string; title: string } }>(`/ai/tool-invocations/${invocationId}/confirm`, { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify({ confirmationToken }) });
+export function confirmAiTool(accessToken: string, invocationId: number, confirmationToken: string, selectedSuggestedTags: string[] = []) {
+  return requestJson<{ success: true; invocationId: number; article: { id: number; slug: string; title: string } }>(`/ai/tool-invocations/${invocationId}/confirm`, { method: "POST", headers: { ...authHeaders(accessToken), "Content-Type": "application/json" }, body: JSON.stringify({ confirmationToken, selectedSuggestedTags }) });
 }

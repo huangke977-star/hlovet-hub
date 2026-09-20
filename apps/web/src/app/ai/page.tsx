@@ -52,7 +52,7 @@ export default function AiPage() {
   const [tools, setTools] = useState<AiToolDefinition[]>([]);
   const [draft, setDraft] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
-  const [pendingDraft, setPendingDraft] = useState<{ invocationId: number; token: string; title: string; summary: string; category: string; tags: string; content: string } | null>(null);
+  const [pendingDraft, setPendingDraft] = useState<{ invocationId: number; token: string; title: string; summary: string; category: string; tags: string; suggestedTags: string[]; selectedSuggestedTags: string[]; content: string } | null>(null);
   const [toolModal, setToolModal] = useState<ToolModalState | null>(null);
   const [draftModalOpen, setDraftModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -178,7 +178,7 @@ export default function AiPage() {
     setError("");
     try {
       const result = await executeAiTool(token, "create_article_draft", { description: draftDescription, locale }, conversationId);
-      if (result.confirmationToken && result.preview) setPendingDraft({ invocationId: result.invocationId, token: result.confirmationToken, title: result.preview.title, summary: result.preview.summary, category: result.preview.category, tags: result.preview.tags, content: result.preview.content });
+      if (result.confirmationToken && result.preview) setPendingDraft({ invocationId: result.invocationId, token: result.confirmationToken, title: result.preview.title, summary: result.preview.summary, category: result.preview.category, tags: result.preview.tags, suggestedTags: result.preview.suggestedTags ?? [], selectedSuggestedTags: [], content: result.preview.content });
       setNotice(phrase("草稿已准备，请确认后写入。", "The draft is ready. Confirm before writing it."));
     } catch (toolError) {
       setError(toolError instanceof Error ? toolError.message : phrase("草稿准备失败。", "Could not prepare the draft."));
@@ -191,7 +191,7 @@ export default function AiPage() {
     if (!token || !pendingDraft || toolRunning) return;
     setToolRunning("confirm");
     try {
-      const result = await confirmAiTool(token, pendingDraft.invocationId, pendingDraft.token);
+      const result = await confirmAiTool(token, pendingDraft.invocationId, pendingDraft.token, pendingDraft.selectedSuggestedTags);
       setPendingDraft(null);
       setDraftDescription("");
       setDraftModalOpen(false);
@@ -228,7 +228,7 @@ export default function AiPage() {
         <section aria-label={phrase("准备文章草稿", "Prepare article draft")} aria-modal="true" className="ai-draft-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog">
           <header><span><FilePlus2 aria-hidden="true" size={17} /><strong>{phrase("准备文章草稿", "Prepare article draft")}</strong></span><button aria-label={phrase("关闭", "Close")} disabled={toolRunning === "confirm"} onClick={() => setDraftModalOpen(false)} title={phrase("关闭", "Close")} type="button"><X aria-hidden="true" size={17} /></button></header>
           {!pendingDraft ? <div className="ai-draft-modal-fields"><label><span>{phrase("文章描述", "Article description")}</span><textarea maxLength={4000} onChange={(event) => setDraftDescription(event.target.value)} placeholder={phrase("描述你想写的文章主题、受众和重点，AI 会生成标题、摘要、分类、标签和正文。", "Describe the topic, audience, and key points. AI will generate the title, summary, category, tags, and body.")} rows={8} value={draftDescription} /></label></div> : null}
-          {pendingDraft ? <div className="ai-draft-preview"><span><CheckCircle2 aria-hidden="true" size={14} />{phrase("草稿预览，确认后才会写入文章", "Draft preview; nothing is written until you confirm")}</span><div className="ai-draft-preview-field"><span>{phrase("标题", "Title")}</span><strong>{pendingDraft.title}</strong></div><div className="ai-draft-preview-field"><span>{phrase("摘要", "Summary")}</span><p>{pendingDraft.summary || "-"}</p></div><div className="ai-draft-preview-field"><span>{phrase("分类", "Category")}</span><p>{pendingDraft.category || "-"}</p></div><div className="ai-draft-preview-field"><span>{phrase("标签", "Tags")}</span><p>{pendingDraft.tags || "-"}</p></div><div className="ai-draft-preview-field"><span>{phrase("正文", "Body")}</span><p>{pendingDraft.content}</p></div></div> : null}
+          {pendingDraft ? <div className="ai-draft-preview"><span><CheckCircle2 aria-hidden="true" size={14} />{phrase("草稿预览，确认后才会写入文章", "Draft preview; nothing is written until you confirm")}</span><div className="ai-draft-preview-field"><span>{phrase("标题", "Title")}</span><strong>{pendingDraft.title}</strong></div><div className="ai-draft-preview-field"><span>{phrase("摘要", "Summary")}</span><p>{pendingDraft.summary || "-"}</p></div><div className="ai-draft-preview-field"><span>{phrase("分类（站点已配置）", "Category (configured)")}</span><p>{pendingDraft.category || "-"}</p></div><div className="ai-draft-preview-field"><span>{phrase("已配置标签", "Configured tags")}</span><p>{pendingDraft.tags || "-"}</p></div>{pendingDraft.suggestedTags.length ? <div className="ai-draft-preview-field"><span>{phrase("待确认的新标签（默认不保存）", "Suggested tags (not saved by default)")}</span><div className="ai-suggested-tags">{pendingDraft.suggestedTags.map((tag) => <label key={tag}><input checked={pendingDraft.selectedSuggestedTags.includes(tag)} onChange={() => setPendingDraft((current) => current ? { ...current, selectedSuggestedTags: current.selectedSuggestedTags.includes(tag) ? current.selectedSuggestedTags.filter((item) => item !== tag) : [...current.selectedSuggestedTags, tag] } : current)} type="checkbox" /><span>#{tag}</span></label>)}</div></div> : null}<div className="ai-draft-preview-field"><span>{phrase("正文", "Body")}</span><p>{pendingDraft.content}</p></div></div> : null}
           <footer><button className="button secondary" disabled={toolRunning === "confirm"} onClick={() => setDraftModalOpen(false)} type="button">{phrase("关闭", "Close")}</button>{pendingDraft ? <button className="button" disabled={toolRunning === "confirm"} onClick={() => void confirmDraft()} type="button">{toolRunning === "confirm" ? phrase("创建中", "Creating") : phrase("确认创建", "Confirm create")}</button> : <button className="button" disabled={Boolean(toolRunning) || !draftDescription.trim()} onClick={() => void prepareDraft()} type="button">{toolRunning === "create_article_draft" ? phrase("生成中", "Generating") : phrase("生成预览", "Generate preview")}</button>}</footer>
         </section>
       </div>, document.body) : null}

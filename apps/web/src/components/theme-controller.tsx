@@ -48,12 +48,14 @@ export function ThemeController() {
           return;
         }
         publicSettings = settings;
+        applyTaxonomyStyles(settings);
         document.title = settings.browserTitle || settings.siteName || "HLOVET";
         if (!readAccessToken() && !window.localStorage.getItem(THEME_STORAGE_KEY)) {
           applyThemePreference(settings.defaultTheme);
         }
       } catch {
         publicSettings = null;
+        removeTaxonomyStyles();
       }
     }
 
@@ -138,4 +140,32 @@ function resolveConfiguredAssetUrl(path: string): string {
     return resolveApiUrl(path.slice(4));
   }
   return new URL(path.startsWith("/") ? path : `/${path}`, window.location.origin).href;
+}
+
+function applyTaxonomyStyles(settings: SiteSettings): void {
+  if (typeof document === "undefined") return;
+  const rules = [...(settings.taxonomies?.categories ?? []), ...(settings.taxonomies?.tags ?? [])]
+    .filter((taxonomy) => taxonomy.enabled && /^#[0-9a-fA-F]{6}$/.test(taxonomy.color))
+    .map((taxonomy) => {
+      const selector = `[data-taxonomy-kind="${escapeCssAttribute(taxonomy.kind)}"][data-taxonomy-name="${escapeCssAttribute(taxonomy.name)}"]`;
+      const isCategory = taxonomy.kind === "category";
+      const backgroundAlpha = isCategory ? "22%" : "16%";
+      return `${selector}{--taxonomy-color:${taxonomy.color};background:color-mix(in srgb, ${taxonomy.color} ${backgroundAlpha}, transparent)!important;color:color-mix(in srgb, ${taxonomy.color} 82%, var(--foreground))!important;}`;
+    });
+  let style = document.getElementById("lingxi-taxonomy-colors");
+  if (!style) {
+    style = document.createElement("style");
+    style.id = "lingxi-taxonomy-colors";
+    document.head.appendChild(style);
+  }
+  style.textContent = rules.join("\n");
+}
+
+function removeTaxonomyStyles(): void {
+  document.getElementById("lingxi-taxonomy-colors")?.remove();
+}
+
+function escapeCssAttribute(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
+  return value.replace(/[\\"\n\r\f]/g, (character) => `\\${character.charCodeAt(0).toString(16)} `);
 }

@@ -609,12 +609,12 @@ export default function ArticleDetailPage() {
             <ArticleStats article={article} />
              {isLoggedIn ? <OfflineSaveButton data={article} id={article.slug} kind="article" mediaUrls={getOfflineArticleMediaUrls(article)} route={`/articles/${article.slug}`} title={article.title} updatedAt={article.updatedAt} /> : null}
             <dl className="article-aside-meta">
-              <div><dt><Tag aria-hidden="true" size={15} />{phrase("分类", "Category")}</dt><dd>{article.category || phrase("随笔", "Notes")}</dd></div>
+              <div><dt><Tag aria-hidden="true" size={15} />{phrase("分类", "Category")}</dt><dd className="article-category" data-taxonomy-kind="category" data-taxonomy-name={article.category || undefined}>{article.category || phrase("随笔", "Notes")}</dd></div>
               <div><dt><CalendarDays aria-hidden="true" size={15} />{phrase("发布时间", "Published")}</dt><dd>{formatArticleDate(article.publishedAt, locale)}</dd></div>
               <div><dt>{phrase("更新时间", "Updated")}</dt><dd>{formatArticleDate(article.updatedAt, locale)}</dd></div>
               {article.resource.enabled ? <div><dt><Coins aria-hidden="true" size={15} />{phrase("积分资源", "Points resource")}</dt><dd>{phrase(`${article.resource.blocks.length} 个区域`, `${article.resource.blocks.length} sections`)}</dd></div> : null}
             </dl>
-            {article.tags.length ? <div className="article-tag-list">{article.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div> : null}
+            {article.tags.length ? <div className="article-tag-list">{article.tags.map((tag) => <span className="article-tag-chip" data-taxonomy-kind="tag" data-taxonomy-name={tag} key={tag}>#{tag}</span>)}</div> : null}
             {article.collections.length || article.topics.length ? <div className="article-group-list">{article.collections.map((collection) => <Link className="article-group-chip collection" href={localizedPath(collection.href, locale)} key={`collection-${collection.id}`}>{collection.label}</Link>)}{article.topics.map((topic) => <Link className="article-group-chip topic" href={localizedPath(topic.href, locale)} key={`topic-${topic.id}`}>{topic.label}</Link>)}</div> : null}
           </aside>
           <main className="article-reading-main" ref={readingContentRef}><ArticleBody content={article.content} contentSegments={article.contentSegments} onRedeemResource={(blockKey) => void handleResourceRedeem(blockKey)} /></main>

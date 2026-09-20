@@ -104,9 +104,9 @@ export function ArticleTaxonomy({ article, limit = 3 }: { article: Article; limi
   const hiddenCount = Math.max(0, article.tags.length - visibleTags.length);
   return (
     <span className="article-taxonomy">
-      <span className="article-category">{article.category ? displayArticleTaxonomy(article.category, locale) : t("article.defaultCategory")}</span>
+      <span className="article-category" data-taxonomy-kind="category" data-taxonomy-name={article.category || undefined}>{article.category ? displayArticleTaxonomy(article.category, locale) : t("article.defaultCategory")}</span>
       {article.resource.enabled ? <span className="article-resource-chip" title={`${article.resource.blocks.length} ${t("article.resource")}`}><Coins aria-hidden="true" size={12} />{t("article.resource")}</span> : null}
-      {visibleTags.map((tag) => <span className="article-tag-chip" key={tag}>#{displayArticleTaxonomy(tag, locale)}</span>)}
+      {visibleTags.map((tag) => <span className="article-tag-chip" data-taxonomy-kind="tag" data-taxonomy-name={tag} key={tag}>#{displayArticleTaxonomy(tag, locale)}</span>)}
       {hiddenCount ? <span className="article-tag-more">+{hiddenCount}</span> : null}
       {(article.collections ?? []).slice(0, 2).map((collection) => (
         <Link className="article-group-chip collection" href={localizedPath(collection.href, locale)} key={`collection-${collection.id}`} onClick={(event: MouseEvent<HTMLAnchorElement>) => event.stopPropagation()}>{collection.label}</Link>
