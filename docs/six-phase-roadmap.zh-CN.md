@@ -774,15 +774,15 @@ Google 登录采用 PKCE、一次性 OAuth 状态和结果票据；新 Google �
 
 图片 OCR、语音转文字和图片生成已实现为默认关闭的外部能力；服务器本地大模型仍不纳入范围。
 
-### P24 验收记录（本地）
+### P24 验收记录（本地与生产）
 
 - 新增 `AiConversation`、`AiConversationMessage` 和 `AiToolInvocation`，迁移文件为 `apps/api/prisma/migrations/20260918100000_add_p24_ai_workspace/migration.sql`。
 - `/ai` 提供登录用户问答、历史对话、来源链接、权限感知文章上下文、只读工具和文章草稿二次确认；文章权限在服务端过滤后才会进入模型上下文。
 - `/admin/ai` 增加工具审计，只显示工具调用元数据，不显示输入参数、输出正文或密钥；普通管理员仍被超级管理员守卫拦截。
-- P24 专项测试 11 项通过；API 全量 51 个测试套件、352 项通过；API/Web 构建、lint、Prisma 校验和 `git diff --check` 通过。
-- 本地 Docker Desktop 当前未运行，因此未在本地数据库执行迁移；生产部署前已创建并通过 gzip 校验备份 `backups/pre-06d9587-20260918-1217.sql.gz`，并成功应用 P24 增量迁移。
+- P24 专项测试和 API 全量 51 个测试套件、357 项测试通过；API/Web 构建、lint、Prisma 校验和 `git diff --check` 通过。
+- 本地 Docker Desktop 当前未运行，因此未在本地数据库执行迁移；生产部署前创建并通过 gzip 校验备份 `pre-899fe8b-20260920-153823-final.sql.gz`，并成功应用 P24 增量迁移。
 - 生产验证通过：`/api/health`、`/api/health/ready`、`/`、`/ai`、`/en` 和 `/en/ai` 均返回 200；就绪检查确认 MySQL 和 Redis 正常，API 启动日志已注册 P24 路由且无启动错误。仅重建 API/Web，MySQL、Redis、Caddy、TURN 和数据卷保持运行。
-- 生产端仅保留当前 `main` 的 API/Web 镜像，没有发现未被使用的旧 API/Web 镜像，因此未执行镜像删除。P24-04 已完成轻量 RAG：MySQL 保存文章片段和 JSON 向量，Embedding 不可用时自动降级为关键词检索；OCR、语音转文字和图片生成配置也已纳入同一 AI 管理页。外部媒体服务未配置时不产生请求，真实媒体样本验收仍属于外部服务可用后的人工回归。
+- 提交 `899fe8b` 的 GitHub Actions `35519717715` 构建 API/Web 镜像成功；生产已应用 78 个迁移且无待执行项。`/api/health`、`/api/health/ready`、中文/英文首页和 AI 页面均返回 200；MySQL、Redis、Caddy、TURN 与数据卷保持运行。P24-04 已完成轻量 RAG：MySQL 保存文章片段和 JSON 向量，Embedding 不可用时自动降级为关键词检索；OCR、语音转文字和图片生成配置也已纳入同一 AI 管理页。外部媒体服务未配置时不产生请求，真实媒体样本验收仍属于外部服务可用后的人工回归。部署后已清理停止容器和 dangling 镜像，释放约 1.53 GB。
 
 ### 后续阶段依赖与执行顺序
 

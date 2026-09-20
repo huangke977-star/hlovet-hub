@@ -774,15 +774,15 @@ Goal: add permission-bounded site Q&A and low-risk tool calls after the AI found
 
 Image OCR, speech-to-text, and image generation are now implemented as disabled-by-default external capabilities. A local server-side model remains outside the scope.
 
-### P24 Acceptance Record (Local)
+### P24 Acceptance Record (Local And Production)
 
 - Added `AiConversation`, `AiConversationMessage`, and `AiToolInvocation`; migration: `apps/api/prisma/migrations/20260918100000_add_p24_ai_workspace/migration.sql`.
 - `/ai` provides signed-in Q&A, conversation history, source links, permission-aware article context, read-only tools, and a confirmed article-draft flow. Article visibility is filtered on the server before model context is built.
 - `/admin/ai` now includes tool audit metadata without inputs, outputs, or secrets; ordinary administrators remain blocked by the super-admin guard.
-- All 11 P24-focused tests passed; the full API suite passed with 51 suites and 352 tests; API/Web builds, lint, Prisma validation, and `git diff --check` passed.
-- Docker Desktop was not running locally, so the migration was not applied to a local database. Before production deployment, `backups/pre-06d9587-20260918-1217.sql.gz` was created and passed gzip validation, and the additive P24 migration was applied successfully.
+- The P24-focused checks and the full API suite passed with 51 suites and 357 tests; API/Web builds, lint, Prisma validation, and `git diff --check` passed.
+- Docker Desktop was not running locally, so the migration was not applied to a local database. Before production deployment, `pre-899fe8b-20260920-153823-final.sql.gz` was created and passed gzip validation, and the additive P24 migration was applied successfully.
 - Production verification passed: `/api/health`, `/api/health/ready`, `/`, `/ai`, `/en`, and `/en/ai` all returned 200. The readiness check confirmed MySQL and Redis; API startup logs registered the P24 routes without errors. Only API/Web were recreated; MySQL, Redis, Caddy, TURN, and data volumes remained running.
-- Production retained only the current `main` API/Web images; no unused older API/Web images were found, so no image deletion was performed. P24-04 now provides lightweight RAG with MySQL article chunks and JSON vectors, falling back to keyword retrieval when Embeddings are unavailable. OCR, transcription, and image generation are managed from the same AI console; real media-sample acceptance remains an external-provider regression check.
+- Commit `899fe8b` and Actions run `35519717715` built both images successfully. Production applied 78 migrations with none pending; `/api/health`, `/api/health/ready`, the Chinese and English homepages, and both AI routes returned 200. MySQL, Redis, Caddy, TURN, and data volumes remained running. P24-04 provides lightweight RAG with MySQL article chunks and JSON vectors, falling back to keyword retrieval when Embeddings are unavailable. OCR, transcription, and image generation are managed from the same AI console; real media-sample acceptance remains an external-provider regression check. Stopped containers and dangling images were cleaned, reclaiming about 1.53 GB.
 
 ### Later-Phase Dependencies And Order
 
