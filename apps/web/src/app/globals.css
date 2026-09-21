@@ -23321,3 +23321,28 @@ body:has(.ai-user-page) :is(.ai-conversation-sidebar, .ai-chat-messages, .ai-too
     min-height: 180px;
   }
 }
+
+/* Keep AI configuration controls aligned with their adjacent fields. */
+.ai-admin-page .ai-config-fields .ai-model-picker .announcement-editor-select-trigger,
+.ai-admin-page .ai-config-fields .ai-model-picker .ai-model-fetch-button {
+  height: 35px;
+  min-height: 35px;
+}
+
+.ai-admin-page .ai-capability-fields .ai-model-picker .announcement-editor-select-trigger,
+.ai-admin-page .ai-capability-fields .ai-model-picker .ai-model-fetch-button {
+  height: 31px;
+  min-height: 31px;
+}
+
+.ai-admin-page .ai-config-actions .button,
+.ai-admin-page .ai-capability-card > footer .button {
+  border: 0;
+}
+
+.ai-admin-page .ai-config-actions .button:hover,
+.ai-admin-page .ai-config-actions .button:focus-visible,
+.ai-admin-page .ai-capability-card > footer .button:hover,
+.ai-admin-page .ai-capability-card > footer .button:focus-visible {
+  border: 0;
+}
