@@ -30,7 +30,7 @@
 创建如下结构：
 
 ```text
-lingxi-portal/
+hlovet-hub/
   .editorconfig
   .dockerignore
   .env.example
@@ -109,7 +109,7 @@ lingxi-portal/
 
 ```json
 {
-  "name": "lingxi-portal",
+  "name": "hlovet-hub",
   "private": true,
   "version": "0.1.0",
   "description": "Lingxi Portal personal portal platform",
@@ -306,16 +306,16 @@ git commit -m "chore: set up workspace baseline"
 创建 `.env.example`：
 
 ```dotenv
-COMPOSE_PROJECT_NAME=lingxi_portal
+COMPOSE_PROJECT_NAME=hlovet_hub
 
 MYSQL_ROOT_PASSWORD=change-me-root-password
 MYSQL_HOST=localhost
-MYSQL_DATABASE=lingxi_portal
-MYSQL_USER=lingxi
+MYSQL_DATABASE=hlovet_hub
+MYSQL_USER=hlovet
 MYSQL_PASSWORD=change-me-app-password
 MYSQL_PORT=3306
 
-DATABASE_URL=mysql://lingxi:change-me-app-password@localhost:3306/lingxi_portal
+DATABASE_URL=mysql://hlovet:change-me-app-password@localhost:3306/hlovet_hub
 REDIS_URL=redis://localhost:6379
 
 API_PORT=3001
@@ -957,7 +957,7 @@ function getDatabaseConfig() {
     password: process.env.MYSQL_PASSWORD ?? decodeURIComponent(databaseUrl?.password ?? ''),
     database:
       process.env.MYSQL_DATABASE ??
-      decodeURIComponent(databaseUrl?.pathname.replace(/^\//, '') ?? 'lingxi_portal'),
+      decodeURIComponent(databaseUrl?.pathname.replace(/^\//, '') ?? 'hlovet_hub'),
     connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT ?? 5),
   };
 }
