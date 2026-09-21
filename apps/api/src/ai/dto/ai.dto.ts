@@ -1,7 +1,7 @@
 import { Type } from "class-transformer";
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
 
-export const AI_PROVIDERS = ["openai-compatible", "deepseek", "custom", "anthropic", "google"] as const;
+export const AI_PROVIDERS = ["openai", "openai-compatible", "deepseek", "custom", "anthropic", "google"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
 export const AI_CAPABILITIES = ["embedding", "ocr", "transcription", "image_generation"] as const;
@@ -271,6 +271,10 @@ export class AiQualityFeedbackDto {
 export class ListAiModelsDto {
   @IsIn(AI_PROVIDERS)
   provider!: AiProvider;
+
+  @IsOptional()
+  @IsIn(AI_CAPABILITIES)
+  capability?: AiCapability;
 
   @IsOptional()
   @IsString()

@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Database, FileScan, Image, LoaderCircle, Mic, RefreshCw, Save, Sparkles, TestTube2, Trash2 } from "lucide-react";
+import { Activity, Database, Download, FileScan, Image, LoaderCircle, Mic, RefreshCw, Save, Sparkles, TestTube2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppToast } from "@/components/app-toast";
 import { GlassSelect } from "@/components/glass-select";
@@ -11,10 +11,13 @@ import {
   type AiCapabilityConfiguration,
   type AiCapabilityConfigurationUpdate,
   type AiKnowledgeDocument,
+  type AiModelOption,
+  type AiProvider,
   getAiAdminCapabilities,
   getAiAdminKnowledge,
   getAiAdminKnowledgeDocuments,
   getAiAdminUsage,
+  listAiAdminModels,
   reindexAiKnowledge,
   reindexAiKnowledgeDocument,
   testAiAdminCapability,
@@ -26,7 +29,7 @@ const icons = { embedding: Database, ocr: FileScan, transcription: Mic, image_ge
 function initialDraft(item: AiCapabilityConfiguration): AiCapabilityConfigurationUpdate {
   return {
     enabled: item.enabled,
-    provider: item.provider,
+    provider: item.provider === "openai-compatible" ? "custom" : item.provider,
     baseUrl: item.baseUrl,
     model: item.model,
     globalConcurrency: item.globalConcurrency,
@@ -53,6 +56,8 @@ export function AiCapabilitiesPanel({ token }: { token: string }) {
   const [quality, setQuality] = useState<{ feedbackTotal: number; helpful: number; unhelpful: number; averageRating: number | null } | null>(null);
   const [knowledge, setKnowledge] = useState<{ documents: number; chunks: number; ready: number; vectors: number; semanticSearchAvailable: boolean } | null>(null);
   const [documents, setDocuments] = useState<AiKnowledgeDocument[]>([]);
+  const [modelsByCapability, setModelsByCapability] = useState<Record<string, AiModelOption[]>>({});
+  const [modelsLoading, setModelsLoading] = useState("");
   const [saving, setSaving] = useState("");
   const [testing, setTesting] = useState("");
   const [reindexing, setReindexing] = useState(false);
@@ -72,6 +77,7 @@ export function AiCapabilitiesPanel({ token }: { token: string }) {
     setQuality(usageOverview.quality);
     setKnowledge(knowledgeOverview);
     setDocuments(knowledgeDocuments.items);
+    setModelsByCapability({});
   }
 
   useEffect(() => {
@@ -89,6 +95,41 @@ export function AiCapabilitiesPanel({ token }: { token: string }) {
 
   function update(capability: string, key: keyof AiCapabilityConfigurationUpdate, value: unknown) {
     setDrafts((current) => ({ ...current, [capability]: { ...current[capability], [key]: value } }));
+  }
+
+  function changeProvider(item: AiCapabilityConfiguration, provider: AiProvider) {
+    const defaultBaseUrls: Partial<Record<AiProvider, string>> = {
+      openai: "https://api.openai.com/v1",
+      deepseek: "https://api.deepseek.com/v1",
+      anthropic: "https://api.anthropic.com",
+      google: "https://generativelanguage.googleapis.com/v1beta",
+      custom: "https://api.example.com/v1",
+    };
+    setDrafts((current) => {
+      const draft = current[item.capability];
+      if (!draft) return current;
+      const knownBaseUrls = Object.values(defaultBaseUrls);
+      const shouldUseProviderDefault = !draft.baseUrl.trim() || knownBaseUrls.includes(draft.baseUrl);
+      return { ...current, [item.capability]: { ...draft, provider, baseUrl: shouldUseProviderDefault ? (defaultBaseUrls[provider] ?? draft.baseUrl) : draft.baseUrl } };
+    });
+    setModelsByCapability((current) => ({ ...current, [item.capability]: [] }));
+  }
+
+  async function fetchCapabilityModels(item: AiCapabilityConfiguration) {
+    const draft = drafts[item.capability];
+    if (!draft || modelsLoading) return;
+    setModelsLoading(item.capability);
+    setError("");
+    try {
+      const result = await listAiAdminModels(token, { capability: item.capability, provider: draft.provider, baseUrl: draft.baseUrl, apiKey: keys[item.capability]?.trim() || undefined });
+      setModelsByCapability((current) => ({ ...current, [item.capability]: result.models }));
+      if (!draft.model && result.models[0]) update(item.capability, "model", result.models[0].id);
+      setNotice(phrase(`${item.label.zh}已获取 ${result.models.length} 个模型。`, `${item.label.en}: ${result.models.length} models loaded.`));
+    } catch (modelError) {
+      setError(modelError instanceof Error ? modelError.message : phrase("模型列表获取失败。", "Could not load the model list."));
+    } finally {
+      setModelsLoading("");
+    }
   }
 
   async function save(item: AiCapabilityConfiguration) {
@@ -164,14 +205,20 @@ export function AiCapabilitiesPanel({ token }: { token: string }) {
         const draft = drafts[item.capability];
         if (!draft) return null;
         const pricingNote = item.officialPricingNote.split("\n");
+        const models = modelsByCapability[item.capability] ?? [];
+        const modelOptions = [
+          ...(draft.model && !models.some((model) => model.id === draft.model) ? [{ value: draft.model, label: draft.model }] : []),
+          ...models.map((model) => ({ value: model.id, label: model.label })),
+          ...(!draft.model && !models.length ? [{ value: "", label: phrase("点击右侧图标获取模型", "Use the button to load models") }] : []),
+        ];
         return <article className="ai-capability-card" key={item.capability}>
           <header><span><Icon size={16} /><strong>{phrase(item.label.zh, item.label.en)}</strong></span><label className="ai-capability-toggle"><input checked={draft.enabled} onChange={(event) => update(item.capability, "enabled", event.target.checked)} type="checkbox" /><span>{draft.enabled ? phrase("已启用", "Enabled") : phrase("未启用", "Disabled")}</span></label></header>
           <p className="ai-capability-note">{phrase(pricingNote[0], pricingNote[1] ?? pricingNote[0])}</p>
           <div className="ai-capability-fields">
-            <label><span>{phrase("供应商", "Provider")}</span><GlassSelect ariaLabel={phrase("供应商", "Provider")} onChange={(value) => update(item.capability, "provider", value)} options={[{ value: "custom", label: phrase("通用第三方（OpenAI 兼容）", "Generic third party (OpenAI-compatible)") }, { value: "deepseek", label: "DeepSeek" }, { value: "google", label: "Google" }, { value: "anthropic", label: "Anthropic" }]} value={draft.provider} /></label>
+            <label><span>{phrase("供应商", "Provider")}</span><GlassSelect ariaLabel={phrase("供应商", "Provider")} onChange={(value) => changeProvider(item, value as AiProvider)} options={[{ value: "openai", label: "OpenAI" }, { value: "custom", label: phrase("通用第三方（OpenAI 兼容）", "Generic third party (OpenAI-compatible)") }, { value: "deepseek", label: "DeepSeek" }, { value: "google", label: "Google" }, { value: "anthropic", label: "Anthropic" }]} value={draft.provider} /></label>
             <label><span>{phrase("接口地址", "Base URL")}</span><input onChange={(event) => update(item.capability, "baseUrl", event.target.value)} placeholder="https://api.example.com/v1" value={draft.baseUrl} /></label>
-            <label><span>{phrase("模型", "Model")}</span><input onChange={(event) => update(item.capability, "model", event.target.value)} placeholder={phrase("填写对应能力模型", "Enter the capability model")} value={draft.model} /></label>
-            <label><span>API Key {item.apiKeyConfigured ? phrase("（已配置）", "(configured)") : ""}</span><div className="ai-capability-key"><PasswordInput autoComplete="new-password" onChange={(event) => { setKeys((current) => ({ ...current, [item.capability]: event.target.value })); if (event.target.value) setClearKeys((current) => ({ ...current, [item.capability]: false })); }} placeholder={clearKeys[item.capability] ? phrase("保存时清除", "Clear on save") : item.apiKeyConfigured ? phrase("留空保持不变", "Leave blank to keep") : phrase("输入 API Key", "Enter API key")} value={keys[item.capability] || ""} />{item.apiKeyConfigured ? <button aria-pressed={clearKeys[item.capability]} className={`ai-clear-key-button${clearKeys[item.capability] ? " active" : ""}`} onClick={() => setClearKeys((current) => ({ ...current, [item.capability]: !current[item.capability] }))} title={phrase("清除已保存的 API Key", "Clear saved API key")} type="button"><Trash2 size={14} /></button> : null}</div></label>
+            <label><span>{phrase("模型", "Model")}</span><div className="ai-model-picker"><GlassSelect ariaLabel={phrase("模型", "Model")} menuClassName="ai-model-menu" menuPortal onChange={(value) => update(item.capability, "model", value)} options={modelOptions} value={draft.model} /><button aria-label={phrase("获取模型列表", "Load models")} className="ai-model-fetch-button" disabled={Boolean(modelsLoading) || !draft.baseUrl.trim()} onClick={() => void fetchCapabilityModels(item)} title={phrase("获取模型列表", "Load model list")} type="button">{modelsLoading === item.capability ? <RefreshCw className="spin" size={14} /> : <Download size={14} />}</button></div></label>
+            <label><span>API Key {item.apiKeyConfigured ? phrase("（已配置）", "(configured)") : ""}</span><div className={`ai-capability-key${item.apiKeyConfigured ? " has-clear-key" : ""}`}><PasswordInput autoComplete="new-password" onChange={(event) => { setKeys((current) => ({ ...current, [item.capability]: event.target.value })); if (event.target.value) setClearKeys((current) => ({ ...current, [item.capability]: false })); }} placeholder={clearKeys[item.capability] ? phrase("保存时清除", "Clear on save") : item.apiKeyConfigured ? phrase("留空保持不变", "Leave blank to keep") : phrase("输入 API Key", "Enter API key")} value={keys[item.capability] || ""} />{item.apiKeyConfigured ? <button aria-pressed={clearKeys[item.capability]} className={`ai-clear-key-button${clearKeys[item.capability] ? " active" : ""}`} onClick={() => setClearKeys((current) => ({ ...current, [item.capability]: !current[item.capability] }))} title={phrase("清除已保存的 API Key", "Clear saved API key")} type="button"><Trash2 size={14} /></button> : null}</div></label>
           </div>
           <div className="ai-capability-numbers">
             <label><span>{phrase("全站并发", "Global")}</span><input min={1} max={8} onChange={(event) => update(item.capability, "globalConcurrency", Number(event.target.value))} type="number" value={draft.globalConcurrency} /></label>

@@ -1,6 +1,6 @@
 import { authHeaders, requestBlob, requestJson } from "./auth-api";
 
-export type AiProvider = "openai-compatible" | "deepseek" | "custom" | "anthropic" | "google";
+export type AiProvider = "openai" | "openai-compatible" | "deepseek" | "custom" | "anthropic" | "google";
 
 export interface AiPricingPreset {
   provider: AiProvider;
@@ -118,7 +118,7 @@ export interface AiModelOption {
   label: string;
 }
 
-export function listAiAdminModels(token: string, input: { provider: AiProvider; baseUrl: string; apiKey?: string }) {
+export function listAiAdminModels(token: string, input: { provider: AiProvider; capability?: AiCapability; baseUrl: string; apiKey?: string }) {
   return requestJson<{ provider: AiProvider; models: AiModelOption[]; fetchedAt: string }>("/ai/admin/models", {
     method: "POST",
     headers: { ...authHeaders(token), "Content-Type": "application/json" },

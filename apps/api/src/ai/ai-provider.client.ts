@@ -56,7 +56,7 @@ export class AiProviderClientError extends Error {
 }
 
 export async function completeWithProvider(input: AiProviderRequest): Promise<AiProviderCompletion> {
-  if (input.provider === "openai-compatible" || input.provider === "deepseek" || input.provider === "custom") {
+  if (input.provider === "openai" || input.provider === "openai-compatible" || input.provider === "deepseek" || input.provider === "custom") {
     return completeOpenAiCompatible(input);
   }
   if (input.provider === "anthropic") {
@@ -85,7 +85,7 @@ export async function createEmbeddingsWithProvider(input: {
   texts: string[];
   timeoutSeconds: number;
 }): Promise<AiProviderEmbedding> {
-  if (!(input.provider === "openai-compatible" || input.provider === "deepseek" || input.provider === "custom")) {
+  if (!(input.provider === "openai" || input.provider === "openai-compatible" || input.provider === "deepseek" || input.provider === "custom")) {
     throw new AiProviderClientError("当前供应商未提供标准 Embedding 接口，请改用 OpenAI 兼容供应商或配置专用接口。\nThis provider does not expose a standard embeddings endpoint.");
   }
   const response = await postJson(
@@ -112,7 +112,7 @@ export async function transcribeWithProvider(input: {
   mimeType: string;
   timeoutSeconds: number;
 }): Promise<AiProviderTranscription> {
-  if (!(input.provider === "openai-compatible" || input.provider === "deepseek" || input.provider === "custom")) {
+  if (!(input.provider === "openai" || input.provider === "openai-compatible" || input.provider === "deepseek" || input.provider === "custom")) {
     throw new AiProviderClientError("当前供应商未提供标准语音转文字接口，请配置 OpenAI 兼容的 audio/transcriptions 接口。\nThis provider does not expose a standard transcription endpoint.");
   }
   const form = new FormData();
@@ -133,7 +133,7 @@ export async function ocrWithProvider(input: {
   prompt: string;
   timeoutSeconds: number;
 }): Promise<AiProviderCompletion> {
-  if (!(input.provider === "openai-compatible" || input.provider === "deepseek" || input.provider === "custom" || input.provider === "google")) {
+  if (!(input.provider === "openai" || input.provider === "openai-compatible" || input.provider === "deepseek" || input.provider === "custom" || input.provider === "google")) {
     throw new AiProviderClientError("当前供应商未提供图片理解接口。\nThis provider does not expose a vision endpoint.");
   }
   if (input.provider === "google") {
@@ -163,7 +163,7 @@ export async function generateImageWithProvider(input: {
   size: string;
   timeoutSeconds: number;
 }): Promise<AiProviderImage> {
-  if (!(input.provider === "openai-compatible" || input.provider === "custom" || input.provider === "google")) {
+  if (!(input.provider === "openai" || input.provider === "openai-compatible" || input.provider === "custom" || input.provider === "google")) {
     throw new AiProviderClientError("当前供应商未提供标准图片生成接口。\nThis provider does not expose a standard image generation endpoint.");
   }
   if (input.provider === "google") {

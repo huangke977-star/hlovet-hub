@@ -155,8 +155,12 @@ export class AiService {
   }
 
   async listModels(dto: ListAiModelsDto) {
-    const config = await this.getConfiguration();
-    const apiKey = dto.apiKey?.trim() || this.readApiKey(config);
+    const mainConfig = await this.getConfiguration();
+    const capabilityConfig = dto.capability
+      ? await this.prisma.aiCapabilityConfiguration.findUnique({ where: { capability: dto.capability } })
+      : null;
+    const config = capabilityConfig ?? mainConfig;
+    const apiKey = dto.apiKey?.trim() || this.decryptApiKey(config.apiKeyEncrypted);
     if (!apiKey) throw new BadRequestException("请先填写 API Key，或保留已保存的 API Key。\nEnter an API key or keep the saved key.");
     const baseUrl = dto.baseUrl?.trim() || config.baseUrl?.trim();
     if (!baseUrl) throw new BadRequestException("请先填写接口地址。\nEnter the AI base URL first.");
@@ -926,9 +930,13 @@ export class AiService {
   }
 
   private readApiKey(config: AiConfiguration): string | null {
-    if (!config.apiKeyEncrypted) return null;
+    return this.decryptApiKey(config.apiKeyEncrypted);
+  }
+
+  private decryptApiKey(apiKeyEncrypted: string | null): string | null {
+    if (!apiKeyEncrypted) return null;
     try {
-      return this.crypto.decrypt(config.apiKeyEncrypted);
+      return this.crypto.decrypt(apiKeyEncrypted);
     } catch {
       return null;
     }
