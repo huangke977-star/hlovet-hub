@@ -23,7 +23,7 @@ export function proxy(request: NextRequest) {
     const targetPath = localPath(pathname);
     if (isApiOrInternal(targetPath)) return NextResponse.next();
     const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-lingxi-locale", "en-US");
+    requestHeaders.set("x-hlovet-locale", "en-US");
     const rewriteUrl = request.nextUrl.clone();
     rewriteUrl.pathname = targetPath;
     const response = NextResponse.rewrite(rewriteUrl, { request: { headers: requestHeaders } });

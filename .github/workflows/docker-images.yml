@@ -17,11 +17,11 @@ jobs:
       matrix:
         include:
           - name: api
-            image: ghcr.io/huangke977-star/lingxi-portal-api
+            image: ghcr.io/huangke977-star/hlovet-hub-api
             dockerfile: apps/api/Dockerfile
             build-args: ""
           - name: web
-            image: ghcr.io/huangke977-star/lingxi-portal-web
+            image: ghcr.io/huangke977-star/hlovet-hub-web
             dockerfile: apps/web/Dockerfile
             build-args: |
               NEXT_PUBLIC_API_BASE_URL=auto

@@ -162,7 +162,7 @@ export default function AccountPrivacyPage() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `lingxi-data-export-${exportJob.id}.json`;
+      link.download = `hlovet-data-export-${exportJob.id}.json`;
       link.click();
       URL.revokeObjectURL(url);
       setNotice(phrase("导出文件已下载。", "The export file was downloaded."));

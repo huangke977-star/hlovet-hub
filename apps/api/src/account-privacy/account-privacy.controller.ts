@@ -40,7 +40,7 @@ export class AccountPrivacyController {
   @Get("me/exports/:id/download")
   @Header("Content-Type", "application/json; charset=utf-8")
   async downloadExport(@CurrentUser() user: AuthenticatedUser, @Param("id", ParseIntPipe) id: number, @Req() request: PrivacyRequest, @Res({ passthrough: true }) response: Response) {
-    response.setHeader("Content-Disposition", `attachment; filename="lingxi-data-export-${id}.json"`);
+    response.setHeader("Content-Disposition", `attachment; filename="hlovet-data-export-${id}.json"`);
     return this.privacy.downloadExport(user, id, this.context(request));
   }
 

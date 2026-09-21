@@ -1,7 +1,7 @@
-# Lingxi Portal
+# HLOVET Hub
 
-灵犀门户是一个个人门户平台项目。  
-Lingxi Portal is a personal portal platform.
+HLOVET Hub 是一个个人门户平台项目。
+HLOVET Hub is a personal portal platform.
 
 ## 技术栈 / Tech Stack
 
@@ -17,9 +17,9 @@ Lingxi Portal is a personal portal platform.
 ```bash
 pnpm install
 cp .env.example .env
-pnpm --filter @lingxi/api prisma:generate
-pnpm --filter @lingxi/api test
-pnpm --filter @lingxi/web build
+pnpm --filter @hlovet/api prisma:generate
+pnpm --filter @hlovet/api test
+pnpm --filter @hlovet/web build
 pnpm dev
 ```
 
@@ -56,7 +56,7 @@ Required variables:
 Local command:
 
 ```bash
-pnpm --filter @lingxi/api admin:bootstrap
+pnpm --filter @hlovet/api admin:bootstrap
 ```
 
 Docker command:
@@ -150,6 +150,12 @@ See [账号安全配置与运维](docs/account-security.zh-CN.md) or [Account Se
 
 ## Docker 全栈 / Docker Stack
 
+## 项目改名与数据保留 / Rename And Data Preservation
+
+项目仓库、工作区包、GHCR 镜像和应用容器已统一使用 `hlovet-hub` / `hlovet` 命名。现有生产环境的 `.env`、Compose 项目名、MySQL 数据库、Redis 数据和上传文件卷不应为了改名而重建；部署时只重建应用容器，并且不要执行 `docker compose down -v`。
+
+The repository, workspace packages, GHCR images, and application containers use the `hlovet-hub` / `hlovet` names. Keep the existing production `.env`, Compose project name, MySQL database, Redis data, and upload volumes when upgrading an existing installation. Recreate application containers only, and never run `docker compose down -v` for this rename.
+
 ```bash
 docker compose up -d --build
 ```
@@ -214,10 +220,10 @@ Caddy 验证通过后，公网只保留 TCP `80` 和 `443`。应用容器的 `30
 ## 验证 / Verification
 
 ```bash
-pnpm --filter @lingxi/api prisma:generate
-pnpm --filter @lingxi/api test
-pnpm --filter @lingxi/api lint
-pnpm --filter @lingxi/web lint
+pnpm --filter @hlovet/api prisma:generate
+pnpm --filter @hlovet/api test
+pnpm --filter @hlovet/api lint
+pnpm --filter @hlovet/web lint
 pnpm build
 ```
 

@@ -7,7 +7,7 @@ RUN corepack prepare pnpm@11.10.0 --activate
 RUN pnpm config set registry https://registry.npmmirror.com
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/web/package.json apps/web/package.json
-RUN pnpm install --filter @lingxi/web... --frozen-lockfile --fetch-retries=5 --fetch-retry-factor=2 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=60000
+RUN pnpm install --filter @hlovet/web... --frozen-lockfile --fetch-retries=5 --fetch-retry-factor=2 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=60000
 
 FROM node:22-alpine AS builder
 WORKDIR /app
@@ -21,7 +21,7 @@ ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY . .
-RUN pnpm --filter @lingxi/web build
+RUN pnpm --filter @hlovet/web build
 
 FROM node:22-alpine AS runner
 WORKDIR /app

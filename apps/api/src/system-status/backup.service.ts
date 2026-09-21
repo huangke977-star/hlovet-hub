@@ -620,7 +620,7 @@ export class BackupService implements OnModuleInit, OnModuleDestroy {
     return [
       `--host=${process.env.MYSQL_HOST?.trim() || "mysql"}`,
       `--port=${process.env.MYSQL_PORT?.trim() || "3306"}`,
-      `--user=${process.env.MYSQL_USER?.trim() || "lingxi"}`,
+      `--user=${process.env.MYSQL_USER?.trim() || "hlovet"}`,
       "--single-transaction",
       "--quick",
       "--skip-lock-tables",
@@ -636,7 +636,7 @@ export class BackupService implements OnModuleInit, OnModuleDestroy {
     return [
       `--host=${process.env.MYSQL_HOST?.trim() || "mysql"}`,
       `--port=${process.env.MYSQL_PORT?.trim() || "3306"}`,
-      `--user=${process.env.MYSQL_USER?.trim() || "lingxi"}`,
+      `--user=${process.env.MYSQL_USER?.trim() || "hlovet"}`,
       "--binary-mode",
       "--default-character-set=utf8mb4",
       database,

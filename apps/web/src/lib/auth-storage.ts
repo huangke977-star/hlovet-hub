@@ -1,5 +1,7 @@
-export const ACCESS_TOKEN_KEY = 'lingxi_access_token';
-export const REFRESH_TOKEN_KEY = 'lingxi_refresh_token';
+export const ACCESS_TOKEN_KEY = 'hlovet_access_token';
+export const REFRESH_TOKEN_KEY = 'hlovet_refresh_token';
+const LEGACY_ACCESS_TOKEN_KEY = 'lingxi_access_token';
+const LEGACY_REFRESH_TOKEN_KEY = 'lingxi_refresh_token';
 export const AUTH_STATE_CHANGE_EVENT = 'hlovet_auth_state_change';
 
 interface AccessTokenPayload {
@@ -14,6 +16,8 @@ export function saveAuthTokens(tokens: { accessToken: string; refreshToken: stri
 
   window.localStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
   window.localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+  window.localStorage.removeItem(LEGACY_ACCESS_TOKEN_KEY);
+  window.localStorage.removeItem(LEGACY_REFRESH_TOKEN_KEY);
   window.dispatchEvent(new Event(AUTH_STATE_CHANGE_EVENT));
 }
 
@@ -22,7 +26,7 @@ export function readAccessToken(): string | null {
     return null;
   }
 
-  return window.localStorage.getItem(ACCESS_TOKEN_KEY);
+  return readAndMigrate(ACCESS_TOKEN_KEY, LEGACY_ACCESS_TOKEN_KEY);
 }
 
 export function readRefreshToken(): string | null {
@@ -30,7 +34,7 @@ export function readRefreshToken(): string | null {
     return null;
   }
 
-  return window.localStorage.getItem(REFRESH_TOKEN_KEY);
+  return readAndMigrate(REFRESH_TOKEN_KEY, LEGACY_REFRESH_TOKEN_KEY);
 }
 
 export function readAccessTokenExpiresAt(): number | null {
@@ -51,7 +55,18 @@ export function clearAuthTokens(): void {
 
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
   window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+  window.localStorage.removeItem(LEGACY_ACCESS_TOKEN_KEY);
+  window.localStorage.removeItem(LEGACY_REFRESH_TOKEN_KEY);
   window.dispatchEvent(new Event(AUTH_STATE_CHANGE_EVENT));
+}
+
+function readAndMigrate(primaryKey: string, legacyKey: string): string | null {
+  const currentValue = window.localStorage.getItem(primaryKey);
+  if (currentValue) return currentValue;
+
+  const legacyValue = window.localStorage.getItem(legacyKey);
+  if (legacyValue) window.localStorage.setItem(primaryKey, legacyValue);
+  return legacyValue;
 }
 
 function readAccessTokenPayload(): AccessTokenPayload | null {

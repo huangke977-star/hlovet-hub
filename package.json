@@ -1,17 +1,17 @@
 {
-  "name": "lingxi-portal",
+  "name": "hlovet-hub",
   "private": true,
   "version": "0.1.0",
-  "description": "Lingxi Portal personal portal platform",
+  "description": "HLOVET Hub personal portal platform",
   "packageManager": "pnpm@11.10.0",
   "scripts": {
-    "dev": "pnpm --parallel --filter @lingxi/api --filter @lingxi/web dev",
-    "build": "pnpm --filter @lingxi/api build && pnpm --filter @lingxi/web build",
-    "lint": "pnpm --filter @lingxi/api lint && pnpm --filter @lingxi/web lint",
-    "test": "pnpm --filter @lingxi/api test",
+    "dev": "pnpm --parallel --filter @hlovet/api --filter @hlovet/web dev",
+    "build": "pnpm --filter @hlovet/api build && pnpm --filter @hlovet/web build",
+    "lint": "pnpm --filter @hlovet/api lint && pnpm --filter @hlovet/web lint",
+    "test": "pnpm --filter @hlovet/api test",
     "p21:load-test": "node scripts/p21-load-test.mjs",
     "p22:release-check": "node scripts/p22-release-check.mjs",
     "p22:browser-smoke": "python scripts/p22-browser-smoke.py",
-    "format": "pnpm --filter @lingxi/api format && pnpm --filter @lingxi/web format"
+    "format": "pnpm --filter @hlovet/api format && pnpm --filter @hlovet/web format"
   }
 }

@@ -152,16 +152,17 @@ function applyTaxonomyStyles(settings: SiteSettings): void {
       const backgroundAlpha = isCategory ? "22%" : "16%";
       return `${selector}{--taxonomy-color:${taxonomy.color};background:color-mix(in srgb, ${taxonomy.color} ${backgroundAlpha}, transparent)!important;color:color-mix(in srgb, ${taxonomy.color} 82%, var(--foreground))!important;}`;
     });
-  let style = document.getElementById("lingxi-taxonomy-colors");
+  let style = document.getElementById("hlovet-taxonomy-colors");
   if (!style) {
     style = document.createElement("style");
-    style.id = "lingxi-taxonomy-colors";
+    style.id = "hlovet-taxonomy-colors";
     document.head.appendChild(style);
   }
   style.textContent = rules.join("\n");
 }
 
 function removeTaxonomyStyles(): void {
+  document.getElementById("hlovet-taxonomy-colors")?.remove();
   document.getElementById("lingxi-taxonomy-colors")?.remove();
 }
 

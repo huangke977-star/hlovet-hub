@@ -9,7 +9,7 @@ export class TotpService {
     return this.toBase32(randomBytes(20));
   }
 
-  buildOtpAuthUri(secret: string, account: string, issuer = "Lingxi Portal"): string {
+  buildOtpAuthUri(secret: string, account: string, issuer = "HLOVET Hub"): string {
     return `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(account)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
   }
 

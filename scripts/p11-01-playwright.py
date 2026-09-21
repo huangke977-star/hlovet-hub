@@ -205,8 +205,8 @@ def prepare_page(page: Page) -> None:
     page.add_init_script(
         """
         (() => {
-          localStorage.setItem('lingxi_access_token', %s);
-          localStorage.setItem('lingxi_refresh_token', 'test-refresh-token');
+          localStorage.setItem('hlovet_access_token', %s);
+          localStorage.setItem('hlovet_refresh_token', 'test-refresh-token');
         })();
         """
         % json.dumps(ACCESS_TOKEN)

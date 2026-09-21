@@ -9,7 +9,7 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/api/prisma/schema.prisma apps/api/prisma/schema.prisma
 COPY apps/api/prisma.config.ts apps/api/prisma.config.ts
-RUN pnpm install --filter @lingxi/api... --frozen-lockfile --fetch-retries=5 --fetch-retry-factor=2 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=60000
+RUN pnpm install --filter @hlovet/api... --frozen-lockfile --fetch-retries=5 --fetch-retry-factor=2 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=60000
 
 FROM node:22-alpine AS builder
 WORKDIR /app
@@ -21,8 +21,8 @@ RUN pnpm config set registry https://registry.npmmirror.com
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
 COPY . .
-RUN pnpm --filter @lingxi/api prisma:generate
-RUN pnpm --filter @lingxi/api build
+RUN pnpm --filter @hlovet/api prisma:generate
+RUN pnpm --filter @hlovet/api build
 
 FROM node:22-alpine AS runner
 WORKDIR /app

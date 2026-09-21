@@ -4,7 +4,8 @@ import { PwaDiagnostics } from "@/components/pwa-diagnostics";
 import { isLocale } from "@/lib/i18n";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const locale = (await headers()).get("x-lingxi-locale");
+  const requestHeaders = await headers();
+  const locale = requestHeaders.get("x-hlovet-locale") ?? requestHeaders.get("x-lingxi-locale");
   const isEnglish = isLocale(locale) && locale === "en-US";
   return {
     title: isEnglish ? "Install diagnostics - HLOVET" : "安装诊断 - HLOVET",

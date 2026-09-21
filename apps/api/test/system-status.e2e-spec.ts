@@ -63,7 +63,7 @@ const statusResponse = {
   generatedAt: "2026-07-31T06:00:00.000Z",
   application: {
     status: "ok" as const,
-    service: "lingxi-api",
+    service: "hlovet-api",
     nodeVersion: "v22.0.0",
     environment: "test",
     uptimeSeconds: 120,
@@ -235,7 +235,7 @@ describe("system status administration (e2e)", () => {
       .expect(200);
 
     expect(response.body).toMatchObject({
-      application: { service: "lingxi-api", status: "ok" },
+      application: { service: "hlovet-api", status: "ok" },
       database: { connected: true, migrationCount: 12 },
       redis: { connected: true, keyCount: 8 },
       reliability: {

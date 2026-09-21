@@ -61,7 +61,7 @@ export class SystemStatusService {
       generatedAt: new Date().toISOString(),
       application: {
         status: "ok",
-        service: "lingxi-api",
+        service: "hlovet-api",
         nodeVersion: process.version,
         environment: process.env.NODE_ENV ?? "development",
         uptimeSeconds: Math.floor(process.uptime()),

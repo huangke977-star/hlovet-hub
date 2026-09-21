@@ -39,7 +39,7 @@ export class HealthController {
   getHealth() {
     return {
       status: 'ok',
-      service: 'lingxi-api',
+      service: 'hlovet-api',
     };
   }
 
@@ -54,7 +54,7 @@ export class HealthController {
     const ready = database.ok && redis.ok;
     const payload = {
       status: ready ? 'ok' : 'degraded',
-      service: 'lingxi-api',
+      service: 'hlovet-api',
       checks: { database, redis },
     };
     if (!ready) throw new ServiceUnavailableException(payload);

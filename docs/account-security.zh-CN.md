@@ -339,10 +339,10 @@ docker compose -f docker-compose.prod.yml ps
 
 ### 自动化与构建
 
-1. 执行 `pnpm --filter @lingxi/api prisma:generate`。
-2. 执行 `pnpm --filter @lingxi/api test`，确认认证、会话、密码和 P2 安全测试通过。
-3. 执行 `pnpm --filter @lingxi/api lint` 和 `pnpm --filter @lingxi/web lint`。
-4. 执行 `pnpm --filter @lingxi/api build` 和 `pnpm --filter @lingxi/web build`。
+1. 执行 `pnpm --filter @hlovet/api prisma:generate`。
+2. 执行 `pnpm --filter @hlovet/api test`，确认认证、会话、密码和 P2 安全测试通过。
+3. 执行 `pnpm --filter @hlovet/api lint` 和 `pnpm --filter @hlovet/web lint`。
+4. 执行 `pnpm --filter @hlovet/api build` 和 `pnpm --filter @hlovet/web build`。
 5. 执行 `docker compose -f docker-compose.prod.yml config`，确认环境变量引用和服务依赖有效。
 
 ### 功能验证

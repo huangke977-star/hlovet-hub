@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const name = settings.siteName?.trim() || "HLOVET";
   const iconPath = versionedAssetPath(normalizeConfiguredIconPath(settings.pwaIconPath?.trim() || "/pwa-logo.png"), settings.updatedAt);
   const iconType = getIconMimeType(iconPath);
-  const isEnglish = request.headers.get("x-lingxi-locale") === "en-US";
+  const isEnglish = (request.headers.get("x-hlovet-locale") ?? request.headers.get("x-lingxi-locale")) === "en-US";
   const startUrl = isEnglish ? "/en" : "/";
 
   return Response.json({

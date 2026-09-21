@@ -14,11 +14,11 @@ function getDatabaseConfig() {
   return {
     host: process.env.MYSQL_HOST ?? databaseUrl?.hostname ?? 'localhost',
     port: Number(process.env.MYSQL_PORT ?? databaseUrl?.port ?? 3306),
-    user: process.env.MYSQL_USER ?? decodeURIComponent(databaseUrl?.username ?? 'lingxi'),
+    user: process.env.MYSQL_USER ?? decodeURIComponent(databaseUrl?.username ?? 'hlovet'),
     password: process.env.MYSQL_PASSWORD ?? decodeURIComponent(databaseUrl?.password ?? ''),
     database:
       process.env.MYSQL_DATABASE ??
-      decodeURIComponent(databaseUrl?.pathname.replace(/^\//, '') ?? 'lingxi_portal'),
+      decodeURIComponent(databaseUrl?.pathname.replace(/^\//, '') ?? 'hlovet_hub'),
     connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT ?? 5),
     allowPublicKeyRetrieval:
       process.env.MYSQL_ALLOW_PUBLIC_KEY_RETRIEVAL === 'true',

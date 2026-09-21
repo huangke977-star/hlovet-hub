@@ -137,6 +137,6 @@ export default async function RootLayout({
 
 async function resolveRequestLocale(): Promise<Locale> {
   const requestHeaders = await headers();
-  const value = requestHeaders.get("x-lingxi-locale");
+  const value = requestHeaders.get("x-hlovet-locale") ?? requestHeaders.get("x-lingxi-locale");
   return isLocale(value) ? value : "zh-CN";
 }

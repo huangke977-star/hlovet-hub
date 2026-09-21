@@ -39,7 +39,7 @@ describe('HealthController (e2e)', () => {
       .expect(200)
       .expect({
         status: 'ok',
-        service: 'lingxi-api',
+        service: 'hlovet-api',
       });
   });
 

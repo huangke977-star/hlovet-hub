@@ -1,7 +1,7 @@
 services:
   caddy:
     image: caddy:2-alpine
-    container_name: lingxi-caddy
+    container_name: hlovet-caddy
     restart: unless-stopped
     mem_limit: 128m
     cpus: 0.25
@@ -20,7 +20,7 @@ services:
 
   mysql:
     image: mysql:8.4
-    container_name: lingxi-mysql
+    container_name: hlovet-mysql
     restart: unless-stopped
     command:
       [
@@ -46,7 +46,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: lingxi-redis
+    container_name: hlovet-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
     mem_limit: 192m
@@ -61,7 +61,7 @@ services:
 
   turn:
     image: coturn/coturn:4.6.3-alpine
-    container_name: lingxi-turn
+    container_name: hlovet-turn
     restart: unless-stopped
     network_mode: host
     mem_limit: 96m
@@ -91,8 +91,8 @@ services:
       - --simple-log
 
   api-bootstrap:
-    image: ghcr.io/huangke977-star/lingxi-portal-api:main
-    container_name: lingxi-api-bootstrap
+    image: ghcr.io/huangke977-star/hlovet-hub-api:main
+    container_name: hlovet-api-bootstrap
     restart: "no"
     mem_limit: 384m
     cpus: 0.5
@@ -114,8 +114,8 @@ services:
         condition: service_healthy
 
   api:
-    image: ghcr.io/huangke977-star/lingxi-portal-api:main
-    container_name: lingxi-api
+    image: ghcr.io/huangke977-star/hlovet-hub-api:main
+    container_name: hlovet-api
     restart: unless-stopped
     stop_grace_period: 30s
     mem_limit: 384m
@@ -178,8 +178,8 @@ services:
         condition: service_completed_successfully
 
   web:
-    image: ghcr.io/huangke977-star/lingxi-portal-web:main
-    container_name: lingxi-web
+    image: ghcr.io/huangke977-star/hlovet-hub-web:main
+    container_name: hlovet-web
     restart: unless-stopped
     mem_limit: 384m
     cpus: 0.75

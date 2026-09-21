@@ -339,10 +339,10 @@ docker compose -f docker-compose.prod.yml ps
 
 ### Automated Checks
 
-1. Run `pnpm --filter @lingxi/api prisma:generate`.
-2. Run `pnpm --filter @lingxi/api test` and confirm authentication, session, password, and P2 security tests pass.
-3. Run `pnpm --filter @lingxi/api lint` and `pnpm --filter @lingxi/web lint`.
-4. Run `pnpm --filter @lingxi/api build` and `pnpm --filter @lingxi/web build`.
+1. Run `pnpm --filter @hlovet/api prisma:generate`.
+2. Run `pnpm --filter @hlovet/api test` and confirm authentication, session, password, and P2 security tests pass.
+3. Run `pnpm --filter @hlovet/api lint` and `pnpm --filter @hlovet/web lint`.
+4. Run `pnpm --filter @hlovet/api build` and `pnpm --filter @hlovet/web build`.
 5. Run `docker compose -f docker-compose.prod.yml config` and verify environment references and service dependencies.
 
 ### Functional Checks
