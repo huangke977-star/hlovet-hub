@@ -49,7 +49,7 @@ export interface AiProviderRequest {
 }
 
 export class AiProviderClientError extends Error {
-  constructor(message: string) {
+  constructor(message: string, public readonly retryable = false) {
     super(message);
     this.name = "AiProviderClientError";
   }
@@ -278,7 +278,7 @@ async function postJson(
       signal: controller.signal,
     });
     if (!response.ok) {
-      throw new AiProviderClientError(`AI 服务请求失败（HTTP ${response.status}）。`);
+      throw new AiProviderClientError(`AI 服务请求失败（HTTP ${response.status}）。`, response.status === 429 || response.status >= 500);
     }
     try {
       const parsed: unknown = await response.json();
@@ -290,9 +290,9 @@ async function postJson(
   } catch (error) {
     if (error instanceof AiProviderClientError) throw error;
     if (error instanceof Error && error.name === "AbortError") {
-      throw new AiProviderClientError("AI 请求超时，请稍后重试。");
+      throw new AiProviderClientError("AI 请求超时，请稍后重试。", true);
     }
-    throw new AiProviderClientError("AI 服务暂时无法连接。");
+    throw new AiProviderClientError("AI 服务暂时无法连接。", true);
   } finally {
     clearTimeout(timeout);
   }
@@ -314,14 +314,14 @@ async function postForm(
   const timeout = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
   try {
     const response = await fetch(url, { method: "POST", headers: { Accept: "application/json", ...headers }, body, signal: controller.signal });
-    if (!response.ok) throw new AiProviderClientError(`AI 服务请求失败（HTTP ${response.status}）。`);
+    if (!response.ok) throw new AiProviderClientError(`AI 服务请求失败（HTTP ${response.status}）。`, response.status === 429 || response.status >= 500);
     const parsed: unknown = await response.json();
     if (!isRecord(parsed)) throw new AiProviderClientError("AI 服务返回了无效响应。\nThe AI service returned an invalid response.");
     return parsed;
   } catch (error) {
     if (error instanceof AiProviderClientError) throw error;
-    if (error instanceof Error && error.name === "AbortError") throw new AiProviderClientError("AI 请求超时，请稍后重试。\nThe AI request timed out.");
-    throw new AiProviderClientError("AI 服务暂时无法连接。\nThe AI service is temporarily unavailable.");
+    if (error instanceof Error && error.name === "AbortError") throw new AiProviderClientError("AI 请求超时，请稍后重试。\nThe AI request timed out.", true);
+    throw new AiProviderClientError("AI 服务暂时无法连接。\nThe AI service is temporarily unavailable.", true);
   } finally {
     clearTimeout(timeout);
   }
@@ -344,14 +344,14 @@ async function getJson(
   const timeout = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
   try {
     const response = await fetch(url, { headers: { Accept: "application/json", ...headers }, signal: controller.signal });
-    if (!response.ok) throw new AiProviderClientError(`AI 模型列表请求失败（HTTP ${response.status}）。`);
+    if (!response.ok) throw new AiProviderClientError(`AI 模型列表请求失败（HTTP ${response.status}）。`, response.status === 429 || response.status >= 500);
     const parsed: unknown = await response.json();
     if (!isRecord(parsed)) throw new AiProviderClientError("AI 服务返回了无效的模型列表。\nThe AI service returned an invalid model list.");
     return parsed;
   } catch (error) {
     if (error instanceof AiProviderClientError) throw error;
-    if (error instanceof Error && error.name === "AbortError") throw new AiProviderClientError("AI 模型列表请求超时，请稍后重试。\nThe model-list request timed out.");
-    throw new AiProviderClientError("AI 模型列表暂时无法读取。\nThe model list is temporarily unavailable.");
+    if (error instanceof Error && error.name === "AbortError") throw new AiProviderClientError("AI 模型列表请求超时，请稍后重试。\nThe model-list request timed out.", true);
+    throw new AiProviderClientError("AI 模型列表暂时无法读取。\nThe model list is temporarily unavailable.", true);
   } finally {
     clearTimeout(timeout);
   }

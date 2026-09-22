@@ -2564,6 +2564,11 @@ model AiConfiguration {
   baseUrl               String?  @map("base_url") @db.VarChar(512)
   model                 String?  @db.VarChar(160)
   apiKeyEncrypted       String?  @map("api_key_encrypted") @db.Text
+  fallbackEnabled       Boolean  @default(false) @map("fallback_enabled")
+  fallbackProvider      String?  @map("fallback_provider") @db.VarChar(32)
+  fallbackBaseUrl       String?  @map("fallback_base_url") @db.VarChar(512)
+  fallbackModel         String?  @map("fallback_model") @db.VarChar(160)
+  fallbackApiKeyEncrypted String? @map("fallback_api_key_encrypted") @db.Text
   globalConcurrency     Int      @default(2) @map("global_concurrency")
   userConcurrency       Int      @default(1) @map("user_concurrency")
   maxOutputTokens       Int      @default(2000) @map("max_output_tokens")
@@ -2572,6 +2577,8 @@ model AiConfiguration {
   billingCurrency       String   @default("USD") @map("billing_currency") @db.VarChar(8)
   inputCostPerMillionMicros Int  @default(0) @map("input_cost_per_million_micros")
   outputCostPerMillionMicros Int @default(0) @map("output_cost_per_million_micros")
+  fallbackInputCostPerMillionMicros Int @default(0) @map("fallback_input_cost_per_million_micros")
+  fallbackOutputCostPerMillionMicros Int @default(0) @map("fallback_output_cost_per_million_micros")
   ragEnabled            Boolean  @default(true) @map("rag_enabled")
   ragTopK               Int      @default(6) @map("rag_top_k")
   contextMaxMessages   Int      @default(24) @map("context_max_messages")
@@ -2670,6 +2677,11 @@ model AiCapabilityConfiguration {
   baseUrl               String?  @map("base_url") @db.VarChar(512)
   model                 String?  @db.VarChar(160)
   apiKeyEncrypted       String?  @map("api_key_encrypted") @db.Text
+  fallbackEnabled       Boolean  @default(false) @map("fallback_enabled")
+  fallbackProvider      String?  @map("fallback_provider") @db.VarChar(32)
+  fallbackBaseUrl       String?  @map("fallback_base_url") @db.VarChar(512)
+  fallbackModel         String?  @map("fallback_model") @db.VarChar(160)
+  fallbackApiKeyEncrypted String? @map("fallback_api_key_encrypted") @db.Text
   globalConcurrency     Int      @default(1) @map("global_concurrency")
   userConcurrency       Int      @default(1) @map("user_concurrency")
   requestTimeoutSeconds Int      @default(60) @map("request_timeout_seconds")
@@ -2678,6 +2690,8 @@ model AiCapabilityConfiguration {
   billingCurrency       String   @default("USD") @map("billing_currency") @db.VarChar(8)
   inputCostPerMillionMicros Int @default(0) @map("input_cost_per_million_micros")
   outputCostPerMillionMicros Int @default(0) @map("output_cost_per_million_micros")
+  fallbackInputCostPerMillionMicros Int @default(0) @map("fallback_input_cost_per_million_micros")
+  fallbackOutputCostPerMillionMicros Int @default(0) @map("fallback_output_cost_per_million_micros")
   unitCostMicros        Int      @default(0) @map("unit_cost_micros")
   unitName              String   @default("request") @map("unit_name") @db.VarChar(32)
   maxInputBytes         Int      @default(10485760) @map("max_input_bytes")

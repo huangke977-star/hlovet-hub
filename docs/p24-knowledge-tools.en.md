@@ -12,7 +12,9 @@ The “Media tools” section below the controlled tools provides user-facing en
 
 The assistant searches articles visible to the current account and can answer questions using an article, topic, or collection context. Visibility is filtered on the server before context is sent to the model. When Embeddings are configured, retrieval combines vector similarity with keyword matching; without Embeddings, article chunks are still built and keyword retrieval is used. Protected point-resource content continues to use the article response redaction rules and cannot be bypassed through AI.
 
-Conversation context uses recent messages plus automatic summaries. When the configured threshold is reached, older messages are compressed while goals, facts, sources, and unfinished items are retained; a failed summary never blocks the current chat request.
+The main model and each capability can have an optional fallback model with separate input/output prices. Fallback occurs only for timeouts, temporary connectivity failures, HTTP 429, or HTTP 5xx; primary failures and fallback results are recorded separately and estimated with the price of the model actually used, while parameter and authorization errors are not retried.
+
+Conversation context uses recent messages plus automatic summaries. When the configured threshold is reached, older messages are compressed while goals, facts, sources, and unfinished items are retained; a failed summary never blocks the current chat request. The context-retention period limits only history and summaries sent to a model; it does not delete the user's visible conversation history. Changing it immediately clears existing summaries so the new window can rebuild within scope.
 
 ## Controlled tools
 
@@ -33,7 +35,7 @@ Draft creation never writes immediately. The service first stores a pending prev
 
 ## Admin entry
 
-Super administrators open “Admin -> AI settings” to configure the provider, base URL, model, and API key; set global/per-user concurrency, output limits, timeout, and daily request limits; configure independent Embedding, OCR, transcription, and image-generation switches, budgets, and prices; view resource recommendations, connection tests, token/cost statistics, and redacted invocation logs; and view “Tool audit”. The audit contains only the tool, account, status, confirmation requirement, and timestamps, never inputs, outputs, or API keys. The knowledge-base section lists document indexing status and supports bulk or single-document rebuilds.
+Super administrators open “Admin -> AI settings” to configure the provider, base URL, model, API key, and optional fallback model; set global/per-user concurrency, output limits, timeout, and daily request limits; configure independent Embedding, OCR, transcription, and image-generation switches, budgets, and prices; view resource recommendations, connection tests, token/cost statistics, and redacted invocation logs; and view “Tool audit”. The audit contains only the tool, account, status, confirmation requirement, and timestamps, never inputs, outputs, or API keys. The knowledge-base section lists document indexing status and supports bulk or single-document rebuilds.
 
 When the main model name exactly matches a small DeepSeek or common OpenAI-compatible preset, the pricing area offers a manual “apply reference” action. Prices can change, so provider billing remains authoritative. Ordinary administrators cannot read or change AI settings and cannot view tool audit records.
 

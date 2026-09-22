@@ -32,6 +32,10 @@ function initialDraft(item: AiCapabilityConfiguration): AiCapabilityConfiguratio
     provider: item.provider === "openai-compatible" ? "custom" : item.provider,
     baseUrl: item.baseUrl,
     model: item.model,
+    fallbackEnabled: item.fallbackEnabled,
+    fallbackProvider: item.fallbackProvider ?? "custom",
+    fallbackBaseUrl: item.fallbackBaseUrl,
+    fallbackModel: item.fallbackModel,
     globalConcurrency: item.globalConcurrency,
     userConcurrency: item.userConcurrency,
     requestTimeoutSeconds: item.requestTimeoutSeconds,
@@ -40,6 +44,8 @@ function initialDraft(item: AiCapabilityConfiguration): AiCapabilityConfiguratio
     billingCurrency: item.billingCurrency,
     inputCostPerMillionMicros: item.inputCostPerMillionMicros,
     outputCostPerMillionMicros: item.outputCostPerMillionMicros,
+    fallbackInputCostPerMillionMicros: item.fallbackInputCostPerMillionMicros,
+    fallbackOutputCostPerMillionMicros: item.fallbackOutputCostPerMillionMicros,
     unitCostMicros: item.unitCostMicros,
     unitName: item.unitName,
     maxInputBytes: item.maxInputBytes,
@@ -52,12 +58,16 @@ export function AiCapabilitiesPanel({ token }: { token: string }) {
   const [drafts, setDrafts] = useState<Record<string, AiCapabilityConfigurationUpdate>>({});
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [clearKeys, setClearKeys] = useState<Record<string, boolean>>({});
+  const [fallbackKeys, setFallbackKeys] = useState<Record<string, string>>({});
+  const [clearFallbackKeys, setClearFallbackKeys] = useState<Record<string, boolean>>({});
   const [usage, setUsage] = useState<{ requests: number; tokens: number; estimatedCostMicros: number } | null>(null);
   const [quality, setQuality] = useState<{ feedbackTotal: number; helpful: number; unhelpful: number; averageRating: number | null } | null>(null);
-  const [knowledge, setKnowledge] = useState<{ documents: number; chunks: number; ready: number; vectors: number; semanticSearchAvailable: boolean } | null>(null);
+  const [knowledge, setKnowledge] = useState<{ documents: number; chunks: number; ready: number; keywordReady: number; pendingEmbedding: number; failed: number; vectors: number; semanticSearchAvailable: boolean; keywordSearchAvailable: boolean } | null>(null);
   const [documents, setDocuments] = useState<AiKnowledgeDocument[]>([]);
   const [modelsByCapability, setModelsByCapability] = useState<Record<string, AiModelOption[]>>({});
+  const [fallbackModelsByCapability, setFallbackModelsByCapability] = useState<Record<string, AiModelOption[]>>({});
   const [modelsLoading, setModelsLoading] = useState("");
+  const [fallbackModelsLoading, setFallbackModelsLoading] = useState("");
   const [saving, setSaving] = useState("");
   const [testing, setTesting] = useState("");
   const [reindexing, setReindexing] = useState(false);
@@ -78,6 +88,7 @@ export function AiCapabilitiesPanel({ token }: { token: string }) {
     setKnowledge(knowledgeOverview);
     setDocuments(knowledgeDocuments.items);
     setModelsByCapability({});
+    setFallbackModelsByCapability({});
   }
 
   useEffect(() => {
@@ -115,6 +126,25 @@ export function AiCapabilitiesPanel({ token }: { token: string }) {
     setModelsByCapability((current) => ({ ...current, [item.capability]: [] }));
   }
 
+  function changeFallbackProvider(item: AiCapabilityConfiguration, provider: AiProvider) {
+    const defaultBaseUrls: Partial<Record<AiProvider, string>> = {
+      openai: "https://api.openai.com/v1",
+      deepseek: "https://api.deepseek.com/v1",
+      anthropic: "https://api.anthropic.com",
+      google: "https://generativelanguage.googleapis.com/v1beta",
+      custom: "https://api.example.com/v1",
+    };
+    setDrafts((current) => {
+      const draft = current[item.capability];
+      if (!draft) return current;
+      const knownBaseUrls = Object.values(defaultBaseUrls);
+      const currentBaseUrl = draft.fallbackBaseUrl ?? "";
+      const shouldUseProviderDefault = !currentBaseUrl.trim() || knownBaseUrls.includes(currentBaseUrl);
+      return { ...current, [item.capability]: { ...draft, fallbackProvider: provider, fallbackBaseUrl: shouldUseProviderDefault ? (defaultBaseUrls[provider] ?? currentBaseUrl) : currentBaseUrl } };
+    });
+    setFallbackModelsByCapability((current) => ({ ...current, [item.capability]: [] }));
+  }
+
   async function fetchCapabilityModels(item: AiCapabilityConfiguration) {
     const draft = drafts[item.capability];
     if (!draft || modelsLoading) return;
@@ -132,17 +162,36 @@ export function AiCapabilitiesPanel({ token }: { token: string }) {
     }
   }
 
+  async function fetchFallbackCapabilityModels(item: AiCapabilityConfiguration) {
+    const draft = drafts[item.capability];
+    if (!draft || fallbackModelsLoading || !(draft.fallbackBaseUrl ?? "").trim()) return;
+    setFallbackModelsLoading(item.capability);
+    setError("");
+    try {
+      const result = await listAiAdminModels(token, { credential: "fallback", capability: item.capability, provider: draft.fallbackProvider ?? "custom", baseUrl: draft.fallbackBaseUrl ?? "", apiKey: fallbackKeys[item.capability]?.trim() || undefined });
+      setFallbackModelsByCapability((current) => ({ ...current, [item.capability]: result.models }));
+      if (!draft.fallbackModel && result.models[0]) update(item.capability, "fallbackModel", result.models[0].id);
+      setNotice(phrase(`${item.label.zh}已获取 ${result.models.length} 个备用模型。`, `${item.label.en}: ${result.models.length} fallback models loaded.`));
+    } catch (modelError) {
+      setError(modelError instanceof Error ? modelError.message : phrase("备用模型列表获取失败。", "Could not load the fallback model list."));
+    } finally {
+      setFallbackModelsLoading("");
+    }
+  }
+
   async function save(item: AiCapabilityConfiguration) {
     const draft = drafts[item.capability];
     if (!draft || saving) return;
     setSaving(item.capability);
     setError("");
     try {
-      await updateAiAdminCapability(token, item.capability, { ...draft, apiKey: keys[item.capability]?.trim() || undefined, clearApiKey: clearKeys[item.capability] });
+      await updateAiAdminCapability(token, item.capability, { ...draft, apiKey: keys[item.capability]?.trim() || undefined, clearApiKey: clearKeys[item.capability], fallbackApiKey: fallbackKeys[item.capability]?.trim() || undefined, clearFallbackApiKey: clearFallbackKeys[item.capability] });
       setNotice(phrase(`${item.label.zh}配置已保存。`, `${item.label.en} settings saved.`));
       await load();
       setKeys((current) => ({ ...current, [item.capability]: "" }));
       setClearKeys((current) => ({ ...current, [item.capability]: false }));
+      setFallbackKeys((current) => ({ ...current, [item.capability]: "" }));
+      setClearFallbackKeys((current) => ({ ...current, [item.capability]: false }));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : phrase("AI 能力配置保存失败。", "Could not save AI capability settings."));
     } finally {
@@ -171,7 +220,7 @@ export function AiCapabilitiesPanel({ token }: { token: string }) {
     try {
       const result = await reindexAiKnowledge(token, 50);
       await load();
-      setNotice(phrase(`已扫描 ${result.scanned} 篇文章，向量完成 ${result.indexed} 篇，待配置 ${result.pending} 篇。`, `Scanned ${result.scanned} articles; ${result.indexed} indexed and ${result.pending} waiting for embeddings.`));
+      setNotice(phrase(`已扫描 ${result.scanned} 篇文章，向量完成 ${result.indexed} 篇，关键词可用 ${result.keywordReady} 篇，待处理 ${result.pending} 篇。`, `Scanned ${result.scanned} articles; ${result.indexed} have vectors, ${result.keywordReady} are keyword-ready, and ${result.pending} remain pending.`));
     } catch (reindexError) {
       setError(reindexError instanceof Error ? reindexError.message : phrase("知识库索引失败。", "Knowledge indexing failed."));
     } finally {
@@ -206,10 +255,16 @@ export function AiCapabilitiesPanel({ token }: { token: string }) {
         if (!draft) return null;
         const pricingNote = item.officialPricingNote.split("\n");
         const models = modelsByCapability[item.capability] ?? [];
+        const fallbackModels = fallbackModelsByCapability[item.capability] ?? [];
         const modelOptions = [
           ...(draft.model && !models.some((model) => model.id === draft.model) ? [{ value: draft.model, label: draft.model }] : []),
           ...models.map((model) => ({ value: model.id, label: model.label })),
           ...(!draft.model && !models.length ? [{ value: "", label: phrase("点击右侧图标获取模型", "Use the button to load models") }] : []),
+        ];
+        const fallbackModelOptions = [
+          ...(draft.fallbackModel && !fallbackModels.some((model) => model.id === draft.fallbackModel) ? [{ value: draft.fallbackModel, label: draft.fallbackModel }] : []),
+          ...fallbackModels.map((model) => ({ value: model.id, label: model.label })),
+          ...(!draft.fallbackModel && !fallbackModels.length ? [{ value: "", label: phrase("点击右侧图标获取模型", "Use the button to load models") }] : []),
         ];
         return <article className="ai-capability-card" key={item.capability}>
           <header><span><Icon size={16} /><strong>{phrase(item.label.zh, item.label.en)}</strong></span><label className="ai-capability-toggle"><input checked={draft.enabled} onChange={(event) => update(item.capability, "enabled", event.target.checked)} type="checkbox" /><span>{draft.enabled ? phrase("已启用", "Enabled") : phrase("未启用", "Disabled")}</span></label></header>
@@ -220,6 +275,8 @@ export function AiCapabilitiesPanel({ token }: { token: string }) {
             <label><span>{phrase("模型", "Model")}</span><div className="ai-model-picker"><GlassSelect ariaLabel={phrase("模型", "Model")} menuClassName="ai-model-menu" menuPortal onChange={(value) => update(item.capability, "model", value)} options={modelOptions} value={draft.model} /><button aria-label={phrase("获取模型列表", "Load models")} className="ai-model-fetch-button" disabled={Boolean(modelsLoading) || !draft.baseUrl.trim()} onClick={() => void fetchCapabilityModels(item)} title={phrase("获取模型列表", "Load model list")} type="button">{modelsLoading === item.capability ? <RefreshCw className="spin" size={14} /> : <Download size={14} />}</button></div></label>
             <label><span>API Key {item.apiKeyConfigured ? phrase("（已配置）", "(configured)") : ""}</span><div className={`ai-capability-key${item.apiKeyConfigured ? " has-clear-key" : ""}`}><PasswordInput autoComplete="new-password" onChange={(event) => { setKeys((current) => ({ ...current, [item.capability]: event.target.value })); if (event.target.value) setClearKeys((current) => ({ ...current, [item.capability]: false })); }} placeholder={clearKeys[item.capability] ? phrase("保存时清除", "Clear on save") : item.apiKeyConfigured ? phrase("留空保持不变", "Leave blank to keep") : phrase("输入 API Key", "Enter API key")} value={keys[item.capability] || ""} />{item.apiKeyConfigured ? <button aria-pressed={clearKeys[item.capability]} className={`ai-clear-key-button${clearKeys[item.capability] ? " active" : ""}`} onClick={() => setClearKeys((current) => ({ ...current, [item.capability]: !current[item.capability] }))} title={phrase("清除已保存的 API Key", "Clear saved API key")} type="button"><Trash2 size={14} /></button> : null}</div></label>
           </div>
+           <div className="ai-capability-fallback"><label className="ai-config-toggle"><span>{phrase("启用备用模型", "Enable fallback model")}</span><input checked={Boolean(draft.fallbackEnabled)} onChange={(event) => update(item.capability, "fallbackEnabled", event.target.checked)} type="checkbox" /></label><small>{phrase("仅在超时、网络暂时不可达、429 或 5xx 时切换。", "Switches only for timeouts, transient network failures, 429, or 5xx.")}</small>{draft.fallbackEnabled ? <div className="ai-capability-fields"><label><span>{phrase("备用供应商", "Fallback provider")}</span><GlassSelect ariaLabel={phrase("备用供应商", "Fallback provider")} onChange={(value) => changeFallbackProvider(item, value as AiProvider)} options={[{ value: "openai", label: "OpenAI" }, { value: "custom", label: phrase("通用第三方", "Generic third party") }, { value: "deepseek", label: "DeepSeek" }, { value: "google", label: "Google" }, { value: "anthropic", label: "Anthropic" }]} value={draft.fallbackProvider ?? "custom"} /></label><label><span>{phrase("备用接口地址", "Fallback base URL")}</span><input onChange={(event) => update(item.capability, "fallbackBaseUrl", event.target.value)} placeholder="https://api.example.com/v1" value={draft.fallbackBaseUrl ?? ""} /></label><label><span>{phrase("备用模型", "Fallback model")}</span><div className="ai-model-picker"><GlassSelect ariaLabel={phrase("备用模型", "Fallback model")} menuClassName="ai-model-menu" menuPortal onChange={(value) => update(item.capability, "fallbackModel", value)} options={fallbackModelOptions} value={draft.fallbackModel ?? ""} /><button aria-label={phrase("获取备用模型列表", "Load fallback models")} className="ai-model-fetch-button" disabled={fallbackModelsLoading === item.capability || !(draft.fallbackBaseUrl ?? "").trim()} onClick={() => void fetchFallbackCapabilityModels(item)} title={phrase("获取备用模型列表", "Load fallback model list")} type="button">{fallbackModelsLoading === item.capability ? <RefreshCw className="spin" size={14} /> : <Download size={14} />}</button></div></label><label><span>{phrase("备用 API Key", "Fallback API key")}{item.fallbackApiKeyConfigured ? phrase("（已配置）", "(configured)") : ""}</span><div className={"ai-capability-key" + (item.fallbackApiKeyConfigured ? " has-clear-key" : "")}><PasswordInput autoComplete="new-password" onChange={(event) => { setFallbackKeys((current) => ({ ...current, [item.capability]: event.target.value })); if (event.target.value) setClearFallbackKeys((current) => ({ ...current, [item.capability]: false })); }} placeholder={clearFallbackKeys[item.capability] ? phrase("保存时清除", "Clear on save") : item.fallbackApiKeyConfigured ? phrase("留空保持不变", "Leave blank to keep") : phrase("输入备用 API Key", "Enter fallback API key")} value={fallbackKeys[item.capability] || ""} />{item.fallbackApiKeyConfigured ? <button aria-pressed={clearFallbackKeys[item.capability]} className={"ai-clear-key-button" + (clearFallbackKeys[item.capability] ? " active" : "")} onClick={() => setClearFallbackKeys((current) => ({ ...current, [item.capability]: !current[item.capability] }))} title={phrase("清除已保存的备用 API Key", "Clear saved fallback API Key")} type="button"><Trash2 size={14} /></button> : null}</div></label></div> : null}</div>
+          <div className="ai-capability-fields ai-capability-fallback-pricing"><label><span>{phrase("备用输入价 / 百万 tokens", "Fallback input price / million tokens")}</span><input min={0} onChange={(event) => update(item.capability, "fallbackInputCostPerMillionMicros", Math.round(Number(event.target.value) * 1000000))} step={0.000001} type="number" value={(draft.fallbackInputCostPerMillionMicros ?? 0) / 1000000} /></label><label><span>{phrase("备用输出价 / 百万 tokens", "Fallback output price / million tokens")}</span><input min={0} onChange={(event) => update(item.capability, "fallbackOutputCostPerMillionMicros", Math.round(Number(event.target.value) * 1000000))} step={0.000001} type="number" value={(draft.fallbackOutputCostPerMillionMicros ?? 0) / 1000000} /></label></div>
           <div className="ai-capability-numbers">
             <label><span>{phrase("全站并发", "Global")}</span><input min={1} max={8} onChange={(event) => update(item.capability, "globalConcurrency", Number(event.target.value))} type="number" value={draft.globalConcurrency} /></label>
             <label><span>{phrase("单用户", "Per user")}</span><input min={1} max={8} onChange={(event) => update(item.capability, "userConcurrency", Number(event.target.value))} type="number" value={draft.userConcurrency} /></label>
@@ -232,9 +289,9 @@ export function AiCapabilitiesPanel({ token }: { token: string }) {
     </div>
     <div className="ai-knowledge-summary">
       <header><span><Database size={16} />{phrase("RAG 知识库", "RAG knowledge base")}</span><button className="button secondary" disabled={reindexing} onClick={() => void rebuild()} type="button">{reindexing ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}{phrase("建立/刷新索引", "Build / refresh index")}</button></header>
-      <div className="ai-knowledge-stats"><span><strong>{knowledge?.documents ?? 0}</strong>{phrase("篇文章", "documents")}</span><span><strong>{knowledge?.chunks ?? 0}</strong>{phrase("个片段", "chunks")}</span><span><strong>{knowledge?.vectors ?? 0}</strong>{phrase("个向量", "vectors")}</span><span className={knowledge?.semanticSearchAvailable ? "ready" : "pending"}>{knowledge?.semanticSearchAvailable ? phrase("语义检索可用", "Semantic search ready") : phrase("等待 Embedding API", "Waiting for embeddings")}</span></div>
-      <p>{phrase("没有 Embedding API 时仍会建立知识片段，并自动使用权限过滤的关键词检索；配置后再次刷新索引即可生成向量。", "Without an Embedding API, knowledge chunks are still built and permission-aware keyword search is used. Configure embeddings and refresh the index to create vectors.")}</p>
-      {documents.length ? <div className="ai-knowledge-documents">{documents.map((document) => <div className="ai-knowledge-document" key={document.id}><span><strong>{document.title}</strong><small>{document.status} · {document.chunkCount} {phrase("片段", "chunks")} · {document.vectorCount} {phrase("向量", "vectors")}</small></span><button aria-label={phrase(`重建 ${document.title}`, `Reindex ${document.title}`)} className="admin-header-icon-action" disabled={reindexing} onClick={() => void rebuildDocument(document)} title={phrase("单篇重建", "Reindex document")} type="button"><RefreshCw size={14} /></button></div>)}</div> : null}
+      <div className="ai-knowledge-stats"><span><strong>{knowledge?.documents ?? 0}</strong>{phrase("篇文章", "documents")}</span><span><strong>{knowledge?.chunks ?? 0}</strong>{phrase("个片段", "chunks")}</span><span><strong>{knowledge?.vectors ?? 0}</strong>{phrase("个向量", "vectors")}</span><span><strong>{knowledge?.keywordReady ?? 0}</strong>{phrase("关键词可用", "keyword-ready")}</span><span className={knowledge?.semanticSearchAvailable ? "ready" : "pending"}>{knowledge?.semanticSearchAvailable ? phrase("语义检索可用", "Semantic search ready") : phrase("关键词检索可用", "Keyword search ready")}</span></div>
+      <p>{phrase("切片不依赖 Embedding。未配置时使用权限过滤的关键词检索；配置后再次刷新索引即可补充向量并启用语义检索。", "Chunking does not require Embeddings. Without them, permission-aware keyword search remains active; configure Embeddings and refresh the index to add vectors and enable semantic search.")}</p>
+      {documents.length ? <div className="ai-knowledge-documents">{documents.map((document) => <div className="ai-knowledge-document" key={document.id}><span><strong>{document.title}</strong><small>{document.status === "keyword_ready" ? phrase("关键词可用", "keyword-ready") : document.status === "ready" ? phrase("向量可用", "vector-ready") : document.status} · {document.chunkCount} {phrase("片段", "chunks")} · {document.vectorCount} {phrase("向量", "vectors")}</small></span><button aria-label={phrase(`重建 ${document.title}`, `Reindex ${document.title}`)} className="admin-header-icon-action" disabled={reindexing} onClick={() => void rebuildDocument(document)} title={phrase("单篇重建", "Reindex document")} type="button"><RefreshCw size={14} /></button></div>)}</div> : null}
     </div>
     <div className="ai-usage-summary">
       <header><span><Activity size={16} />{phrase("能力使用量与费用估算", "Capability usage and estimated cost")}</span><small>{phrase("费用来自管理员配置的官方单价，账单以供应商后台为准。", "Costs use admin-configured official rates; provider invoices remain authoritative.")}</small></header>

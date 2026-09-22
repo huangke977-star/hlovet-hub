@@ -233,6 +233,8 @@ pnpm build
 - `docs/six-phase-roadmap.en.md`
 - `docs/account-security.zh-CN.md`
 - `docs/account-security.en.md`
+- `docs/configuration-migration.zh-CN.md`
+- `docs/configuration-migration.en.md`
 - `docs/storage-management.zh-CN.md`
 - `docs/storage-management.en.md`
 - `docs/superpowers/specs/2026-07-09-personal-portal-design.zh-CN.md`

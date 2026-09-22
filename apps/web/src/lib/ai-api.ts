@@ -28,6 +28,11 @@ export interface AiAdminConfiguration {
   baseUrl: string;
   model: string;
   apiKeyConfigured: boolean;
+  fallbackEnabled: boolean;
+  fallbackProvider: AiProvider | null;
+  fallbackBaseUrl: string;
+  fallbackModel: string;
+  fallbackApiKeyConfigured: boolean;
   globalConcurrency: number;
   userConcurrency: number;
   maxOutputTokens: number;
@@ -36,6 +41,8 @@ export interface AiAdminConfiguration {
   billingCurrency: "USD" | "CNY";
   inputCostPerMillionMicros: number;
   outputCostPerMillionMicros: number;
+  fallbackInputCostPerMillionMicros: number;
+  fallbackOutputCostPerMillionMicros: number;
   pricingPresets: AiPricingPreset[];
   ragEnabled: boolean;
   ragTopK: number;
@@ -55,6 +62,12 @@ export interface AiAdminConfigurationUpdate {
   model: string;
   apiKey?: string;
   clearApiKey?: boolean;
+  fallbackEnabled?: boolean;
+  fallbackProvider?: AiProvider;
+  fallbackBaseUrl?: string;
+  fallbackModel?: string;
+  fallbackApiKey?: string;
+  clearFallbackApiKey?: boolean;
   globalConcurrency: number;
   userConcurrency: number;
   maxOutputTokens: number;
@@ -63,6 +76,8 @@ export interface AiAdminConfigurationUpdate {
   billingCurrency: "USD" | "CNY";
   inputCostPerMillionMicros: number;
   outputCostPerMillionMicros: number;
+  fallbackInputCostPerMillionMicros: number;
+  fallbackOutputCostPerMillionMicros: number;
   ragEnabled?: boolean;
   ragTopK?: number;
   contextMaxMessages?: number;
@@ -118,7 +133,7 @@ export interface AiModelOption {
   label: string;
 }
 
-export function listAiAdminModels(token: string, input: { provider: AiProvider; capability?: AiCapability; baseUrl: string; apiKey?: string }) {
+export function listAiAdminModels(token: string, input: { provider: AiProvider; capability?: AiCapability; baseUrl: string; apiKey?: string; credential?: "primary" | "fallback" }) {
   return requestJson<{ provider: AiProvider; models: AiModelOption[]; fetchedAt: string }>("/ai/admin/models", {
     method: "POST",
     headers: { ...authHeaders(token), "Content-Type": "application/json" },
@@ -155,6 +170,11 @@ export interface AiCapabilityConfiguration {
   baseUrl: string;
   model: string;
   apiKeyConfigured: boolean;
+  fallbackEnabled: boolean;
+  fallbackProvider: AiProvider | null;
+  fallbackBaseUrl: string;
+  fallbackModel: string;
+  fallbackApiKeyConfigured: boolean;
   globalConcurrency: number;
   userConcurrency: number;
   requestTimeoutSeconds: number;
@@ -163,6 +183,8 @@ export interface AiCapabilityConfiguration {
   billingCurrency: "USD" | "CNY";
   inputCostPerMillionMicros: number;
   outputCostPerMillionMicros: number;
+  fallbackInputCostPerMillionMicros: number;
+  fallbackOutputCostPerMillionMicros: number;
   unitCostMicros: number;
   unitName: string;
   maxInputBytes: number;
@@ -178,6 +200,12 @@ export interface AiCapabilityConfigurationUpdate {
   model: string;
   apiKey?: string;
   clearApiKey?: boolean;
+  fallbackEnabled?: boolean;
+  fallbackProvider?: AiProvider;
+  fallbackBaseUrl?: string;
+  fallbackModel?: string;
+  fallbackApiKey?: string;
+  clearFallbackApiKey?: boolean;
   globalConcurrency: number;
   userConcurrency: number;
   requestTimeoutSeconds: number;
@@ -186,6 +214,8 @@ export interface AiCapabilityConfigurationUpdate {
   billingCurrency: "USD" | "CNY";
   inputCostPerMillionMicros: number;
   outputCostPerMillionMicros: number;
+  fallbackInputCostPerMillionMicros: number;
+  fallbackOutputCostPerMillionMicros: number;
   unitCostMicros: number;
   unitName: string;
   maxInputBytes: number;
@@ -216,7 +246,7 @@ export function getAiAdminUsage(token: string, days = 30) {
 }
 
 export function getAiAdminKnowledge(token: string) {
-  return requestJson<{ documents: number; chunks: number; ready: number; vectors: number; semanticSearchAvailable: boolean }>("/ai/admin/knowledge", { headers: authHeaders(token), cache: "no-store" });
+  return requestJson<{ documents: number; chunks: number; ready: number; keywordReady: number; pendingEmbedding: number; failed: number; vectors: number; semanticSearchAvailable: boolean; keywordSearchAvailable: boolean }>("/ai/admin/knowledge", { headers: authHeaders(token), cache: "no-store" });
 }
 
 export interface AiKnowledgeDocument {
@@ -243,7 +273,7 @@ export function reindexAiKnowledgeDocument(token: string, id: number) {
 }
 
 export function reindexAiKnowledge(token: string, limit = 50) {
-  return requestJson<{ scanned: number; indexed: number; pending: number; failed: number }>(`/ai/admin/knowledge/reindex?limit=${limit}`, { method: "POST", headers: authHeaders(token) });
+  return requestJson<{ scanned: number; indexed: number; keywordReady: number; pending: number; failed: number }>(`/ai/admin/knowledge/reindex?limit=${limit}`, { method: "POST", headers: authHeaders(token) });
 }
 
 export type ArticleAssistantOperation = "title" | "outline" | "summary" | "taxonomy" | "polish" | "rewrite" | "expand" | "shorten" | "correct" | "format";

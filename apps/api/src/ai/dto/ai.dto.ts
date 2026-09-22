@@ -64,6 +64,33 @@ export class UpdateAiConfigurationDto {
   @IsBoolean()
   clearApiKey?: boolean;
 
+  @IsOptional()
+  @IsBoolean()
+  fallbackEnabled?: boolean;
+
+  @IsOptional()
+  @IsIn(AI_PROVIDERS)
+  fallbackProvider?: AiProvider;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  fallbackBaseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  fallbackModel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  fallbackApiKey?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  clearFallbackApiKey?: boolean;
+
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -108,6 +135,20 @@ export class UpdateAiConfigurationDto {
   @Min(0)
   @Max(1000000000)
   outputCostPerMillionMicros!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000000)
+  fallbackInputCostPerMillionMicros?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000000)
+  fallbackOutputCostPerMillionMicros?: number;
 
   @IsOptional()
   @IsBoolean()
@@ -172,6 +213,33 @@ export class UpdateAiCapabilityConfigurationDto {
   @IsBoolean()
   clearApiKey?: boolean;
 
+  @IsOptional()
+  @IsBoolean()
+  fallbackEnabled?: boolean;
+
+  @IsOptional()
+  @IsIn(AI_PROVIDERS)
+  fallbackProvider?: AiProvider;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  fallbackBaseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  fallbackModel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  fallbackApiKey?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  clearFallbackApiKey?: boolean;
+
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -216,6 +284,20 @@ export class UpdateAiCapabilityConfigurationDto {
   @Min(0)
   @Max(1000000000)
   outputCostPerMillionMicros!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000000)
+  fallbackInputCostPerMillionMicros?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000000)
+  fallbackOutputCostPerMillionMicros?: number;
 
   @Type(() => Number)
   @IsInt()
@@ -285,6 +367,10 @@ export class ListAiModelsDto {
   @IsString()
   @MaxLength(1000)
   apiKey?: string;
+
+  @IsOptional()
+  @IsIn(["primary", "fallback"])
+  credential?: "primary" | "fallback";
 }
 
 export class ArticleAssistantDto {

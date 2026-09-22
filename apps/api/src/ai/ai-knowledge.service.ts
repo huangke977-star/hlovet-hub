@@ -17,13 +17,26 @@ export class AiKnowledgeService {
   ) {}
 
   async getOverview() {
-    const [documents, chunks, ready, vectors] = await Promise.all([
+    const [documents, chunks, ready, keywordReady, pendingEmbedding, failed, vectors] = await Promise.all([
       this.prisma.aiKnowledgeDocument.count(),
       this.prisma.aiKnowledgeChunk.count(),
       this.prisma.aiKnowledgeDocument.count({ where: { status: "ready" } }),
+      this.prisma.aiKnowledgeDocument.count({ where: { status: "keyword_ready" } }),
+      this.prisma.aiKnowledgeDocument.count({ where: { status: "pending_embedding" } }),
+      this.prisma.aiKnowledgeDocument.count({ where: { status: "failed" } }),
       this.prisma.aiKnowledgeChunk.count({ where: { embeddingJson: { not: null } } }),
     ]);
-    return { documents, chunks, ready, vectors, semanticSearchAvailable: vectors > 0 };
+    return {
+      documents,
+      chunks,
+      ready,
+      keywordReady,
+      pendingEmbedding,
+      failed,
+      vectors,
+      semanticSearchAvailable: vectors > 0,
+      keywordSearchAvailable: chunks > 0 && (ready + keywordReady + pendingEmbedding) > 0,
+    };
   }
 
   async listDocuments(limit = 100) {
@@ -51,15 +64,17 @@ export class AiKnowledgeService {
     const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
     const articles = await this.prisma.article.findMany({ where: { status: "published" }, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], take: safeLimit, select: { id: true, slug: true, title: true, summary: true, content: true, contentFormat: true, category: true, tags: true, updatedAt: true } });
     let indexed = 0;
+    let keywordReady = 0;
     let pending = 0;
     let failed = 0;
     for (const article of articles) {
       const result = await this.indexArticle(article);
       if (result.status === "ready") indexed += 1;
+      else if (result.status === "keyword_ready") keywordReady += 1;
       else if (result.status === "pending_embedding") pending += 1;
       else failed += 1;
     }
-    return { scanned: articles.length, indexed, pending, failed, overview: await this.getOverview() };
+    return { scanned: articles.length, indexed, keywordReady, pending, failed, overview: await this.getOverview() };
   }
 
   async search(user: AuthenticatedUser, query: string, limit = 6): Promise<{ text: string; sources: KnowledgeSource[]; mode: "semantic" | "keyword" | "none" }> {
@@ -67,7 +82,7 @@ export class AiKnowledgeService {
     if (!normalizedQuery) return { text: "", sources: [], mode: "none" };
     const terms = this.terms(normalizedQuery);
     const candidates = await this.prisma.aiKnowledgeChunk.findMany({
-      where: { document: { status: { in: ["ready", "pending_embedding"] } } },
+      where: { document: { status: { in: ["ready", "keyword_ready", "pending_embedding"] } } },
       include: { document: true },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       take: 500,
@@ -83,7 +98,7 @@ export class AiKnowledgeService {
       const keywordScore = this.keywordScore(candidate.document.title, candidate.content, terms);
       const vector = this.parseVector(candidate.embeddingJson);
       const vectorScore = queryVector && vector ? this.cosine(queryVector, vector) : 0;
-      return { candidate, score: queryVector ? vectorScore * 0.75 + keywordScore * 0.25 : keywordScore };
+      return { candidate, usesVector: Boolean(queryVector && vector), score: queryVector ? vectorScore * 0.75 + keywordScore * 0.25 : keywordScore };
     }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score);
     const chosen = new Map<number, typeof scored[number]>();
     for (const item of scored) {
@@ -103,7 +118,8 @@ export class AiKnowledgeService {
         // The document may be private or deleted. Permission is checked again before it reaches the model.
       }
     }
-    return { text: parts.join("\n\n"), sources, mode: queryVector ? "semantic" : parts.length ? "keyword" : "none" };
+    const usedSemanticMatch = [...chosen.values()].some((item) => item.usesVector);
+    return { text: parts.join("\n\n"), sources, mode: parts.length ? (usedSemanticMatch ? "semantic" : "keyword") : "none" };
   }
 
   private async indexArticle(article: { id: number; slug: string; title: string; summary: string; content: string; contentFormat: string; category: string; tags: string }) {
@@ -113,7 +129,9 @@ export class AiKnowledgeService {
     const chunks = this.splitText(sourceText);
     let embeddings: number[][] = [];
     let embeddingModel: string | null = null;
-    let status = "pending_embedding";
+    // Text chunking is useful by itself. Missing Embeddings should not make the
+    // document look unindexed because keyword retrieval can already use it.
+    let status = "keyword_ready";
     let errorSummary: string | null = null;
     try {
       const result = await this.capabilities.embedTexts(chunks.map((chunk) => chunk.content));
@@ -128,7 +146,7 @@ export class AiKnowledgeService {
       if (chunks.length) {
         await tx.aiKnowledgeChunk.createMany({ data: chunks.map((chunk, index) => ({ documentId: document.id, sequence: index, content: chunk.content, contentHash: createHash("sha256").update(chunk.content).digest("hex"), embeddingJson: embeddings[index] ? JSON.stringify(embeddings[index]) : null, embeddingModel, embeddingDimension: embeddings[index]?.length ?? null, tokenCount: Math.ceil(chunk.content.length / 2), metadata: { articleId: article.id, heading: chunk.heading } as Prisma.InputJsonValue })) });
       }
-      await tx.aiKnowledgeDocument.update({ where: { id: document.id }, data: { status, chunkCount: chunks.length, vectorCount: embeddings.length, embeddingModel, embeddingDimension: embeddings[0]?.length ?? null, errorSummary, lastIndexedAt: status === "ready" ? new Date() : null } });
+      await tx.aiKnowledgeDocument.update({ where: { id: document.id }, data: { status, chunkCount: chunks.length, vectorCount: embeddings.length, embeddingModel, embeddingDimension: embeddings[0]?.length ?? null, errorSummary, lastIndexedAt: new Date() } });
     });
     return { status };
   }

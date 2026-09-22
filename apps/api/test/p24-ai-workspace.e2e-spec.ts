@@ -18,7 +18,7 @@ const user: AuthenticatedUser = {
   role: { code: "qi_refining", name: "练气", level: 10 },
 };
 
-function createHarness() {
+function createHarness(knowledge: { search: jest.Mock } = { search: jest.fn() }) {
   const prisma = {
     user: { findUnique: jest.fn() },
     userReputationLedger: { findMany: jest.fn() },
@@ -43,7 +43,7 @@ function createHarness() {
     getAiReadableContext: jest.fn(),
     create: jest.fn(),
   };
-  return { prisma, articles, service: new AiService(prisma as never, crypto as never, redis as never, articles as never) };
+  return { prisma, articles, knowledge, service: new AiService(prisma as never, crypto as never, redis as never, articles as never, knowledge as never) };
 }
 
 function createMediaHarness() {
@@ -84,7 +84,8 @@ describe("P24 AI workspace", () => {
   });
 
   it("loads latest readable and recommended articles for broad site-content questions", async () => {
-    const harness = createHarness();
+    const knowledge = { search: jest.fn() };
+    const harness = createHarness(knowledge);
     harness.prisma.aiConfiguration.upsert.mockResolvedValue({ ragEnabled: false, ragTopK: 6 });
     harness.articles.searchAiReadableArticles.mockImplementation(async (_currentUser, query: string) => query
       ? []
@@ -100,6 +101,7 @@ describe("P24 AI workspace", () => {
     expect(result.sources.map((source) => source.id)).toEqual([3, 4]);
     expect(result.text).toContain("最新可见文章");
     expect(result.text).toContain("推荐可见文章");
+    expect(knowledge.search).not.toHaveBeenCalled();
   });
 
   it("exposes read-only tools for visible and personalized article lists", async () => {

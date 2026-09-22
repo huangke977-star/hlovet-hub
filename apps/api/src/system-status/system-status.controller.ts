@@ -51,6 +51,8 @@ import {
   RestoreMissingStorageIssueDto,
 } from "./dto/media-backup.dto";
 import { MediaBackupService } from "./media-backup.service";
+import { ConfigurationTransferService } from "./configuration-transfer.service";
+import type { ConfigurationBundle } from "./configuration-transfer.service";
 import {
   MEDIA_REPAIR_MAX_FILE_SIZE_BYTES,
   UploadedMediaRepairFile,
@@ -66,11 +68,22 @@ export class SystemStatusController {
     private readonly mediaBackupService: MediaBackupService,
     private readonly p21OperationsService: P21OperationsService,
     private readonly p22QualityService: P22QualityService,
+    private readonly configurationTransferService: ConfigurationTransferService,
   ) {}
 
   @Get("status")
   getStatus(): Promise<SystemStatusResponse> {
     return this.systemStatusService.getStatus();
+  }
+
+  @Get("configuration-bundle")
+  exportConfigurationBundle(): Promise<ConfigurationBundle> {
+    return this.configurationTransferService.exportBundle();
+  }
+
+  @Post("configuration-bundle/import")
+  importConfigurationBundle(@Body() body: unknown) {
+    return this.configurationTransferService.importBundle(body);
   }
 
   @Post("backups")

@@ -105,10 +105,21 @@ export class AiService {
     if (dto.clearApiKey && dto.enabled && !dto.apiKey?.trim()) {
       throw new BadRequestException("启用 AI 时不能清空 API Key。\nAn API key cannot be cleared while AI is enabled.");
     }
+    const fallbackEnabled = dto.fallbackEnabled ?? current.fallbackEnabled;
+    const fallbackProvider = dto.fallbackProvider ?? (current.fallbackProvider as AiProvider | null);
+    const fallbackBaseUrl = dto.fallbackBaseUrl === undefined ? current.fallbackBaseUrl : dto.fallbackBaseUrl.trim();
+    const fallbackModel = dto.fallbackModel === undefined ? current.fallbackModel : dto.fallbackModel.trim();
+    const fallbackApiKey = dto.clearFallbackApiKey ? null : dto.fallbackApiKey?.trim() || this.decryptApiKey(current.fallbackApiKeyEncrypted);
+    if (fallbackEnabled && (!fallbackProvider || !fallbackBaseUrl || !fallbackModel || !fallbackApiKey)) {
+      throw new BadRequestException("启用备用模型前请完整填写备用供应商、接口地址、模型和 API Key。\nConfigure the fallback provider, base URL, model, and API key before enabling fallback.");
+    }
 
     let apiKeyEncrypted = current.apiKeyEncrypted;
     if (dto.clearApiKey) apiKeyEncrypted = null;
     else if (dto.apiKey?.trim()) apiKeyEncrypted = this.crypto.encrypt(dto.apiKey.trim());
+    let fallbackApiKeyEncrypted = current.fallbackApiKeyEncrypted;
+    if (dto.clearFallbackApiKey) fallbackApiKeyEncrypted = null;
+    else if (dto.fallbackApiKey?.trim()) fallbackApiKeyEncrypted = this.crypto.encrypt(dto.fallbackApiKey.trim());
 
     const saved = await this.prisma.aiConfiguration.update({
       where: { id: 1 },
@@ -118,6 +129,11 @@ export class AiService {
         baseUrl: dto.baseUrl?.trim() || null,
         model: dto.model?.trim() || null,
         apiKeyEncrypted,
+        fallbackApiKeyEncrypted,
+        ...(dto.fallbackEnabled === undefined ? {} : { fallbackEnabled: dto.fallbackEnabled }),
+        ...(dto.fallbackProvider === undefined ? {} : { fallbackProvider: dto.fallbackProvider.trim() || null }),
+        ...(dto.fallbackBaseUrl === undefined ? {} : { fallbackBaseUrl: dto.fallbackBaseUrl.trim() || null }),
+        ...(dto.fallbackModel === undefined ? {} : { fallbackModel: dto.fallbackModel.trim() || null }),
         globalConcurrency: dto.globalConcurrency,
         userConcurrency: dto.userConcurrency,
         maxOutputTokens: dto.maxOutputTokens,
@@ -126,6 +142,8 @@ export class AiService {
         billingCurrency: dto.billingCurrency,
         inputCostPerMillionMicros: dto.inputCostPerMillionMicros,
         outputCostPerMillionMicros: dto.outputCostPerMillionMicros,
+        ...(dto.fallbackInputCostPerMillionMicros === undefined ? {} : { fallbackInputCostPerMillionMicros: dto.fallbackInputCostPerMillionMicros }),
+        ...(dto.fallbackOutputCostPerMillionMicros === undefined ? {} : { fallbackOutputCostPerMillionMicros: dto.fallbackOutputCostPerMillionMicros }),
         ...(dto.ragEnabled === undefined ? {} : { ragEnabled: dto.ragEnabled }),
         ...(dto.ragTopK === undefined ? {} : { ragTopK: dto.ragTopK }),
         ...(dto.contextMaxMessages === undefined ? {} : { contextMaxMessages: dto.contextMaxMessages }),
@@ -134,6 +152,13 @@ export class AiService {
         ...(dto.qualityEvaluationEnabled === undefined ? {} : { qualityEvaluationEnabled: dto.qualityEvaluationEnabled }),
       },
     });
+    // A shorter retention window must take effect immediately. Summaries are
+    // derived context too, so an older one cannot remain available to a model.
+    if (dto.contextRetentionDays !== undefined && dto.contextRetentionDays !== current.contextRetentionDays) {
+      await this.prisma.aiConversation.updateMany({
+        data: { contextSummary: null, summaryMessageCount: 0, summaryUpdatedAt: null },
+      });
+    }
     return this.toAdminResponse(saved);
   }
 
@@ -160,9 +185,10 @@ export class AiService {
       ? await this.prisma.aiCapabilityConfiguration.findUnique({ where: { capability: dto.capability } })
       : null;
     const config = capabilityConfig ?? mainConfig;
-    const apiKey = dto.apiKey?.trim() || this.decryptApiKey(config.apiKeyEncrypted);
+    const encryptedApiKey = dto.credential === "fallback" ? config.fallbackApiKeyEncrypted : config.apiKeyEncrypted;
+    const apiKey = dto.apiKey?.trim() || this.decryptApiKey(encryptedApiKey);
     if (!apiKey) throw new BadRequestException("请先填写 API Key，或保留已保存的 API Key。\nEnter an API key or keep the saved key.");
-    const baseUrl = dto.baseUrl?.trim() || config.baseUrl?.trim();
+    const baseUrl = dto.baseUrl?.trim() || (dto.credential === "fallback" ? config.fallbackBaseUrl?.trim() : config.baseUrl?.trim());
     if (!baseUrl) throw new BadRequestException("请先填写接口地址。\nEnter the AI base URL first.");
     try {
       const models = await listModelsWithProvider({ provider: dto.provider, baseUrl, apiKey, timeoutSeconds: config.requestTimeoutSeconds });
@@ -257,9 +283,10 @@ export class AiService {
     const config = await this.getConfiguration();
     if (!config.enabled) throw new BadRequestException("AI 功能尚未启用。\nAI features are not enabled.");
     await this.refreshConversationSummaryIfNeeded(conversation.id, user.id, config);
-    const conversationState = await this.prisma.aiConversation.findUnique({ where: { id: conversation.id }, select: { contextSummary: true } });
+    const contextSince = this.contextSince(config.contextRetentionDays);
+    const conversationState = await this.prisma.aiConversation.findUnique({ where: { id: conversation.id }, select: { contextSummary: true, summaryUpdatedAt: true } });
     const history = await this.prisma.aiConversationMessage.findMany({
-      where: { conversationId: conversation.id },
+      where: { conversationId: conversation.id, createdAt: { gte: contextSince } },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: Math.max(4, Math.min(80, config.contextMaxMessages)),
       select: { role: true, content: true, sources: true },
@@ -289,7 +316,7 @@ export class AiService {
       messages: [
         { role: "system", content: system },
         { role: "system", content: contextMessage },
-        ...(conversationState?.contextSummary ? [{ role: "system" as const, content: locale === "en-US" ? `Conversation summary:\n${conversationState.contextSummary}` : `此前对话摘要：\n${conversationState.contextSummary}` }] : []),
+        ...(conversationState?.contextSummary && conversationState.summaryUpdatedAt && conversationState.summaryUpdatedAt >= contextSince ? [{ role: "system" as const, content: locale === "en-US" ? `Conversation summary:\n${conversationState.contextSummary}` : `此前对话摘要：\n${conversationState.contextSummary}` }] : []),
         ...this.compactHistory(history, config.contextMaxMessages),
         { role: "user", content: message },
       ],
@@ -495,11 +522,17 @@ export class AiService {
   }
 
   private async refreshConversationSummaryIfNeeded(conversationId: number, userId: number, config: AiConfiguration) {
-    const conversation = await this.prisma.aiConversation.findUnique({ where: { id: conversationId }, select: { contextSummary: true, summaryMessageCount: true } });
+    const conversation = await this.prisma.aiConversation.findUnique({ where: { id: conversationId }, select: { contextSummary: true, summaryMessageCount: true, summaryUpdatedAt: true } });
     if (!conversation) return;
-    const messageCount = await this.prisma.aiConversationMessage.count({ where: { conversationId } });
+    const contextSince = this.contextSince(config.contextRetentionDays);
+    if (conversation.contextSummary && (!conversation.summaryUpdatedAt || conversation.summaryUpdatedAt < contextSince)) {
+      await this.prisma.aiConversation.update({ where: { id: conversationId }, data: { contextSummary: null, summaryMessageCount: 0, summaryUpdatedAt: null } });
+      conversation.contextSummary = null;
+      conversation.summaryMessageCount = 0;
+    }
+    const messageCount = await this.prisma.aiConversationMessage.count({ where: { conversationId, createdAt: { gte: contextSince } } });
     if (messageCount < config.contextSummaryThreshold || messageCount <= conversation.summaryMessageCount + 8) return;
-    const messages = await this.prisma.aiConversationMessage.findMany({ where: { conversationId }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: Math.min(80, messageCount), select: { role: true, content: true } });
+    const messages = await this.prisma.aiConversationMessage.findMany({ where: { conversationId, createdAt: { gte: contextSince } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: Math.min(80, messageCount), select: { role: true, content: true } });
     const material = messages.map((item) => `${item.role === "assistant" ? "AI" : "用户"}: ${item.content.slice(0, 3000)}`).join("\n\n");
     try {
       const result = await this.complete({
@@ -544,6 +577,11 @@ export class AiService {
       remaining -= clipped.length;
     }
     return selected;
+  }
+
+  private contextSince(retentionDays: number | null | undefined): Date {
+    const days = Math.max(1, Math.min(3650, Math.floor(retentionDays || 365)));
+    return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   }
 
   private readHistorySources(history: Array<{ sources: Prisma.JsonValue | null }>): AiSource[] {
@@ -842,6 +880,8 @@ export class AiService {
     const leaseSeconds = config.requestTimeoutSeconds + 30;
     let globalAcquired = false;
     let userAcquired = false;
+    let activeConfig = config;
+    let primaryFailureRecorded = false;
     const startedAt = Date.now();
     try {
       globalAcquired = await this.redis.tryAcquireCounter(globalKey, config.globalConcurrency, leaseSeconds);
@@ -853,25 +893,37 @@ export class AiService {
         if (!quotaReserved) throw new AiGatewayError("quota", "今日 AI 请求次数已用完。\nThe daily AI request limit has been reached.");
       }
 
-      const result = await completeWithProvider({
-        provider: config.provider as AiProvider,
-        baseUrl: config.baseUrl,
-        apiKey,
-        model: config.model,
-        maxOutputTokens: config.maxOutputTokens,
-        timeoutSeconds: config.requestTimeoutSeconds,
-        messages: options.messages,
-      });
-      await this.recordInvocation(config, options, "success", result, Date.now() - startedAt);
-      return {
-        ...result,
-        provider: config.provider as AiProvider,
-        model: config.model,
-        durationMs: Date.now() - startedAt,
-      };
+      let result: AiProviderCompletion;
+      try {
+        result = await completeWithProvider({
+          provider: config.provider as AiProvider,
+          baseUrl: config.baseUrl,
+          apiKey,
+          model: config.model,
+          maxOutputTokens: config.maxOutputTokens,
+          timeoutSeconds: config.requestTimeoutSeconds,
+          messages: options.messages,
+        });
+      } catch (primaryError) {
+        const fallback = this.getFallbackRuntime(config, primaryError);
+        if (!fallback) throw primaryError;
+        await this.recordInvocation(config, options, "failed", null, Date.now() - startedAt, `主模型调用失败，已切换备用模型：${this.errorMessage(primaryError)}`);
+        primaryFailureRecorded = true;
+        activeConfig = {
+          ...config,
+          provider: fallback.provider,
+          baseUrl: fallback.baseUrl,
+          model: fallback.model,
+          inputCostPerMillionMicros: config.fallbackInputCostPerMillionMicros,
+          outputCostPerMillionMicros: config.fallbackOutputCostPerMillionMicros,
+        };
+        result = await completeWithProvider({ ...fallback, maxOutputTokens: config.maxOutputTokens, timeoutSeconds: config.requestTimeoutSeconds, messages: options.messages });
+      }
+      await this.recordInvocation(activeConfig, options, "success", result, Date.now() - startedAt);
+      return { ...result, provider: activeConfig.provider as AiProvider, model: activeConfig.model ?? "", durationMs: Date.now() - startedAt };
     } catch (error) {
       const failure = this.toFailure(error);
-      await this.recordInvocation(config, options, failure.status, null, Date.now() - startedAt, failure.summary);
+      await this.recordInvocation(primaryFailureRecorded ? activeConfig : config, options, failure.status, null, Date.now() - startedAt, failure.summary);
       throw this.toHttpException(failure);
     } finally {
       if (userAcquired) await this.releaseCounterSafely(userKey);
@@ -931,6 +983,17 @@ export class AiService {
 
   private readApiKey(config: AiConfiguration): string | null {
     return this.decryptApiKey(config.apiKeyEncrypted);
+  }
+
+  private getFallbackRuntime(config: AiConfiguration, error: unknown): { provider: AiProvider; baseUrl: string; apiKey: string; model: string } | null {
+    if (!config.fallbackEnabled || !(error instanceof AiProviderClientError) || !error.retryable) return null;
+    const apiKey = this.decryptApiKey(config.fallbackApiKeyEncrypted);
+    if (!config.fallbackProvider || !config.fallbackBaseUrl?.trim() || !config.fallbackModel?.trim() || !apiKey) return null;
+    return { provider: config.fallbackProvider as AiProvider, baseUrl: config.fallbackBaseUrl, apiKey, model: config.fallbackModel };
+  }
+
+  private errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : "AI provider request failed.";
   }
 
   private decryptApiKey(apiKeyEncrypted: string | null): string | null {
@@ -1021,6 +1084,11 @@ export class AiService {
       baseUrl: config.baseUrl ?? "",
       model: config.model ?? "",
       apiKeyConfigured: Boolean(config.apiKeyEncrypted),
+      fallbackEnabled: config.fallbackEnabled,
+      fallbackProvider: (config.fallbackProvider as AiProvider | null) ?? null,
+      fallbackBaseUrl: config.fallbackBaseUrl ?? "",
+      fallbackModel: config.fallbackModel ?? "",
+      fallbackApiKeyConfigured: Boolean(config.fallbackApiKeyEncrypted),
       globalConcurrency: config.globalConcurrency,
       userConcurrency: config.userConcurrency,
       maxOutputTokens: config.maxOutputTokens,
@@ -1035,6 +1103,8 @@ export class AiService {
       billingCurrency: config.billingCurrency ?? "USD",
       inputCostPerMillionMicros: config.inputCostPerMillionMicros ?? 0,
       outputCostPerMillionMicros: config.outputCostPerMillionMicros ?? 0,
+      fallbackInputCostPerMillionMicros: config.fallbackInputCostPerMillionMicros ?? 0,
+      fallbackOutputCostPerMillionMicros: config.fallbackOutputCostPerMillionMicros ?? 0,
       pricingPresets: getAiPricingPresets(),
       recommendation: this.getResourceRecommendation(),
       encryptionConfigured: this.crypto.isConfigured(),

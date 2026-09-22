@@ -42,6 +42,11 @@ type CapabilityResponse = {
   baseUrl: string;
   model: string;
   apiKeyConfigured: boolean;
+  fallbackEnabled: boolean;
+  fallbackProvider: AiProvider | null;
+  fallbackBaseUrl: string;
+  fallbackModel: string;
+  fallbackApiKeyConfigured: boolean;
   globalConcurrency: number;
   userConcurrency: number;
   requestTimeoutSeconds: number;
@@ -50,6 +55,8 @@ type CapabilityResponse = {
   billingCurrency: "USD" | "CNY";
   inputCostPerMillionMicros: number;
   outputCostPerMillionMicros: number;
+  fallbackInputCostPerMillionMicros: number;
+  fallbackOutputCostPerMillionMicros: number;
   unitCostMicros: number;
   unitName: string;
   maxInputBytes: number;
@@ -57,6 +64,10 @@ type CapabilityResponse = {
   pricingPresets: ReturnType<typeof getAiPricingPresets>;
   updatedAt: string;
 };
+
+type CapabilityRuntime = { provider: AiProvider; baseUrl: string; model: string; apiKey: string; fallback: boolean };
+type CapabilityExecution<T> = { result: T; runtime: CapabilityRuntime; primaryFailureSummary?: string; primaryDurationMs?: number };
+type CapabilityFallbackError = Error & { primaryFailureSummary?: string; primaryDurationMs?: number; fallbackRuntime?: CapabilityRuntime };
 
 @Injectable()
 export class AiCapabilitiesService {
@@ -81,9 +92,20 @@ export class AiCapabilitiesService {
     if (dto.enabled && (!dto.baseUrl?.trim() || !dto.model?.trim() || !apiKey)) {
       throw new BadRequestException("启用能力前请完整填写接口地址、模型和 API Key。\nConfigure the base URL, model, and API key before enabling this capability.");
     }
+    const fallbackEnabled = dto.fallbackEnabled ?? current.fallbackEnabled;
+    const fallbackProvider = dto.fallbackProvider ?? (current.fallbackProvider as AiProvider | null);
+    const fallbackBaseUrl = dto.fallbackBaseUrl === undefined ? current.fallbackBaseUrl : dto.fallbackBaseUrl.trim();
+    const fallbackModel = dto.fallbackModel === undefined ? current.fallbackModel : dto.fallbackModel.trim();
+    const fallbackApiKey = dto.clearFallbackApiKey ? null : dto.fallbackApiKey?.trim() || this.readApiKeyValue(current.fallbackApiKeyEncrypted);
+    if (fallbackEnabled && (!fallbackProvider || !fallbackBaseUrl || !fallbackModel || !fallbackApiKey)) {
+      throw new BadRequestException("启用备用能力前请完整填写备用供应商、接口地址、模型和 API Key。\nConfigure the fallback provider, base URL, model, and API key before enabling fallback.");
+    }
     let apiKeyEncrypted = current.apiKeyEncrypted;
     if (dto.clearApiKey) apiKeyEncrypted = null;
     else if (dto.apiKey?.trim()) apiKeyEncrypted = this.crypto.encrypt(dto.apiKey.trim());
+    let fallbackApiKeyEncrypted = current.fallbackApiKeyEncrypted;
+    if (dto.clearFallbackApiKey) fallbackApiKeyEncrypted = null;
+    else if (dto.fallbackApiKey?.trim()) fallbackApiKeyEncrypted = this.crypto.encrypt(dto.fallbackApiKey.trim());
     const saved = await this.prisma.aiCapabilityConfiguration.update({
       where: { capability },
       data: {
@@ -92,6 +114,11 @@ export class AiCapabilitiesService {
         baseUrl: dto.baseUrl?.trim() || null,
         model: dto.model?.trim() || null,
         apiKeyEncrypted,
+        fallbackApiKeyEncrypted,
+        ...(dto.fallbackEnabled === undefined ? {} : { fallbackEnabled: dto.fallbackEnabled }),
+        ...(dto.fallbackProvider === undefined ? {} : { fallbackProvider: dto.fallbackProvider.trim() || null }),
+        ...(dto.fallbackBaseUrl === undefined ? {} : { fallbackBaseUrl: dto.fallbackBaseUrl.trim() || null }),
+        ...(dto.fallbackModel === undefined ? {} : { fallbackModel: dto.fallbackModel.trim() || null }),
         globalConcurrency: dto.globalConcurrency,
         userConcurrency: dto.userConcurrency,
         requestTimeoutSeconds: dto.requestTimeoutSeconds,
@@ -100,6 +127,8 @@ export class AiCapabilitiesService {
         billingCurrency: dto.billingCurrency,
         inputCostPerMillionMicros: dto.inputCostPerMillionMicros,
         outputCostPerMillionMicros: dto.outputCostPerMillionMicros,
+        ...(dto.fallbackInputCostPerMillionMicros === undefined ? {} : { fallbackInputCostPerMillionMicros: dto.fallbackInputCostPerMillionMicros }),
+        ...(dto.fallbackOutputCostPerMillionMicros === undefined ? {} : { fallbackOutputCostPerMillionMicros: dto.fallbackOutputCostPerMillionMicros }),
         unitCostMicros: dto.unitCostMicros,
         unitName: dto.unitName.trim().slice(0, 32) || CAPABILITY_LABELS[capability].unit,
         maxInputBytes: dto.maxInputBytes,
@@ -115,7 +144,8 @@ export class AiCapabilitiesService {
     const startedAt = Date.now();
     try {
       if (capability === "embedding") {
-        const result = await createEmbeddingsWithProvider({ provider: config.provider as AiProvider, baseUrl: config.baseUrl, apiKey, model: config.model, texts: ["Lingxi capability connection test"], timeoutSeconds: config.requestTimeoutSeconds });
+        const execution = await this.withProviderFallback(config, (runtime) => createEmbeddingsWithProvider({ provider: runtime.provider, baseUrl: runtime.baseUrl, apiKey: runtime.apiKey, model: runtime.model, texts: ["Lingxi capability connection test"], timeoutSeconds: config.requestTimeoutSeconds }));
+        const result = execution.result;
         return { success: true, capability, durationMs: Date.now() - startedAt, dimension: result.embeddings[0]?.length ?? 0, usage: result.usage };
       }
       return { success: true, capability, durationMs: Date.now() - startedAt, message: "配置完整；媒体能力需要通过上传样本执行实际测试。\nConfiguration is complete; upload a sample to run a media test." };
@@ -131,9 +161,15 @@ export class AiCapabilitiesService {
     if (!config.enabled || !config.baseUrl || !config.model || !apiKey) throw new ServiceUnavailableException("向量服务尚未配置，当前使用关键词检索。\nThe embedding service is not configured; keyword search is active.");
     if (!texts.length) return { embeddings: [], usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }, model: config.model };
     const startedAt = Date.now();
-    const result = await this.withCapabilityLimit(config, null, async () => createEmbeddingsWithProvider({ provider: config.provider as AiProvider, baseUrl: config.baseUrl!, apiKey, model: config.model!, texts, timeoutSeconds: config.requestTimeoutSeconds }));
-    await this.recordUsage(config, "embedding", null, result.usage.promptTokens ?? texts.join("\n").length, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined);
-    return { ...result, model: config.model };
+    const execution = await this.withCapabilityLimit(config, null, async () => this.withProviderFallback(config, (runtime) => createEmbeddingsWithProvider({ provider: runtime.provider, baseUrl: runtime.baseUrl, apiKey: runtime.apiKey, model: runtime.model, texts, timeoutSeconds: config.requestTimeoutSeconds })));
+    const result = execution.result;
+    const runtimeConfig = this.withRuntimeConfig(config, execution.runtime);
+    const fallbackMetadata = execution.primaryFailureSummary ? { fallback: true, primaryProvider: config.provider, primaryModel: config.model ?? "" } : undefined;
+    if (execution.primaryFailureSummary) {
+      await this.recordUsage(config, "embedding", null, null, null, null, "failed", startedAt, `主能力调用失败，已切换备用能力：${execution.primaryFailureSummary}`, execution.primaryDurationMs, fallbackMetadata);
+    }
+    await this.recordUsage(runtimeConfig, "embedding", null, result.usage.promptTokens ?? texts.join("\n").length, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined, undefined, fallbackMetadata);
+    return { ...result, model: execution.runtime.model };
   }
 
   async processOcr(user: AuthenticatedUser, file: { buffer: Buffer; originalname: string; mimetype: string; size: number }, prompt?: string) {
@@ -142,14 +178,22 @@ export class AiCapabilitiesService {
     const startedAt = Date.now();
     try {
       const dataUrl = `data:${file.mimetype || "application/octet-stream"};base64,${file.buffer.toString("base64")}`;
-      const result = await this.withCapabilityLimit(config, user.id, () => ocrWithProvider({ provider: config.provider as AiProvider, baseUrl: config.baseUrl!, apiKey: this.readApiKey(config)!, model: config.model!, imageDataUrl: dataUrl, prompt: prompt?.trim() || "请准确提取图片中的文字，保留段落、表格和代码结构；只返回识别结果。", timeoutSeconds: config.requestTimeoutSeconds }));
-      const completed = await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "completed", resultText: result.text, resultMetadata: result.usage as object, completedAt: new Date() } });
-      await this.recordUsage(config, "ocr", user.id, file.size, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined);
+      const execution = await this.withCapabilityLimit(config, user.id, () => this.withProviderFallback(config, (runtime) => ocrWithProvider({ provider: runtime.provider, baseUrl: runtime.baseUrl, apiKey: runtime.apiKey, model: runtime.model, imageDataUrl: dataUrl, prompt: prompt?.trim() || "请准确提取图片中的文字，保留段落、表格和代码结构；只返回识别结果。", timeoutSeconds: config.requestTimeoutSeconds })));
+      const result = execution.result;
+      const runtimeConfig = this.withRuntimeConfig(config, execution.runtime);
+      const completed = await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "completed", provider: execution.runtime.provider, model: execution.runtime.model, resultText: result.text, resultMetadata: result.usage as object, completedAt: new Date() } });
+      const fallbackMetadata = execution.primaryFailureSummary ? { fallback: true, primaryProvider: config.provider, primaryModel: config.model ?? "" } : undefined;
+      if (execution.primaryFailureSummary) {
+        await this.recordUsage(config, "ocr", user.id, null, null, null, "failed", startedAt, `主能力调用失败，已切换备用能力：${execution.primaryFailureSummary}`, execution.primaryDurationMs, fallbackMetadata);
+      }
+      await this.recordUsage(runtimeConfig, "ocr", user.id, file.size, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined, undefined, fallbackMetadata);
       return { ...this.toMediaTaskDetail(completed), text: result.text, usage: result.usage };
     } catch (error) {
       const message = this.errorMessage(error);
-      await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "failed", errorSummary: message.slice(0, 500), completedAt: new Date() } }).catch(() => undefined);
-      await this.recordUsage(config, "ocr", user.id, file.size, null, null, "failed", startedAt, message);
+      const fallbackError = this.readFallbackError(error);
+      await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "failed", ...(fallbackError?.fallbackRuntime ? { provider: fallbackError.fallbackRuntime.provider, model: fallbackError.fallbackRuntime.model } : {}), errorSummary: message.slice(0, 500), completedAt: new Date() } }).catch(() => undefined);
+      if (fallbackError) await this.recordUsage(config, "ocr", user.id, null, null, null, "failed", startedAt, `主能力调用失败，已切换备用能力：${fallbackError.primaryFailureSummary}`, fallbackError.primaryDurationMs, { fallback: true, primaryProvider: config.provider, primaryModel: config.model ?? "" });
+      await this.recordUsage(fallbackError?.fallbackRuntime ? this.withRuntimeConfig(config, fallbackError.fallbackRuntime) : config, "ocr", user.id, file.size, null, null, "failed", startedAt, message, undefined, fallbackError ? { fallback: true, primaryProvider: config.provider, primaryModel: config.model ?? "" } : undefined);
       throw this.toMediaException(error);
     }
   }
@@ -159,14 +203,22 @@ export class AiCapabilitiesService {
     const task = await this.prisma.aiMediaTask.create({ data: { userId: user.id, capability: "transcription", status: "processing", provider: config.provider, model: config.model ?? "", inputMimeType: file.mimetype, inputBytes: file.size, startedAt: new Date() } });
     const startedAt = Date.now();
     try {
-      const result = await this.withCapabilityLimit(config, user.id, () => transcribeWithProvider({ provider: config.provider as AiProvider, baseUrl: config.baseUrl!, apiKey: this.readApiKey(config)!, model: config.model!, file: file.buffer, filename: file.originalname, mimeType: file.mimetype, timeoutSeconds: config.requestTimeoutSeconds }));
-      const completed = await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "completed", resultText: result.text, resultMetadata: result.usage as object, completedAt: new Date() } });
-      await this.recordUsage(config, "transcription", user.id, file.size, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined);
+      const execution = await this.withCapabilityLimit(config, user.id, () => this.withProviderFallback(config, (runtime) => transcribeWithProvider({ provider: runtime.provider, baseUrl: runtime.baseUrl, apiKey: runtime.apiKey, model: runtime.model, file: file.buffer, filename: file.originalname, mimeType: file.mimetype, timeoutSeconds: config.requestTimeoutSeconds })));
+      const result = execution.result;
+      const runtimeConfig = this.withRuntimeConfig(config, execution.runtime);
+      const completed = await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "completed", provider: execution.runtime.provider, model: execution.runtime.model, resultText: result.text, resultMetadata: result.usage as object, completedAt: new Date() } });
+      const fallbackMetadata = execution.primaryFailureSummary ? { fallback: true, primaryProvider: config.provider, primaryModel: config.model ?? "" } : undefined;
+      if (execution.primaryFailureSummary) {
+        await this.recordUsage(config, "transcription", user.id, null, null, null, "failed", startedAt, `主能力调用失败，已切换备用能力：${execution.primaryFailureSummary}`, execution.primaryDurationMs, fallbackMetadata);
+      }
+      await this.recordUsage(runtimeConfig, "transcription", user.id, file.size, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined, undefined, fallbackMetadata);
       return { ...this.toMediaTaskDetail(completed), text: result.text, usage: result.usage };
     } catch (error) {
       const message = this.errorMessage(error);
-      await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "failed", errorSummary: message.slice(0, 500), completedAt: new Date() } }).catch(() => undefined);
-      await this.recordUsage(config, "transcription", user.id, file.size, null, null, "failed", startedAt, message);
+      const fallbackError = this.readFallbackError(error);
+      await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "failed", ...(fallbackError?.fallbackRuntime ? { provider: fallbackError.fallbackRuntime.provider, model: fallbackError.fallbackRuntime.model } : {}), errorSummary: message.slice(0, 500), completedAt: new Date() } }).catch(() => undefined);
+      if (fallbackError) await this.recordUsage(config, "transcription", user.id, null, null, null, "failed", startedAt, `主能力调用失败，已切换备用能力：${fallbackError.primaryFailureSummary}`, fallbackError.primaryDurationMs, { fallback: true, primaryProvider: config.provider, primaryModel: config.model ?? "" });
+      await this.recordUsage(fallbackError?.fallbackRuntime ? this.withRuntimeConfig(config, fallbackError.fallbackRuntime) : config, "transcription", user.id, file.size, null, null, "failed", startedAt, message, undefined, fallbackError ? { fallback: true, primaryProvider: config.provider, primaryModel: config.model ?? "" } : undefined);
       throw this.toMediaException(error);
     }
   }
@@ -178,15 +230,23 @@ export class AiCapabilitiesService {
     const task = await this.prisma.aiMediaTask.create({ data: { userId: user.id, capability: "image_generation", status: "processing", provider: config.provider, model: config.model ?? "", prompt, startedAt: new Date() } });
     const startedAt = Date.now();
     try {
-      const result = await this.withCapabilityLimit(config, user.id, () => generateImageWithProvider({ provider: config.provider as AiProvider, baseUrl: config.baseUrl!, apiKey: this.readApiKey(config)!, model: config.model!, prompt, size: dto.size?.trim() || "1024x1024", timeoutSeconds: config.requestTimeoutSeconds }));
+      const execution = await this.withCapabilityLimit(config, user.id, () => this.withProviderFallback(config, (runtime) => generateImageWithProvider({ provider: runtime.provider, baseUrl: runtime.baseUrl, apiKey: runtime.apiKey, model: runtime.model, prompt, size: dto.size?.trim() || "1024x1024", timeoutSeconds: config.requestTimeoutSeconds })));
+      const result = execution.result;
       const storedImage = result.base64 && this.isStorableImage(result.base64) ? result.base64 : null;
-      const completed = await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "completed", resultText: storedImage, resultUrl: result.url, resultMetadata: { revisedPrompt: result.revisedPrompt, base64Available: Boolean(result.base64), storedImage: Boolean(storedImage), imageMimeType: "image/png" }, completedAt: new Date() } });
-      await this.recordUsage(config, "image_generation", user.id, 1, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined);
+      const runtimeConfig = this.withRuntimeConfig(config, execution.runtime);
+      const completed = await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "completed", provider: execution.runtime.provider, model: execution.runtime.model, resultText: storedImage, resultUrl: result.url, resultMetadata: { revisedPrompt: result.revisedPrompt, base64Available: Boolean(result.base64), storedImage: Boolean(storedImage), imageMimeType: "image/png" }, completedAt: new Date() } });
+      const fallbackMetadata = execution.primaryFailureSummary ? { fallback: true, primaryProvider: config.provider, primaryModel: config.model ?? "" } : undefined;
+      if (execution.primaryFailureSummary) {
+        await this.recordUsage(config, "image_generation", user.id, null, null, null, "failed", startedAt, `主能力调用失败，已切换备用能力：${execution.primaryFailureSummary}`, execution.primaryDurationMs, fallbackMetadata);
+      }
+      await this.recordUsage(runtimeConfig, "image_generation", user.id, 1, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined, undefined, fallbackMetadata);
       return { ...this.toMediaTaskDetail(completed), revisedPrompt: result.revisedPrompt, usage: result.usage };
     } catch (error) {
       const message = this.errorMessage(error);
-      await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "failed", errorSummary: message.slice(0, 500), completedAt: new Date() } }).catch(() => undefined);
-      await this.recordUsage(config, "image_generation", user.id, 1, null, null, "failed", startedAt, message);
+      const fallbackError = this.readFallbackError(error);
+      await this.prisma.aiMediaTask.update({ where: { id: task.id }, data: { status: "failed", ...(fallbackError?.fallbackRuntime ? { provider: fallbackError.fallbackRuntime.provider, model: fallbackError.fallbackRuntime.model } : {}), errorSummary: message.slice(0, 500), completedAt: new Date() } }).catch(() => undefined);
+      if (fallbackError) await this.recordUsage(config, "image_generation", user.id, null, null, null, "failed", startedAt, `主能力调用失败，已切换备用能力：${fallbackError.primaryFailureSummary}`, fallbackError.primaryDurationMs, { fallback: true, primaryProvider: config.provider, primaryModel: config.model ?? "" });
+      await this.recordUsage(fallbackError?.fallbackRuntime ? this.withRuntimeConfig(config, fallbackError.fallbackRuntime) : config, "image_generation", user.id, 1, null, null, "failed", startedAt, message, undefined, fallbackError ? { fallback: true, primaryProvider: config.provider, primaryModel: config.model ?? "" } : undefined);
       throw this.toMediaException(error);
     }
   }
@@ -292,21 +352,66 @@ export class AiCapabilitiesService {
     }
   }
 
-  private async recordUsage(config: AiCapabilityConfiguration, operation: string, userId: number | null, inputUnits: number | null, outputUnits: number | null, totalTokens: number | null, status: string, startedAt: number, errorSummary?: string) {
+  private async recordUsage(config: AiCapabilityConfiguration, operation: string, userId: number | null, inputUnits: number | null, outputUnits: number | null, totalTokens: number | null, status: string, startedAt: number, errorSummary?: string, durationMs?: number, metadata?: Record<string, unknown>) {
     const estimatedCostMicros = this.estimateCost(config, inputUnits, outputUnits, operation);
-    await this.prisma.aiUsageLog.create({ data: { userId, capability: config.capability, operation, provider: config.provider, model: config.model ?? "", status, inputUnits, outputUnits, totalTokens, durationMs: Math.max(0, Date.now() - startedAt), estimatedCostMicros, errorSummary: errorSummary?.slice(0, 255) } }).catch(() => undefined);
+    await this.prisma.aiUsageLog.create({ data: { userId, capability: config.capability, operation, provider: config.provider, model: config.model ?? "", status, inputUnits, outputUnits, totalTokens, durationMs: Math.max(0, durationMs ?? Date.now() - startedAt), estimatedCostMicros, errorSummary: errorSummary?.slice(0, 255), metadata: metadata as never } }).catch(() => undefined);
   }
 
   private estimateCost(config: AiCapabilityConfiguration, inputUnits: number | null, outputUnits: number | null, operation: string): number | null {
-    const tokenCost = ((inputUnits ?? 0) * config.inputCostPerMillionMicros + (outputUnits ?? 0) * config.outputCostPerMillionMicros) / 1_000_000;
+    if (inputUnits === null && outputUnits === null) return null;
+    const tokenCost = ((inputUnits ?? 0) * (config.inputCostPerMillionMicros ?? 0) + (outputUnits ?? 0) * (config.outputCostPerMillionMicros ?? 0)) / 1_000_000;
     const unitCost = operation === "image_generation" || operation === "ocr" || operation === "transcription" ? config.unitCostMicros : 0;
-    if (inputUnits === null && outputUnits === null && unitCost === 0) return null;
     return Math.max(0, Math.round(tokenCost + unitCost));
   }
 
   private readApiKey(config: AiCapabilityConfiguration): string | null {
     if (!config.apiKeyEncrypted) return null;
-    try { return this.crypto.decrypt(config.apiKeyEncrypted); } catch { return null; }
+    return this.readApiKeyValue(config.apiKeyEncrypted);
+  }
+
+  private readApiKeyValue(value: string | null): string | null {
+    if (!value) return null;
+    try { return this.crypto.decrypt(value); } catch { return null; }
+  }
+
+  private async withProviderFallback<T>(config: AiCapabilityConfiguration, callback: (runtime: CapabilityRuntime) => Promise<T>): Promise<CapabilityExecution<T>> {
+    const primary: CapabilityRuntime = { provider: config.provider as AiProvider, baseUrl: config.baseUrl!, model: config.model!, apiKey: this.readApiKey(config)!, fallback: false };
+    const primaryStartedAt = Date.now();
+    try {
+      return { result: await callback(primary), runtime: primary };
+    } catch (error) {
+      if (!config.fallbackEnabled || !(error instanceof AiProviderClientError) || !error.retryable) throw error;
+      const fallbackKey = this.readApiKeyValue(config.fallbackApiKeyEncrypted);
+      if (!config.fallbackProvider || !config.fallbackBaseUrl || !config.fallbackModel || !fallbackKey) throw error;
+      const fallback: CapabilityRuntime = { provider: config.fallbackProvider as AiProvider, baseUrl: config.fallbackBaseUrl, model: config.fallbackModel, apiKey: fallbackKey, fallback: true };
+      const primaryFailureSummary = this.errorMessage(error);
+      try {
+        return { result: await callback(fallback), runtime: fallback, primaryFailureSummary, primaryDurationMs: Date.now() - primaryStartedAt };
+      } catch (fallbackError) {
+        const annotated: CapabilityFallbackError = fallbackError instanceof Error ? fallbackError as CapabilityFallbackError : new AiProviderClientError(this.errorMessage(fallbackError));
+        annotated.primaryFailureSummary = primaryFailureSummary;
+        annotated.primaryDurationMs = Date.now() - primaryStartedAt;
+        annotated.fallbackRuntime = fallback;
+        throw annotated;
+      }
+    }
+  }
+
+  private readFallbackError(error: unknown): CapabilityFallbackError | null {
+    if (!error || typeof error !== "object") return null;
+    const candidate = error as CapabilityFallbackError;
+    return candidate.primaryFailureSummary ? candidate : null;
+  }
+
+  private withRuntimeConfig(config: AiCapabilityConfiguration, runtime: CapabilityRuntime): AiCapabilityConfiguration {
+    return {
+      ...config,
+      provider: runtime.provider,
+      baseUrl: runtime.baseUrl,
+      model: runtime.model,
+      inputCostPerMillionMicros: runtime.fallback ? config.fallbackInputCostPerMillionMicros : config.inputCostPerMillionMicros,
+      outputCostPerMillionMicros: runtime.fallback ? config.fallbackOutputCostPerMillionMicros : config.outputCostPerMillionMicros,
+    };
   }
 
   private resourceLimits() {
@@ -325,6 +430,11 @@ export class AiCapabilitiesService {
       baseUrl: config.baseUrl ?? "",
       model: config.model ?? "",
       apiKeyConfigured: Boolean(config.apiKeyEncrypted),
+      fallbackEnabled: config.fallbackEnabled,
+      fallbackProvider: (config.fallbackProvider as AiProvider | null) ?? null,
+      fallbackBaseUrl: config.fallbackBaseUrl ?? "",
+      fallbackModel: config.fallbackModel ?? "",
+      fallbackApiKeyConfigured: Boolean(config.fallbackApiKeyEncrypted),
       globalConcurrency: config.globalConcurrency,
       userConcurrency: config.userConcurrency,
       requestTimeoutSeconds: config.requestTimeoutSeconds,
@@ -333,6 +443,8 @@ export class AiCapabilitiesService {
       billingCurrency: config.billingCurrency === "CNY" ? "CNY" : "USD",
       inputCostPerMillionMicros: config.inputCostPerMillionMicros,
       outputCostPerMillionMicros: config.outputCostPerMillionMicros,
+      fallbackInputCostPerMillionMicros: config.fallbackInputCostPerMillionMicros,
+      fallbackOutputCostPerMillionMicros: config.fallbackOutputCostPerMillionMicros,
       unitCostMicros: config.unitCostMicros,
       unitName: config.unitName,
       maxInputBytes: config.maxInputBytes,

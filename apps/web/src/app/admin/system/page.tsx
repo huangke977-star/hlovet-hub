@@ -24,11 +24,12 @@ import {
   Server,
   ShieldCheck,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppToast } from "@/components/app-toast";
 import { useConfirm } from "@/components/confirm-dialog";
 import { AdminPageHeader, AdminPageLoading } from "@/components/admin-page-header";
@@ -43,6 +44,7 @@ import {
   deleteDatabaseBackup,
   deleteDatabaseBackups,
   downloadDatabaseBackup,
+  exportConfigurationBundle,
   getBackupConfiguration,
   getBackupRestorePreflight,
   getMediaBackupJob,
@@ -50,6 +52,7 @@ import {
   getP22QualityOverview,
   getStorageOverview,
   getSystemStatus,
+  importConfigurationBundle,
   listMediaBackupJobs,
   restoreDatabaseBackup,
   acknowledgeP21Alert,
@@ -121,6 +124,8 @@ export default function SystemStatusPage() {
   const [restorePreflight, setRestorePreflight] = useState<BackupRestorePreflight | null>(null);
   const [postRestoreStorageScanId, setPostRestoreStorageScanId] = useState<number | null>(null);
   const [selectedBackupNames, setSelectedBackupNames] = useState<string[]>([]);
+  const [configurationTransferBusy, setConfigurationTransferBusy] = useState(false);
+  const configurationFileInput = useRef<HTMLInputElement>(null);
 
   const loadStatus = useCallback(async (token: string, refresh = false) => {
     if (refresh) setIsRefreshing(true);
@@ -316,6 +321,46 @@ export default function SystemStatusPage() {
       setError(actionError instanceof Error ? actionError.message : phrase("备份下载失败。", "Could not download the backup."));
     } finally {
       setBackupBusy("");
+    }
+  }
+
+  async function handleExportConfigurationBundle() {
+    if (!accessToken || configurationTransferBusy) return;
+    setConfigurationTransferBusy(true);
+    setError("");
+    try {
+      const bundle = await exportConfigurationBundle(accessToken);
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `hlovet-configuration-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice(phrase("系统配置包已导出。请把 BACKUP_ENCRYPTION_KEY 安全带到新服务器。", "System configuration bundle exported. Preserve BACKUP_ENCRYPTION_KEY securely on the new server."));
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : phrase("配置包导出失败。", "Could not export the configuration bundle."));
+    } finally {
+      setConfigurationTransferBusy(false);
+    }
+  }
+
+  async function handleImportConfigurationBundle(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !accessToken || configurationTransferBusy) return;
+    if (!(await confirm(phrase("导入配置包会覆盖当前站点、安全、AI 和备份策略配置，但不会导入用户和文章。继续吗？", "Importing will replace site, security, AI and backup policy settings, but will not import users or articles. Continue?"), { danger: true }))) return;
+    setConfigurationTransferBusy(true);
+    setError("");
+    try {
+      const bundle = JSON.parse(await file.text()) as Parameters<typeof importConfigurationBundle>[1];
+      const result = await importConfigurationBundle(accessToken, bundle);
+      await Promise.all([loadStatus(accessToken), loadBackupConfiguration(accessToken), loadOperations(accessToken)]);
+      setNotice(phrase(`配置包导入完成，能力 ${result.importedCapabilities} 项，分类标签 ${result.importedTaxonomies} 项。`, `Configuration imported: ${result.importedCapabilities} capabilities and ${result.importedTaxonomies} taxonomies.`));
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : phrase("配置包导入失败。", "Could not import the configuration bundle."));
+    } finally {
+      setConfigurationTransferBusy(false);
     }
   }
 
@@ -617,6 +662,12 @@ export default function SystemStatusPage() {
             {!status.backups.items.length ? <p>{status.backups.available ? phrase("备份目录中暂无 SQL 备份文件。", "No SQL backups in the backup directory.") : phrase("备份目录尚未挂载或不可读取。", "Backup directory is not mounted or cannot be read.")}</p> : null}
           </div>
           {postRestoreStorageScanId ? <p className="backup-post-restore-scan"><ShieldCheck aria-hidden="true" size={15} />{phrase("恢复后的附件扫描已启动。", "Post-restore attachment scan started.")}<Link href={localizedPath(`/admin/storage?scan=${postRestoreStorageScanId}`, locale)}>{phrase("查看扫描与修复", "View scan and repairs")}</Link></p> : null}
+        </section>
+
+        <section className="system-status-panel configuration-transfer-panel">
+          <header className="system-panel-heading"><span><Files aria-hidden="true" size={17} /><strong>{phrase("系统配置迁移", "System configuration transfer")}</strong></span></header>
+          <p>{phrase("只迁移站点、安全、AI、备份策略、存储策略和分类配置，不包含用户、文章、聊天、会话或知识库内容。加密配置需要在新服务器保留相同的 BACKUP_ENCRYPTION_KEY。", "Transfers site, security, AI, backup, storage and taxonomy settings only. Users, articles, chat, sessions and knowledge content are excluded. Encrypted settings require the same BACKUP_ENCRYPTION_KEY on the new server.")}</p>
+          <div className="configuration-transfer-actions"><button disabled={configurationTransferBusy} onClick={() => void handleExportConfigurationBundle()} type="button"><Download aria-hidden="true" size={15} />{phrase("导出配置包", "Export configuration")}</button><button disabled={configurationTransferBusy} onClick={() => configurationFileInput.current?.click()} type="button"><Upload aria-hidden="true" size={15} />{phrase("导入配置包", "Import configuration")}</button><input ref={configurationFileInput} accept="application/json,.json" onChange={(event) => void handleImportConfigurationBundle(event)} type="file" /></div>
         </section>
 
         <section className="system-status-panel media-backups">

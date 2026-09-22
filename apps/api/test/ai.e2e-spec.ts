@@ -46,6 +46,8 @@ describe("P23 AI configuration", () => {
       billingCurrency: "USD",
       inputCostPerMillionMicros: 0,
       outputCostPerMillionMicros: 0,
+      fallbackInputCostPerMillionMicros: 2_000_000,
+      fallbackOutputCostPerMillionMicros: 3_000_000,
       updatedAt: new Date("2026-09-10T00:00:00.000Z"),
     });
 
@@ -74,6 +76,8 @@ describe("P23 AI configuration", () => {
       billingCurrency: "USD",
       inputCostPerMillionMicros: 0,
       outputCostPerMillionMicros: 0,
+      fallbackInputCostPerMillionMicros: 2_000_000,
+      fallbackOutputCostPerMillionMicros: 3_000_000,
       updatedAt: new Date("2026-09-10T00:00:00.000Z"),
     };
     harness.prisma.aiConfiguration.upsert.mockResolvedValue(current);
@@ -101,6 +105,57 @@ describe("P23 AI configuration", () => {
     expect(result.apiKeyConfigured).toBe(true);
   });
 
+  it("keeps fallback settings when an older client omits fallback fields", async () => {
+    const harness = createHarness();
+    const current = {
+      id: 1,
+      enabled: false,
+      provider: "openai-compatible",
+      baseUrl: null,
+      model: null,
+      apiKeyEncrypted: null,
+      fallbackEnabled: true,
+      fallbackProvider: "deepseek",
+      fallbackBaseUrl: "https://fallback.example/v1",
+      fallbackModel: "fallback-model",
+      fallbackApiKeyEncrypted: "encrypted:fallback-key",
+      globalConcurrency: 2,
+      userConcurrency: 1,
+      maxOutputTokens: 2000,
+      requestTimeoutSeconds: 60,
+      dailyRequestLimit: 0,
+      billingCurrency: "USD",
+      inputCostPerMillionMicros: 0,
+      outputCostPerMillionMicros: 0,
+      fallbackInputCostPerMillionMicros: 2_000_000,
+      fallbackOutputCostPerMillionMicros: 3_000_000,
+      updatedAt: new Date("2026-09-10T00:00:00.000Z"),
+    };
+    harness.prisma.aiConfiguration.upsert.mockResolvedValue(current);
+    harness.prisma.aiConfiguration.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...current, ...data, updatedAt: new Date("2026-09-10T00:01:00.000Z") }));
+
+    const result = await harness.service.updateConfiguration({
+      enabled: false,
+      provider: "openai-compatible",
+      baseUrl: "",
+      model: "",
+      globalConcurrency: 2,
+      userConcurrency: 1,
+      maxOutputTokens: 2000,
+      requestTimeoutSeconds: 60,
+      dailyRequestLimit: 0,
+      billingCurrency: "USD",
+      inputCostPerMillionMicros: 0,
+      outputCostPerMillionMicros: 0,
+    });
+
+    const data = harness.prisma.aiConfiguration.update.mock.calls[0][0].data as Record<string, unknown>;
+    expect(data).not.toHaveProperty("fallbackProvider");
+    expect(data).not.toHaveProperty("fallbackBaseUrl");
+    expect(data).not.toHaveProperty("fallbackModel");
+    expect(result).toMatchObject({ fallbackEnabled: true, fallbackProvider: "deepseek", fallbackModel: "fallback-model" });
+  });
+
   it("rejects an enabled configuration without connection details", async () => {
     const harness = createHarness();
     harness.prisma.aiConfiguration.upsert.mockResolvedValue({ apiKeyEncrypted: null });
@@ -121,6 +176,66 @@ describe("P23 AI configuration", () => {
     })).rejects.toThrow("完整填写");
   });
 
+  it("uses the saved fallback key when loading fallback models", async () => {
+    const harness = createHarness();
+    harness.prisma.aiConfiguration.upsert.mockResolvedValue({
+      id: 1,
+      apiKeyEncrypted: "encrypted:primary-key",
+      fallbackApiKeyEncrypted: "encrypted:fallback-key",
+      fallbackBaseUrl: "https://fallback.example/v1",
+      requestTimeoutSeconds: 60,
+    });
+    const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ id: "fallback-model" }] }),
+    } as Response);
+
+    const result = await harness.service.listModels({ provider: "deepseek", credential: "fallback" });
+
+    expect(result.models).toEqual([{ id: "fallback-model", label: "fallback-model" }]);
+    expect(fetchSpy.mock.calls[0][0]).toEqual(new URL("https://fallback.example/v1/models"));
+    expect(fetchSpy.mock.calls[0][1]).toEqual(expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer fallback-key" }) }));
+  });
+
+  it("switches to the configured fallback model only for a transient provider failure", async () => {
+    const harness = createHarness();
+    harness.prisma.aiConfiguration.upsert.mockResolvedValue({
+      id: 1,
+      enabled: true,
+      provider: "openai-compatible",
+      baseUrl: "https://primary.example/v1",
+      model: "primary-model",
+      apiKeyEncrypted: "encrypted:primary-key",
+      fallbackEnabled: true,
+      fallbackProvider: "deepseek",
+      fallbackBaseUrl: "https://fallback.example/v1",
+      fallbackModel: "fallback-model",
+      fallbackApiKeyEncrypted: "encrypted:fallback-key",
+      globalConcurrency: 2,
+      userConcurrency: 1,
+      maxOutputTokens: 2000,
+      requestTimeoutSeconds: 60,
+      dailyRequestLimit: 0,
+      billingCurrency: "USD",
+      inputCostPerMillionMicros: 0,
+      outputCostPerMillionMicros: 0,
+      fallbackInputCostPerMillionMicros: 2_000_000,
+      fallbackOutputCostPerMillionMicros: 3_000_000,
+      updatedAt: new Date("2026-09-10T00:00:00.000Z"),
+    });
+    const fetchSpy = jest.spyOn(global, "fetch")
+      .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: "备用回答" } }], usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 } }) } as Response);
+
+    const result = await harness.service.complete({ userId: 9, operation: "fallback_test", messages: [{ role: "user", content: "ping" }] });
+
+    expect(result).toMatchObject({ text: "备用回答", provider: "deepseek", model: "fallback-model" });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[1][0]).toEqual(new URL("https://fallback.example/v1/chat/completions"));
+    expect(harness.prisma.aiInvocationLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed", provider: "openai-compatible" }) }));
+    expect(harness.prisma.aiInvocationLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "success", provider: "deepseek", model: "fallback-model", estimatedCostMicros: 7 }) }));
+  });
+
   it("calls an OpenAI-compatible endpoint and stores only safe usage metadata", async () => {
     const harness = createHarness();
     harness.prisma.aiConfiguration.upsert.mockResolvedValue({
@@ -138,6 +253,8 @@ describe("P23 AI configuration", () => {
       billingCurrency: "USD",
       inputCostPerMillionMicros: 150000,
       outputCostPerMillionMicros: 600000,
+      fallbackInputCostPerMillionMicros: 2_000_000,
+      fallbackOutputCostPerMillionMicros: 3_000_000,
       updatedAt: new Date("2026-09-10T00:00:00.000Z"),
     });
     const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue({

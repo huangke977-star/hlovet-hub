@@ -685,6 +685,30 @@ export function getBackupConfiguration(accessToken: string): Promise<BackupConfi
   });
 }
 
+export interface ConfigurationBundle {
+  format: "hlovet-configuration";
+  version: 1;
+  generatedAt: string;
+  requires: { preserveBackupEncryptionKey: true };
+  scope: { includes: string[]; excludes: string[] };
+  data: Record<string, unknown>;
+}
+
+export function exportConfigurationBundle(accessToken: string): Promise<ConfigurationBundle> {
+  return requestJson<ConfigurationBundle>("/admin/system/configuration-bundle", {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+}
+
+export function importConfigurationBundle(accessToken: string, bundle: ConfigurationBundle): Promise<{ imported: true; version: number; importedCapabilities: number; importedTaxonomies: number; warning: string }> {
+  return requestJson("/admin/system/configuration-bundle/import", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(bundle),
+  });
+}
+
 export function updateBackupConfiguration(
   accessToken: string,
   configuration: BackupConfigurationUpdate,
