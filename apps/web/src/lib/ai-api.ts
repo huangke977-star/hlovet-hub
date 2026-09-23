@@ -8,6 +8,7 @@ export interface AiPricingPreset {
   label: string;
   billingCurrency: "USD" | "CNY";
   inputCostPerMillionMicros: number;
+  cachedInputCostPerMillionMicros: number;
   outputCostPerMillionMicros: number;
   note: string;
 }
@@ -40,8 +41,10 @@ export interface AiAdminConfiguration {
   dailyRequestLimit: number;
   billingCurrency: "USD" | "CNY";
   inputCostPerMillionMicros: number;
+  cachedInputCostPerMillionMicros: number;
   outputCostPerMillionMicros: number;
   fallbackInputCostPerMillionMicros: number;
+  fallbackCachedInputCostPerMillionMicros: number;
   fallbackOutputCostPerMillionMicros: number;
   pricingPresets: AiPricingPreset[];
   ragEnabled: boolean;
@@ -75,8 +78,10 @@ export interface AiAdminConfigurationUpdate {
   dailyRequestLimit: number;
   billingCurrency: "USD" | "CNY";
   inputCostPerMillionMicros: number;
+  cachedInputCostPerMillionMicros?: number;
   outputCostPerMillionMicros: number;
   fallbackInputCostPerMillionMicros: number;
+  fallbackCachedInputCostPerMillionMicros?: number;
   fallbackOutputCostPerMillionMicros: number;
   ragEnabled?: boolean;
   ragTopK?: number;
@@ -99,7 +104,7 @@ export interface AiConnectionTestResult {
   provider: AiProvider;
   model: string;
   durationMs: number;
-  usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null };
+  usage: { promptTokens: number | null; cachedPromptTokens: number | null; completionTokens: number | null; totalTokens: number | null };
 }
 
 export interface AiInvocationLog {
@@ -109,6 +114,7 @@ export interface AiInvocationLog {
   model: string;
   status: string;
   promptTokens: number | null;
+  cachedPromptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
   durationMs: number;
@@ -120,7 +126,7 @@ export interface AiInvocationLog {
 }
 
 export interface AiInvocationOverview {
-  today: { requests: number; totalTokens: number; estimatedCostMicros: number };
+  today: { requests: number; totalTokens: number; cachedPromptTokens: number; cacheHitRate: number; estimatedCostMicros: number };
   logs: AiInvocationLog[];
 }
 
@@ -182,8 +188,10 @@ export interface AiCapabilityConfiguration {
   monthlyBudgetMicros: number;
   billingCurrency: "USD" | "CNY";
   inputCostPerMillionMicros: number;
+  cachedInputCostPerMillionMicros: number;
   outputCostPerMillionMicros: number;
   fallbackInputCostPerMillionMicros: number;
+  fallbackCachedInputCostPerMillionMicros: number;
   fallbackOutputCostPerMillionMicros: number;
   unitCostMicros: number;
   unitName: string;
@@ -213,8 +221,10 @@ export interface AiCapabilityConfigurationUpdate {
   monthlyBudgetMicros: number;
   billingCurrency: "USD" | "CNY";
   inputCostPerMillionMicros: number;
+  cachedInputCostPerMillionMicros?: number;
   outputCostPerMillionMicros: number;
   fallbackInputCostPerMillionMicros: number;
+  fallbackCachedInputCostPerMillionMicros?: number;
   fallbackOutputCostPerMillionMicros: number;
   unitCostMicros: number;
   unitName: string;
@@ -235,8 +245,8 @@ export function testAiAdminCapability(token: string, capability: AiCapability) {
 
 export interface AiUsageOverview {
   days: number;
-  total: { requests: number; tokens: number; estimatedCostMicros: number };
-  byCapability: Array<{ capability: string; requests: number; success: number; failed: number; successRate: number; failureRate: number; tokens: number; estimatedCostMicros: number }>;
+  total: { requests: number; tokens: number; cachedInputUnits: number; estimatedCostMicros: number };
+  byCapability: Array<{ capability: string; requests: number; success: number; failed: number; successRate: number; failureRate: number; tokens: number; cachedInputUnits: number; estimatedCostMicros: number }>;
   quality: { feedbackTotal: number; helpful: number; unhelpful: number; averageRating: number | null };
   recent: Array<Record<string, unknown>>;
 }
@@ -294,7 +304,7 @@ export interface ArticleAssistantResult {
   provider: AiProvider;
   model: string;
   durationMs: number;
-  usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null };
+  usage: { promptTokens: number | null; cachedPromptTokens: number | null; completionTokens: number | null; totalTokens: number | null };
 }
 
 export function runArticleAssistant(accessToken: string, input: ArticleAssistantInput) {
@@ -332,7 +342,7 @@ export interface AiChatResult {
   provider: AiProvider;
   model: string;
   durationMs: number;
-  usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null };
+  usage: { promptTokens: number | null; cachedPromptTokens: number | null; completionTokens: number | null; totalTokens: number | null };
 }
 
 export interface AiConversationListItem {

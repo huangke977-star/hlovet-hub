@@ -54,8 +54,10 @@ type CapabilityResponse = {
   monthlyBudgetMicros: number;
   billingCurrency: "USD" | "CNY";
   inputCostPerMillionMicros: number;
+  cachedInputCostPerMillionMicros: number;
   outputCostPerMillionMicros: number;
   fallbackInputCostPerMillionMicros: number;
+  fallbackCachedInputCostPerMillionMicros: number;
   fallbackOutputCostPerMillionMicros: number;
   unitCostMicros: number;
   unitName: string;
@@ -126,8 +128,10 @@ export class AiCapabilitiesService {
         monthlyBudgetMicros: dto.monthlyBudgetMicros,
         billingCurrency: dto.billingCurrency,
         inputCostPerMillionMicros: dto.inputCostPerMillionMicros,
+        ...(dto.cachedInputCostPerMillionMicros === undefined ? {} : { cachedInputCostPerMillionMicros: dto.cachedInputCostPerMillionMicros }),
         outputCostPerMillionMicros: dto.outputCostPerMillionMicros,
         ...(dto.fallbackInputCostPerMillionMicros === undefined ? {} : { fallbackInputCostPerMillionMicros: dto.fallbackInputCostPerMillionMicros }),
+        ...(dto.fallbackCachedInputCostPerMillionMicros === undefined ? {} : { fallbackCachedInputCostPerMillionMicros: dto.fallbackCachedInputCostPerMillionMicros }),
         ...(dto.fallbackOutputCostPerMillionMicros === undefined ? {} : { fallbackOutputCostPerMillionMicros: dto.fallbackOutputCostPerMillionMicros }),
         unitCostMicros: dto.unitCostMicros,
         unitName: dto.unitName.trim().slice(0, 32) || CAPABILITY_LABELS[capability].unit,
@@ -155,11 +159,11 @@ export class AiCapabilitiesService {
     }
   }
 
-  async embedTexts(texts: string[]): Promise<{ embeddings: number[][]; usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null }; model: string }> {
+  async embedTexts(texts: string[]): Promise<{ embeddings: number[][]; usage: { promptTokens: number | null; cachedPromptTokens: number | null; completionTokens: number | null; totalTokens: number | null }; model: string }> {
     const config = await this.getConfiguration("embedding");
     const apiKey = this.readApiKey(config);
     if (!config.enabled || !config.baseUrl || !config.model || !apiKey) throw new ServiceUnavailableException("向量服务尚未配置，当前使用关键词检索。\nThe embedding service is not configured; keyword search is active.");
-    if (!texts.length) return { embeddings: [], usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }, model: config.model };
+    if (!texts.length) return { embeddings: [], usage: { promptTokens: 0, cachedPromptTokens: 0, completionTokens: 0, totalTokens: 0 }, model: config.model };
     const startedAt = Date.now();
     const execution = await this.withCapabilityLimit(config, null, async () => this.withProviderFallback(config, (runtime) => createEmbeddingsWithProvider({ provider: runtime.provider, baseUrl: runtime.baseUrl, apiKey: runtime.apiKey, model: runtime.model, texts, timeoutSeconds: config.requestTimeoutSeconds })));
     const result = execution.result;
@@ -168,7 +172,7 @@ export class AiCapabilitiesService {
     if (execution.primaryFailureSummary) {
       await this.recordUsage(config, "embedding", null, null, null, null, "failed", startedAt, `主能力调用失败，已切换备用能力：${execution.primaryFailureSummary}`, execution.primaryDurationMs, fallbackMetadata);
     }
-    await this.recordUsage(runtimeConfig, "embedding", null, result.usage.promptTokens ?? texts.join("\n").length, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined, undefined, fallbackMetadata);
+    await this.recordUsage(runtimeConfig, "embedding", null, result.usage.promptTokens ?? texts.join("\n").length, result.usage.completionTokens, result.usage.totalTokens, "success", startedAt, undefined, undefined, fallbackMetadata, result.usage.cachedPromptTokens);
     return { ...result, model: execution.runtime.model };
   }
 
@@ -286,13 +290,14 @@ export class AiCapabilitiesService {
       this.prisma.aiUsageLog.findMany({ where: { createdAt: { gte: since } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 2000 }),
       this.prisma.aiQualityFeedback.findMany({ where: { createdAt: { gte: since } }, select: { rating: true } }),
     ]);
-    const byCapability = new Map<string, { requests: number; success: number; failed: number; tokens: number; estimatedCostMicros: number }>();
+    const byCapability = new Map<string, { requests: number; success: number; failed: number; tokens: number; cachedInputUnits: number; estimatedCostMicros: number }>();
     for (const log of logs) {
-      const current = byCapability.get(log.capability) ?? { requests: 0, success: 0, failed: 0, tokens: 0, estimatedCostMicros: 0 };
+      const current = byCapability.get(log.capability) ?? { requests: 0, success: 0, failed: 0, tokens: 0, cachedInputUnits: 0, estimatedCostMicros: 0 };
       current.requests += 1;
       if (log.status === "success") current.success += 1;
       else current.failed += 1;
       current.tokens += log.totalTokens ?? 0;
+      current.cachedInputUnits += log.cachedInputUnits ?? 0;
       current.estimatedCostMicros += log.estimatedCostMicros ?? 0;
       byCapability.set(log.capability, current);
     }
@@ -301,7 +306,7 @@ export class AiCapabilitiesService {
     const feedbackUnhelpful = feedback.filter((item) => item.rating === -1).length;
     return {
       days,
-      total: { requests: logs.length, tokens: logs.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0), estimatedCostMicros: logs.reduce((sum, item) => sum + (item.estimatedCostMicros ?? 0), 0) },
+      total: { requests: logs.length, tokens: logs.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0), cachedInputUnits: logs.reduce((sum, item) => sum + (item.cachedInputUnits ?? 0), 0), estimatedCostMicros: logs.reduce((sum, item) => sum + (item.estimatedCostMicros ?? 0), 0) },
       byCapability: [...byCapability.entries()].map(([capability, value]) => ({ ...value, capability, successRate: value.requests ? Math.round(value.success / value.requests * 100) : 0, failureRate: value.requests ? Math.round(value.failed / value.requests * 100) : 0 })),
       quality: { feedbackTotal, helpful: feedbackHelpful, unhelpful: feedbackUnhelpful, averageRating: feedbackTotal ? Number((feedback.reduce((sum, item) => sum + item.rating, 0) / feedbackTotal).toFixed(2)) : null },
       recent: logs.slice(0, 100).map((log) => ({ ...log, createdAt: log.createdAt.toISOString() })),
@@ -352,14 +357,16 @@ export class AiCapabilitiesService {
     }
   }
 
-  private async recordUsage(config: AiCapabilityConfiguration, operation: string, userId: number | null, inputUnits: number | null, outputUnits: number | null, totalTokens: number | null, status: string, startedAt: number, errorSummary?: string, durationMs?: number, metadata?: Record<string, unknown>) {
-    const estimatedCostMicros = this.estimateCost(config, inputUnits, outputUnits, operation);
-    await this.prisma.aiUsageLog.create({ data: { userId, capability: config.capability, operation, provider: config.provider, model: config.model ?? "", status, inputUnits, outputUnits, totalTokens, durationMs: Math.max(0, durationMs ?? Date.now() - startedAt), estimatedCostMicros, errorSummary: errorSummary?.slice(0, 255), metadata: metadata as never } }).catch(() => undefined);
+  private async recordUsage(config: AiCapabilityConfiguration, operation: string, userId: number | null, inputUnits: number | null, outputUnits: number | null, totalTokens: number | null, status: string, startedAt: number, errorSummary?: string, durationMs?: number, metadata?: Record<string, unknown>, cachedInputUnits?: number | null) {
+    const estimatedCostMicros = this.estimateCost(config, inputUnits, outputUnits, operation, cachedInputUnits);
+    await this.prisma.aiUsageLog.create({ data: { userId, capability: config.capability, operation, provider: config.provider, model: config.model ?? "", status, inputUnits, cachedInputUnits, outputUnits, totalTokens, durationMs: Math.max(0, durationMs ?? Date.now() - startedAt), estimatedCostMicros, errorSummary: errorSummary?.slice(0, 255), metadata: metadata as never } }).catch(() => undefined);
   }
 
-  private estimateCost(config: AiCapabilityConfiguration, inputUnits: number | null, outputUnits: number | null, operation: string): number | null {
+  private estimateCost(config: AiCapabilityConfiguration, inputUnits: number | null, outputUnits: number | null, operation: string, cachedInputUnits: number | null = null): number | null {
     if (inputUnits === null && outputUnits === null) return null;
-    const tokenCost = ((inputUnits ?? 0) * (config.inputCostPerMillionMicros ?? 0) + (outputUnits ?? 0) * (config.outputCostPerMillionMicros ?? 0)) / 1_000_000;
+    const cached = Math.min(cachedInputUnits ?? 0, inputUnits ?? cachedInputUnits ?? 0);
+    const regularInput = Math.max(0, (inputUnits ?? 0) - cached);
+    const tokenCost = (regularInput * (config.inputCostPerMillionMicros ?? 0) + cached * (config.cachedInputCostPerMillionMicros ?? 0) + (outputUnits ?? 0) * (config.outputCostPerMillionMicros ?? 0)) / 1_000_000;
     const unitCost = operation === "image_generation" || operation === "ocr" || operation === "transcription" ? config.unitCostMicros : 0;
     return Math.max(0, Math.round(tokenCost + unitCost));
   }
@@ -410,6 +417,7 @@ export class AiCapabilitiesService {
       baseUrl: runtime.baseUrl,
       model: runtime.model,
       inputCostPerMillionMicros: runtime.fallback ? config.fallbackInputCostPerMillionMicros : config.inputCostPerMillionMicros,
+      cachedInputCostPerMillionMicros: runtime.fallback ? config.fallbackCachedInputCostPerMillionMicros : config.cachedInputCostPerMillionMicros,
       outputCostPerMillionMicros: runtime.fallback ? config.fallbackOutputCostPerMillionMicros : config.outputCostPerMillionMicros,
     };
   }
@@ -442,8 +450,10 @@ export class AiCapabilitiesService {
       monthlyBudgetMicros: config.monthlyBudgetMicros,
       billingCurrency: config.billingCurrency === "CNY" ? "CNY" : "USD",
       inputCostPerMillionMicros: config.inputCostPerMillionMicros,
+      cachedInputCostPerMillionMicros: config.cachedInputCostPerMillionMicros,
       outputCostPerMillionMicros: config.outputCostPerMillionMicros,
       fallbackInputCostPerMillionMicros: config.fallbackInputCostPerMillionMicros,
+      fallbackCachedInputCostPerMillionMicros: config.fallbackCachedInputCostPerMillionMicros,
       fallbackOutputCostPerMillionMicros: config.fallbackOutputCostPerMillionMicros,
       unitCostMicros: config.unitCostMicros,
       unitName: config.unitName,

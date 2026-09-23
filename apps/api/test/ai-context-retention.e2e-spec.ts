@@ -34,7 +34,7 @@ describe("AI context retention", () => {
     harness.prisma.aiConversation.findUnique.mockResolvedValue({ contextSummary: null, summaryMessageCount: 0, summaryUpdatedAt: null });
     harness.prisma.aiConversationMessage.count.mockResolvedValue(1);
     harness.prisma.aiConversationMessage.findMany.mockResolvedValue([]);
-    jest.spyOn(harness.service, "complete").mockResolvedValue({ text: "回答", provider: "custom", model: "test-model", durationMs: 1, usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } });
+    jest.spyOn(harness.service, "complete").mockResolvedValue({ text: "回答", provider: "custom", model: "test-model", durationMs: 1, usage: { promptTokens: 1, cachedPromptTokens: null, completionTokens: 1, totalTokens: 2 } });
     jest.spyOn(harness.service as never, "buildChatContext" as never).mockResolvedValue({ text: "站内上下文", sources: [] } as never);
     jest.spyOn(harness.service as never, "persistChatTurn" as never).mockResolvedValue({ assistantMessageId: 2 } as never);
 

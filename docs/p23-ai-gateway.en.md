@@ -15,7 +15,7 @@ After signing in, a super administrator can open `Admin -> AI settings`. Regular
 - Model: enter the provider's actual model ID.
 - API key: sent only to the server and encrypted at rest; the original value is never returned to the browser. Leave it blank when saving to keep the existing key.
 - Enable AI: user-facing assistants send requests only after a complete configuration is saved and enabled. Connection testing does not require the enable switch to be on.
-- Fallback model: configure an independent provider, base URL, model, API key, and input/output prices. It is used only for a timeout, temporary connectivity failure, HTTP 429, or HTTP 5xx. Parameter, authentication, and missing-model errors are not retried. A fallback is recorded as a primary failure plus the final result and estimated with the price of the model actually used, so a degraded success remains visible in usage history.
+- Fallback model: configure an independent provider, base URL, model, API key, and regular-input/cached-input/output prices. It is used only for a timeout, temporary connectivity failure, HTTP 429, or HTTP 5xx. Parameter, authentication, and missing-model errors are not retried. A fallback is recorded as a primary failure plus the final result and estimated with the price of the model actually used, so a degraded success remains visible in usage history.
 
 Save the settings and click `Test connection`. A successful test reports latency and creates a redacted invocation record. Failures expose only a safe HTTP status or connection error, never the provider response body.
 
@@ -31,7 +31,7 @@ Keep the initial values at global 2, per-user 1, 60 seconds, and 2,000 output to
 
 ## Usage And Cost
 
-When a provider returns token usage, the gateway stores input, output, and total tokens. Enter input and output prices per million tokens; for example, `0.15` means 0.15 units of the selected currency per million tokens. A price of 0 records tokens without estimating cost. The gateway stores micro-units internally and never stores prompts, generated text, or API keys in the log.
+When a provider returns token usage, the gateway stores regular input, cache-hit input, output, and total tokens. Enter regular-input, cached-input, and output prices per million tokens; for example, `0.15` means 0.15 units of the selected currency per million tokens. A cached-input price of `0` makes cache-hit tokens contribute zero to the estimate; it does not claim that the provider is free. Cache-hit units are recorded only when the provider reports them; otherwise the value remains unknown rather than being guessed. The gateway stores micro-units internally and never stores prompts, generated text, or API keys in the log.
 
 Invocation records help diagnose connection failures, timeouts, quotas, and provider errors. Errors are truncated to a safe summary; operation names should not contain passwords, tokens, or other sensitive values.
 

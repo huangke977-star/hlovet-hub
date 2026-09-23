@@ -43,8 +43,10 @@ function embeddingConfig(overrides: Record<string, unknown> = {}) {
     monthlyBudgetMicros: 0,
     billingCurrency: "USD",
     inputCostPerMillionMicros: 0,
+    cachedInputCostPerMillionMicros: 0,
     outputCostPerMillionMicros: 0,
     fallbackInputCostPerMillionMicros: 2_000_000,
+    fallbackCachedInputCostPerMillionMicros: 0,
     fallbackOutputCostPerMillionMicros: 3_000_000,
     unitCostMicros: 0,
     unitName: "tokens",
@@ -97,7 +99,7 @@ describe("AI capability fallback", () => {
     harness.prisma.aiCapabilityConfiguration.upsert.mockResolvedValue(embeddingConfig());
     jest.spyOn(global, "fetch")
       .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: [{ embedding: [0.1, 0.2] }], usage: { prompt_tokens: 2, total_tokens: 2 } }) } as Response);
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: [{ embedding: [0.1, 0.2] }], usage: { prompt_tokens: 2, prompt_tokens_details: { cached_tokens: 1 }, total_tokens: 2 } }) } as Response);
 
     const result = await harness.service.embedTexts(["hello"]);
 
@@ -105,7 +107,7 @@ describe("AI capability fallback", () => {
     expect(harness.prisma.aiUsageLog.create).toHaveBeenCalledTimes(2);
     const usageCalls = harness.prisma.aiUsageLog.create.mock.calls as unknown as Array<[{ data: Record<string, unknown> }] >;
     expect(usageCalls[0][0].data).toMatchObject({ status: "failed", provider: "openai-compatible", model: "primary-embedding" });
-    expect(usageCalls[1][0].data).toMatchObject({ status: "success", provider: "deepseek", model: "fallback-embedding", estimatedCostMicros: 4, metadata: { fallback: true } });
+    expect(usageCalls[1][0].data).toMatchObject({ status: "success", provider: "deepseek", model: "fallback-embedding", cachedInputUnits: 1, estimatedCostMicros: 2, metadata: { fallback: true } });
   });
 
   it("does not make an external request when an embedding capability is disabled", async () => {

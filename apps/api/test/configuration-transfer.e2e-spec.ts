@@ -23,8 +23,8 @@ describe("ConfigurationTransferService", () => {
     const prisma = createPrisma();
     prisma.siteSetting.findUnique.mockResolvedValue({ id: 1, siteName: "Test" });
     prisma.securityConfiguration.findUnique.mockResolvedValue({ id: 1, smtpPasswordEncrypted: "v1.encrypted" });
-    prisma.aiConfiguration.findUnique.mockResolvedValue({ id: 1, enabled: false, apiKeyEncrypted: "v1.ai", fallbackInputCostPerMillionMicros: 2000000 });
-    prisma.aiCapabilityConfiguration.findMany.mockResolvedValue([{ capability: "embedding", enabled: false, apiKeyEncrypted: "v1.embedding", fallbackOutputCostPerMillionMicros: 3000000 }]);
+    prisma.aiConfiguration.findUnique.mockResolvedValue({ id: 1, enabled: false, apiKeyEncrypted: "v1.ai", cachedInputCostPerMillionMicros: 100000, fallbackInputCostPerMillionMicros: 2000000, fallbackCachedInputCostPerMillionMicros: 50000 });
+    prisma.aiCapabilityConfiguration.findMany.mockResolvedValue([{ capability: "embedding", enabled: false, apiKeyEncrypted: "v1.embedding", cachedInputCostPerMillionMicros: 200000, fallbackOutputCostPerMillionMicros: 3000000, fallbackCachedInputCostPerMillionMicros: 100000 }]);
     prisma.backupConfiguration.findUnique.mockResolvedValue({ id: 1, ossAccessKeyIdEncrypted: "v1.oss" });
     prisma.storageManagementConfiguration.findUnique.mockResolvedValue(null);
     prisma.articleTaxonomy.findMany.mockResolvedValue([]);
@@ -37,8 +37,8 @@ describe("ConfigurationTransferService", () => {
     expect(bundle.data).not.toHaveProperty("users");
     expect(bundle.data).not.toHaveProperty("articles");
     expect(bundle.data.securityConfiguration).toMatchObject({ smtpPasswordEncrypted: "v1.encrypted" });
-    expect(bundle.data.aiConfiguration).toMatchObject({ fallbackInputCostPerMillionMicros: 2000000 });
-    expect(bundle.data.aiCapabilities).toEqual([{ capability: "embedding", enabled: false, apiKeyEncrypted: "v1.embedding", fallbackOutputCostPerMillionMicros: 3000000 }]);
+    expect(bundle.data.aiConfiguration).toMatchObject({ cachedInputCostPerMillionMicros: 100000, fallbackInputCostPerMillionMicros: 2000000, fallbackCachedInputCostPerMillionMicros: 50000 });
+    expect(bundle.data.aiCapabilities).toEqual([{ capability: "embedding", enabled: false, apiKeyEncrypted: "v1.embedding", cachedInputCostPerMillionMicros: 200000, fallbackOutputCostPerMillionMicros: 3000000, fallbackCachedInputCostPerMillionMicros: 100000 }]);
   });
 
   it("imports singleton policies and capability/taxonomy rows without importing content", async () => {

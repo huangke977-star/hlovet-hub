@@ -29,14 +29,14 @@ const SECURITY_FIELDS = [
 
 const AI_FIELDS = [
   "enabled", "provider", "baseUrl", "model", "apiKeyEncrypted", "fallbackEnabled", "fallbackProvider", "fallbackBaseUrl", "fallbackModel", "fallbackApiKeyEncrypted", "globalConcurrency", "userConcurrency", "maxOutputTokens",
-  "requestTimeoutSeconds", "dailyRequestLimit", "billingCurrency", "inputCostPerMillionMicros", "outputCostPerMillionMicros", "fallbackInputCostPerMillionMicros", "fallbackOutputCostPerMillionMicros",
+  "requestTimeoutSeconds", "dailyRequestLimit", "billingCurrency", "inputCostPerMillionMicros", "cachedInputCostPerMillionMicros", "outputCostPerMillionMicros", "fallbackInputCostPerMillionMicros", "fallbackCachedInputCostPerMillionMicros", "fallbackOutputCostPerMillionMicros",
   "ragEnabled", "ragTopK", "contextMaxMessages", "contextSummaryThreshold", "contextRetentionDays", "qualityEvaluationEnabled",
 ] as const;
 
 const CAPABILITY_FIELDS = [
   "capability", "enabled", "provider", "baseUrl", "model", "apiKeyEncrypted", "fallbackEnabled", "fallbackProvider", "fallbackBaseUrl", "fallbackModel", "fallbackApiKeyEncrypted", "globalConcurrency", "userConcurrency",
-  "requestTimeoutSeconds", "dailyRequestLimit", "monthlyBudgetMicros", "billingCurrency", "inputCostPerMillionMicros",
-  "outputCostPerMillionMicros", "fallbackInputCostPerMillionMicros", "fallbackOutputCostPerMillionMicros", "unitCostMicros", "unitName", "maxInputBytes", "metadata",
+  "requestTimeoutSeconds", "dailyRequestLimit", "monthlyBudgetMicros", "billingCurrency", "inputCostPerMillionMicros", "cachedInputCostPerMillionMicros",
+  "outputCostPerMillionMicros", "fallbackInputCostPerMillionMicros", "fallbackCachedInputCostPerMillionMicros", "fallbackOutputCostPerMillionMicros", "unitCostMicros", "unitName", "maxInputBytes", "metadata",
 ] as const;
 
 const BACKUP_FIELDS = [

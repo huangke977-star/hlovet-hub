@@ -130,6 +130,13 @@ export class UpdateAiConfigurationDto {
   @Max(1000000000)
   inputCostPerMillionMicros!: number;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000000)
+  cachedInputCostPerMillionMicros?: number;
+
   @Type(() => Number)
   @IsInt()
   @Min(0)
@@ -142,6 +149,13 @@ export class UpdateAiConfigurationDto {
   @Min(0)
   @Max(1000000000)
   fallbackInputCostPerMillionMicros?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000000)
+  fallbackCachedInputCostPerMillionMicros?: number;
 
   @IsOptional()
   @Type(() => Number)
@@ -279,6 +293,13 @@ export class UpdateAiCapabilityConfigurationDto {
   @Max(1000000000)
   inputCostPerMillionMicros!: number;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000000)
+  cachedInputCostPerMillionMicros?: number;
+
   @Type(() => Number)
   @IsInt()
   @Min(0)
@@ -291,6 +312,13 @@ export class UpdateAiCapabilityConfigurationDto {
   @Min(0)
   @Max(1000000000)
   fallbackInputCostPerMillionMicros?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000000)
+  fallbackCachedInputCostPerMillionMicros?: number;
 
   @IsOptional()
   @Type(() => Number)

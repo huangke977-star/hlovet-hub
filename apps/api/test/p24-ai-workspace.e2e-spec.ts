@@ -122,7 +122,7 @@ describe("P24 AI workspace", () => {
     const harness = createHarness();
     harness.prisma.aiToolInvocation.create.mockResolvedValue({ id: 43 });
     harness.prisma.articleTaxonomy.findMany.mockResolvedValue([]);
-    jest.spyOn(harness.service, "complete").mockResolvedValue({ text: JSON.stringify({ title: "待确认草稿", summary: "摘要", category: "", tags: "", content: "正文" }), provider: "custom", model: "test", durationMs: 1, usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } });
+    jest.spyOn(harness.service, "complete").mockResolvedValue({ text: JSON.stringify({ title: "待确认草稿", summary: "摘要", category: "", tags: "", content: "正文" }), provider: "custom", model: "test", durationMs: 1, usage: { promptTokens: 1, cachedPromptTokens: null, completionTokens: 1, totalTokens: 2 } });
 
     const prepared = await harness.service.executeTool(user, "create_article_draft", { input: { description: "写一篇待确认文章" } }) as { status: string; confirmationToken?: string };
 

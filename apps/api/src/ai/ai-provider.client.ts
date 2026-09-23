@@ -7,6 +7,7 @@ export interface AiChatMessage {
 
 export interface AiProviderUsage {
   promptTokens: number | null;
+  cachedPromptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
 }
@@ -99,7 +100,7 @@ export async function createEmbeddingsWithProvider(input: {
     .map((item) => isRecord(item) && Array.isArray(item.embedding) ? item.embedding.filter((value): value is number => typeof value === "number" && Number.isFinite(value)) : null)
     .filter((item): item is number[] => Boolean(item?.length));
   if (embeddings.length !== input.texts.length) throw new AiProviderClientError("Embedding 服务返回的向量数量不完整。\nThe embeddings service returned an incomplete vector set.");
-  return { embeddings, usage: readUsage(response, { prompt: ["usage", "prompt_tokens"], completion: [], total: ["usage", "total_tokens"] }) };
+  return { embeddings, usage: readUsage(response, { prompt: ["usage", "prompt_tokens"], cached: cachePaths(), completion: [], total: ["usage", "total_tokens"] }) };
 }
 
 export async function transcribeWithProvider(input: {
@@ -121,7 +122,7 @@ export async function transcribeWithProvider(input: {
   const response = await postForm(appendEndpoint(input.baseUrl, "audio/transcriptions"), form, { Authorization: `Bearer ${input.apiKey}` }, input.timeoutSeconds);
   const text = typeof response.text === "string" ? response.text.trim() : "";
   if (!text) throw new AiProviderClientError("语音服务返回了空内容。\nThe transcription service returned empty content.");
-  return { text, usage: readUsage(response, { prompt: ["usage", "prompt_tokens"], completion: ["usage", "completion_tokens"], total: ["usage", "total_tokens"] }) };
+  return { text, usage: readUsage(response, { prompt: ["usage", "prompt_tokens"], cached: cachePaths(), completion: ["usage", "completion_tokens"], total: ["usage", "total_tokens"] }) };
 }
 
 export async function ocrWithProvider(input: {
@@ -151,7 +152,7 @@ export async function ocrWithProvider(input: {
   );
   const text = readString(response, ["choices", 0, "message", "content"]);
   if (!text) throw new AiProviderClientError("图片识别服务返回了空内容。\nThe vision service returned empty content.");
-  return { text, usage: readUsage(response, { prompt: ["usage", "prompt_tokens"], completion: ["usage", "completion_tokens"], total: ["usage", "total_tokens"] }) };
+  return { text, usage: readUsage(response, { prompt: ["usage", "prompt_tokens"], cached: cachePaths(), completion: ["usage", "completion_tokens"], total: ["usage", "total_tokens"] }) };
 }
 
 export async function generateImageWithProvider(input: {
@@ -179,7 +180,7 @@ export async function generateImageWithProvider(input: {
   const url = first && typeof first.url === "string" ? first.url : null;
   const base64 = first && typeof first.b64_json === "string" ? first.b64_json : null;
   if (!url && !base64) throw new AiProviderClientError("图片生成服务没有返回图片。\nThe image generation service returned no image.");
-  return { url, base64, revisedPrompt: first && typeof first.revised_prompt === "string" ? first.revised_prompt : null, usage: readUsage(response, { prompt: ["usage", "prompt_tokens"], completion: ["usage", "completion_tokens"], total: ["usage", "total_tokens"] }) };
+  return { url, base64, revisedPrompt: first && typeof first.revised_prompt === "string" ? first.revised_prompt : null, usage: readUsage(response, { prompt: ["usage", "prompt_tokens"], cached: cachePaths(), completion: ["usage", "completion_tokens"], total: ["usage", "total_tokens"] }) };
 }
 
 async function completeOpenAiCompatible(input: AiProviderRequest): Promise<AiProviderCompletion> {
@@ -197,6 +198,7 @@ async function completeOpenAiCompatible(input: AiProviderRequest): Promise<AiPro
   if (!text) throw new AiProviderClientError("AI 服务返回了空内容。");
   const usage = readUsage(response, {
     prompt: ["usage", "prompt_tokens"],
+    cached: cachePaths(),
     completion: ["usage", "completion_tokens"],
     total: ["usage", "total_tokens"],
   });
@@ -221,10 +223,14 @@ async function completeAnthropic(input: AiProviderRequest): Promise<AiProviderCo
   if (!text) throw new AiProviderClientError("AI 服务返回了空内容。");
   const usage = readUsage(response, {
     prompt: ["usage", "input_tokens"],
+    cached: [["usage", "cache_read_input_tokens"]],
     completion: ["usage", "output_tokens"],
     total: [],
   });
-  return { text, usage: withTotal(usage) };
+  // Anthropic reports cache reads beside input_tokens rather than including
+  // them in input_tokens, so normalize both values to the common total-input
+  // shape used by the pricing calculation.
+  return { text, usage: withTotal({ ...usage, promptTokens: usage.promptTokens === null ? null : usage.promptTokens + (usage.cachedPromptTokens ?? 0) }) };
 }
 
 async function completeGoogle(input: AiProviderRequest): Promise<AiProviderCompletion> {
@@ -248,6 +254,7 @@ async function completeGoogle(input: AiProviderRequest): Promise<AiProviderCompl
   if (!text) throw new AiProviderClientError("AI 服务返回了空内容。");
   const usage = readUsage(response, {
     prompt: ["usageMetadata", "promptTokenCount"],
+    cached: [["usageMetadata", "cachedContentTokenCount"]],
     completion: ["usageMetadata", "candidatesTokenCount"],
     total: ["usageMetadata", "totalTokenCount"],
   });
@@ -424,9 +431,10 @@ function readTextParts(value: unknown, path: Array<string | number>): string | n
   return text || null;
 }
 
-function readUsage(value: unknown, paths: { prompt: Array<string | number>; completion: Array<string | number>; total: Array<string | number> }): AiProviderUsage {
+function readUsage(value: unknown, paths: { prompt: Array<string | number>; cached?: Array<Array<string | number>>; completion: Array<string | number>; total: Array<string | number> }): AiProviderUsage {
   return {
     promptTokens: paths.prompt.length ? readNumber(value, paths.prompt) : null,
+    cachedPromptTokens: readFirstNumber(value, paths.cached ?? []),
     completionTokens: paths.completion.length ? readNumber(value, paths.completion) : null,
     totalTokens: paths.total.length ? readNumber(value, paths.total) : null,
   };
@@ -434,6 +442,22 @@ function readUsage(value: unknown, paths: { prompt: Array<string | number>; comp
 
 function withTotal(usage: AiProviderUsage): AiProviderUsage {
   return { ...usage, totalTokens: usage.totalTokens ?? (usage.promptTokens !== null && usage.completionTokens !== null ? usage.promptTokens + usage.completionTokens : null) };
+}
+
+function cachePaths(): Array<Array<string | number>> {
+  return [
+    ["usage", "prompt_tokens_details", "cached_tokens"],
+    ["usage", "prompt_tokens_details", "cache_read_input_tokens"],
+    ["usage", "prompt_cache_hit_tokens"],
+  ];
+}
+
+function readFirstNumber(value: unknown, paths: Array<Array<string | number>>): number | null {
+  for (const path of paths) {
+    const result = readNumber(value, path);
+    if (result !== null) return result;
+  }
+  return null;
 }
 
 function readNumber(value: unknown, path: Array<string | number>): number | null {

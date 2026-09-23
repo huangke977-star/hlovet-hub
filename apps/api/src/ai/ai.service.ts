@@ -141,8 +141,10 @@ export class AiService {
         dailyRequestLimit: dto.dailyRequestLimit,
         billingCurrency: dto.billingCurrency,
         inputCostPerMillionMicros: dto.inputCostPerMillionMicros,
+        ...(dto.cachedInputCostPerMillionMicros === undefined ? {} : { cachedInputCostPerMillionMicros: dto.cachedInputCostPerMillionMicros }),
         outputCostPerMillionMicros: dto.outputCostPerMillionMicros,
         ...(dto.fallbackInputCostPerMillionMicros === undefined ? {} : { fallbackInputCostPerMillionMicros: dto.fallbackInputCostPerMillionMicros }),
+        ...(dto.fallbackCachedInputCostPerMillionMicros === undefined ? {} : { fallbackCachedInputCostPerMillionMicros: dto.fallbackCachedInputCostPerMillionMicros }),
         ...(dto.fallbackOutputCostPerMillionMicros === undefined ? {} : { fallbackOutputCostPerMillionMicros: dto.fallbackOutputCostPerMillionMicros }),
         ...(dto.ragEnabled === undefined ? {} : { ragEnabled: dto.ragEnabled }),
         ...(dto.ragTopK === undefined ? {} : { ragTopK: dto.ragTopK }),
@@ -298,7 +300,7 @@ export class AiService {
       : "我是本站助手，只处理当前账号有权限访问的站内内容和数据。与本站无关的通用问题不在当前助手范围内。";
     if (!siteQuestion) {
       const turn = await this.persistChatTurn(conversation.id, message, refusal, []);
-      return { conversationId: conversation.id, messageId: turn.assistantMessageId, title: conversation.title, text: refusal, sources: [], provider: config.provider as AiProvider, model: config.model ?? "", durationMs: 0, usage: { promptTokens: null, completionTokens: null, totalTokens: null } };
+      return { conversationId: conversation.id, messageId: turn.assistantMessageId, title: conversation.title, text: refusal, sources: [], provider: config.provider as AiProvider, model: config.model ?? "", durationMs: 0, usage: { promptTokens: null, cachedPromptTokens: null, completionTokens: null, totalTokens: null } };
     }
     const context = await this.buildChatContext(user, dto, history);
     const contextQuality = this.evaluateContextQuality(context.text, context.sources.length);
@@ -810,13 +812,15 @@ export class AiService {
       this.prisma.aiInvocationLog.aggregate({
         where: { createdAt: { gte: startOfDay } },
         _count: { _all: true },
-        _sum: { totalTokens: true, estimatedCostMicros: true },
+        _sum: { promptTokens: true, cachedPromptTokens: true, totalTokens: true, estimatedCostMicros: true },
       }),
     ]);
     return {
       today: {
         requests: today._count._all,
         totalTokens: today._sum.totalTokens ?? 0,
+        cachedPromptTokens: today._sum.cachedPromptTokens ?? 0,
+        cacheHitRate: this.cacheHitRate(today._sum.promptTokens, today._sum.cachedPromptTokens),
         estimatedCostMicros: today._sum.estimatedCostMicros ?? 0,
       },
       logs: logs.map((log) => ({
@@ -826,6 +830,7 @@ export class AiService {
         model: log.model,
         status: log.status,
         promptTokens: log.promptTokens,
+        cachedPromptTokens: log.cachedPromptTokens,
         completionTokens: log.completionTokens,
         totalTokens: log.totalTokens,
         durationMs: log.durationMs,
@@ -915,6 +920,7 @@ export class AiService {
           baseUrl: fallback.baseUrl,
           model: fallback.model,
           inputCostPerMillionMicros: config.fallbackInputCostPerMillionMicros,
+          cachedInputCostPerMillionMicros: config.fallbackCachedInputCostPerMillionMicros,
           outputCostPerMillionMicros: config.fallbackOutputCostPerMillionMicros,
         };
         result = await completeWithProvider({ ...fallback, maxOutputTokens: config.maxOutputTokens, timeoutSeconds: config.requestTimeoutSeconds, messages: options.messages });
@@ -1027,7 +1033,7 @@ export class AiService {
     errorSummary?: string,
   ) {
     try {
-      const usage = result?.usage ?? { promptTokens: null, completionTokens: null, totalTokens: null };
+      const usage = result?.usage ?? { promptTokens: null, cachedPromptTokens: null, completionTokens: null, totalTokens: null };
       await this.prisma.aiInvocationLog.create({
         data: {
           userId: options.userId,
@@ -1036,6 +1042,7 @@ export class AiService {
           model: config.model ?? "",
           status,
           promptTokens: usage.promptTokens,
+          cachedPromptTokens: usage.cachedPromptTokens,
           completionTokens: usage.completionTokens,
           totalTokens: usage.totalTokens,
           durationMs: Math.max(0, Math.round(durationMs)),
@@ -1052,11 +1059,18 @@ export class AiService {
     }
   }
 
-  private estimateCost(config: AiConfiguration, usage: { promptTokens: number | null; completionTokens: number | null }): number | null {
+  private estimateCost(config: AiConfiguration, usage: { promptTokens: number | null; cachedPromptTokens: number | null; completionTokens: number | null }): number | null {
     if (usage.promptTokens === null && usage.completionTokens === null) return null;
-    const input = ((usage.promptTokens ?? 0) * (config.inputCostPerMillionMicros ?? 0)) / 1_000_000;
+    const cached = Math.min(usage.cachedPromptTokens ?? 0, usage.promptTokens ?? usage.cachedPromptTokens ?? 0);
+    const regularInput = Math.max(0, (usage.promptTokens ?? 0) - cached);
+    const input = (regularInput * (config.inputCostPerMillionMicros ?? 0) + cached * (config.cachedInputCostPerMillionMicros ?? 0)) / 1_000_000;
     const output = ((usage.completionTokens ?? 0) * (config.outputCostPerMillionMicros ?? 0)) / 1_000_000;
     return Math.max(0, Math.round(input + output));
+  }
+
+  private cacheHitRate(promptTokens: number | null | undefined, cachedPromptTokens: number | null | undefined): number {
+    const prompt = promptTokens ?? 0;
+    return prompt > 0 ? Math.round(Math.min(cachedPromptTokens ?? 0, prompt) / prompt * 100) : 0;
   }
 
   private utcDayKey(): string {
@@ -1102,8 +1116,10 @@ export class AiService {
       qualityEvaluationEnabled: config.qualityEvaluationEnabled,
       billingCurrency: config.billingCurrency ?? "USD",
       inputCostPerMillionMicros: config.inputCostPerMillionMicros ?? 0,
+      cachedInputCostPerMillionMicros: config.cachedInputCostPerMillionMicros ?? 0,
       outputCostPerMillionMicros: config.outputCostPerMillionMicros ?? 0,
       fallbackInputCostPerMillionMicros: config.fallbackInputCostPerMillionMicros ?? 0,
+      fallbackCachedInputCostPerMillionMicros: config.fallbackCachedInputCostPerMillionMicros ?? 0,
       fallbackOutputCostPerMillionMicros: config.fallbackOutputCostPerMillionMicros ?? 0,
       pricingPresets: getAiPricingPresets(),
       recommendation: this.getResourceRecommendation(),

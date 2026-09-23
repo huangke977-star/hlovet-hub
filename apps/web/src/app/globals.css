@@ -535,7 +535,7 @@
 .ai-log-empty { color: var(--muted); font-size: .65rem; }
 .ai-log-empty { margin: 0; }
 .ai-log-list { display: grid; min-width: 0; gap: 1px; overflow-x: auto; }
-.ai-log-row { display: grid; min-width: 720px; grid-template-columns: 80px minmax(90px, 1fr) minmax(120px, 1.2fr) 90px 70px 150px; align-items: center; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--control-line) 55%, transparent); padding: 7px 2px; color: var(--muted-strong); font-size: .67rem; }
+.ai-log-row { display: grid; min-width: 790px; grid-template-columns: 80px minmax(90px, 1fr) minmax(120px, 1.2fr) 90px 80px 70px 150px; align-items: center; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--control-line) 55%, transparent); padding: 7px 2px; color: var(--muted-strong); font-size: .67rem; }
 .ai-log-row > time { color: var(--muted); font-size: .62rem; }
 .ai-log-row > small { grid-column: 2 / -1; overflow: hidden; color: var(--danger, #bd4b5d); text-overflow: ellipsis; white-space: nowrap; }
 .ai-log-status { display: inline-flex; align-items: center; gap: 4px; font-size: .65rem; }

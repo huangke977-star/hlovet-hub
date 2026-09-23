@@ -47,6 +47,7 @@ describe("P23 AI configuration", () => {
       inputCostPerMillionMicros: 0,
       outputCostPerMillionMicros: 0,
       fallbackInputCostPerMillionMicros: 2_000_000,
+      fallbackCachedInputCostPerMillionMicros: 500_000,
       fallbackOutputCostPerMillionMicros: 3_000_000,
       updatedAt: new Date("2026-09-10T00:00:00.000Z"),
     });
@@ -77,6 +78,7 @@ describe("P23 AI configuration", () => {
       inputCostPerMillionMicros: 0,
       outputCostPerMillionMicros: 0,
       fallbackInputCostPerMillionMicros: 2_000_000,
+      fallbackCachedInputCostPerMillionMicros: 500_000,
       fallbackOutputCostPerMillionMicros: 3_000_000,
       updatedAt: new Date("2026-09-10T00:00:00.000Z"),
     };
@@ -128,6 +130,7 @@ describe("P23 AI configuration", () => {
       inputCostPerMillionMicros: 0,
       outputCostPerMillionMicros: 0,
       fallbackInputCostPerMillionMicros: 2_000_000,
+      fallbackCachedInputCostPerMillionMicros: 500_000,
       fallbackOutputCostPerMillionMicros: 3_000_000,
       updatedAt: new Date("2026-09-10T00:00:00.000Z"),
     };
@@ -220,12 +223,13 @@ describe("P23 AI configuration", () => {
       inputCostPerMillionMicros: 0,
       outputCostPerMillionMicros: 0,
       fallbackInputCostPerMillionMicros: 2_000_000,
+      fallbackCachedInputCostPerMillionMicros: 500_000,
       fallbackOutputCostPerMillionMicros: 3_000_000,
       updatedAt: new Date("2026-09-10T00:00:00.000Z"),
     });
     const fetchSpy = jest.spyOn(global, "fetch")
       .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: "备用回答" } }], usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 } }) } as Response);
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: "备用回答" } }], usage: { prompt_tokens: 2, prompt_tokens_details: { cached_tokens: 1 }, completion_tokens: 1, total_tokens: 3 } }) } as Response);
 
     const result = await harness.service.complete({ userId: 9, operation: "fallback_test", messages: [{ role: "user", content: "ping" }] });
 
@@ -233,7 +237,7 @@ describe("P23 AI configuration", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(fetchSpy.mock.calls[1][0]).toEqual(new URL("https://fallback.example/v1/chat/completions"));
     expect(harness.prisma.aiInvocationLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed", provider: "openai-compatible" }) }));
-    expect(harness.prisma.aiInvocationLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "success", provider: "deepseek", model: "fallback-model", estimatedCostMicros: 7 }) }));
+    expect(harness.prisma.aiInvocationLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "success", provider: "deepseek", model: "fallback-model", cachedPromptTokens: 1, estimatedCostMicros: 6 }) }));
   });
 
   it("calls an OpenAI-compatible endpoint and stores only safe usage metadata", async () => {
@@ -251,15 +255,16 @@ describe("P23 AI configuration", () => {
       requestTimeoutSeconds: 60,
       dailyRequestLimit: 0,
       billingCurrency: "USD",
-      inputCostPerMillionMicros: 150000,
-      outputCostPerMillionMicros: 600000,
+      inputCostPerMillionMicros: 1000000,
+      cachedInputCostPerMillionMicros: 100000,
+      outputCostPerMillionMicros: 2000000,
       fallbackInputCostPerMillionMicros: 2_000_000,
       fallbackOutputCostPerMillionMicros: 3_000_000,
       updatedAt: new Date("2026-09-10T00:00:00.000Z"),
     });
     const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue({
       ok: true,
-      json: async () => ({ choices: [{ message: { content: "OK" } }], usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 } }),
+      json: async () => ({ choices: [{ message: { content: "OK" } }], usage: { prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 40 }, completion_tokens: 50, total_tokens: 150 } }),
     } as Response);
 
     const result = await harness.service.complete({
@@ -270,10 +275,11 @@ describe("P23 AI configuration", () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(new URL("https://api.example.com/v1/chat/completions"), expect.objectContaining({ method: "POST" }));
     expect(harness.prisma.aiInvocationLog.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ operation: "article_outline", totalTokens: 150, estimatedCostMicros: 45 }),
+      data: expect.objectContaining({ operation: "article_outline", promptTokens: 100, cachedPromptTokens: 40, totalTokens: 150, estimatedCostMicros: 164 }),
     }));
     expect(harness.prisma.aiInvocationLog.create.mock.calls[0][0].data).not.toHaveProperty("messages");
     expect(result.text).toBe("OK");
+    expect(result.usage).toMatchObject({ promptTokens: 100, cachedPromptTokens: 40, completionTokens: 50, totalTokens: 150 });
     expect(harness.redis.releaseCounter).toHaveBeenCalledTimes(2);
   });
 
