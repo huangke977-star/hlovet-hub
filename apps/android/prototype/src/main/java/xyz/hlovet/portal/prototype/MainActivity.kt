@@ -60,14 +60,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private val Night = Color(0xFF0B111A)
-private val Panel = Color(0xFF141E2A)
-private val PanelRaised = Color(0xFF1B2836)
-private val TextPrimary = Color(0xFFF1F6FA)
-private val TextMuted = Color(0xFF97A8B8)
-private val Accent = Color(0xFF6ED8C1)
-private val AccentSoft = Color(0xFF183B3A)
-private val Coral = Color(0xFFFFB19D)
+private val Night = HlovetUi.background
+private val Panel = HlovetUi.glass
+private val PanelRaised = HlovetUi.glassRaised
+private val TextPrimary = HlovetUi.foreground
+private val TextMuted = HlovetUi.muted
+private val Accent = HlovetUi.accent
+private val AccentSoft = HlovetUi.accentSoft
+private val Coral = HlovetUi.secondaryAccent
 
 private val articles = listOf(
     ArticlePreview("把复杂的事情，写成清晰的路径", "nice3", "8 分钟阅读", "产品与思考"),
@@ -94,9 +94,9 @@ class MainActivity : ComponentActivity() {
 private fun HlovetMobilePreview() {
     var selectedTab by remember { mutableIntStateOf(0) }
     Scaffold(
-        containerColor = Night,
+        containerColor = Color.Transparent,
         bottomBar = {
-            NavigationBar(containerColor = Color(0xFF101923), tonalElevation = 0.dp) {
+            NavigationBar(containerColor = PanelRaised, tonalElevation = 0.dp) {
                 val items = listOf(
                     Triple("首页", Icons.Filled.Home, 0),
                     Triple("发现", Icons.Filled.Explore, 1),
@@ -115,7 +115,7 @@ private fun HlovetMobilePreview() {
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().background(HlovetUi.backgroundBrush).padding(padding)) {
             when (selectedTab) {
                 0 -> HomeScreen()
                 1 -> DiscoverScreen()
@@ -130,7 +130,7 @@ private fun HlovetMobilePreview() {
 @Composable
 private fun AppHeader(title: String, subtitle: String? = null, action: @Composable (() -> Unit)? = null) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+        modifier = Modifier.fillMaxWidth().padding(HlovetUi.contentPadding).padding(vertical = 18.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
@@ -170,9 +170,9 @@ private fun HomeScreen() {
 
 @Composable
 private fun HomeFeature() {
-    Surface(
+    GlassSurface(
         modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = HlovetUi.panelShape,
         color = PanelRaised
     ) {
         Column(Modifier.padding(20.dp)) {
@@ -210,9 +210,9 @@ private fun SectionHeading(title: String, action: String, icon: androidx.compose
 
 @Composable
 private fun ArticleRow(article: ArticlePreview) {
-    Surface(
+    GlassSurface(
         modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().clickable {} ,
-        shape = RoundedCornerShape(16.dp),
+        shape = HlovetUi.panelShape,
         color = Panel
     ) {
         Row(Modifier.padding(15.dp), verticalAlignment = Alignment.Top) {
@@ -254,7 +254,7 @@ private fun DiscoverScreen() {
     ) {
         item { AppHeader("发现", "找到正在发生的内容") }
         item {
-            Surface(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), RoundedCornerShape(14.dp), Panel) {
+            GlassSurface(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), HlovetUi.compactShape, Panel) {
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Search, null, tint = TextMuted, modifier = Modifier.size(19.dp))
                     Spacer(Modifier.width(9.dp))
@@ -281,7 +281,7 @@ private fun DiscoverScreen() {
 
 @Composable
 private fun TopicRow(title: String, meta: String, color: Color) {
-    Surface(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), RoundedCornerShape(16.dp), Panel) {
+    GlassSurface(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), HlovetUi.panelShape, Panel) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(46.dp).clip(RoundedCornerShape(13.dp)).background(color.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
                 Icon(Icons.Filled.LibraryBooks, null, tint = color, modifier = Modifier.size(23.dp))
@@ -301,7 +301,7 @@ private fun TopicRow(title: String, meta: String, color: Color) {
 private fun WriteScreen() {
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         AppHeader("写作", "把想法留下来")
-        Surface(Modifier.fillMaxWidth(), RoundedCornerShape(20.dp), PanelRaised) {
+        GlassSurface(Modifier.fillMaxWidth(), HlovetUi.panelShape, PanelRaised) {
             Column(Modifier.padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.AutoAwesome, null, tint = Accent, modifier = Modifier.size(20.dp))
@@ -328,7 +328,7 @@ private fun WriteScreen() {
 
 @Composable
 private fun DraftRow(title: String, status: String) {
-    Surface(Modifier.fillMaxWidth().clickable {}, RoundedCornerShape(14.dp), Panel) {
+    GlassSurface(Modifier.fillMaxWidth().clickable {}, HlovetUi.compactShape, Panel) {
         Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.LibraryBooks, null, tint = Accent, modifier = Modifier.size(19.dp))
             Spacer(Modifier.width(11.dp))
@@ -347,7 +347,7 @@ private fun MessagesScreen() {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { AppHeader("消息", "聊天、评论和提醒", action = { IconButton(onClick = {}) { Icon(Icons.Filled.Settings, "设置", tint = TextMuted) } }) }
         item {
-            Surface(Modifier.padding(horizontal = 20.dp, vertical = 2.dp).fillMaxWidth(), RoundedCornerShape(15.dp), AccentSoft) {
+            GlassSurface(Modifier.padding(horizontal = 20.dp, vertical = 2.dp).fillMaxWidth(), HlovetUi.compactShape, AccentSoft) {
                 Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.NotificationsNone, null, tint = Accent, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
@@ -384,7 +384,7 @@ private fun ProfileScreen() {
             AppHeader("我的", "账号、内容和安全设置", action = { IconButton(onClick = {}) { Icon(Icons.Filled.MoreHoriz, "更多", tint = TextMuted) } })
         }
         item {
-            Surface(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), RoundedCornerShape(20.dp), PanelRaised) {
+            GlassSurface(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), HlovetUi.panelShape, PanelRaised) {
                 Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                     Avatar("VT", Coral, large = true)
                     Spacer(Modifier.width(13.dp))
@@ -407,7 +407,7 @@ private fun ProfileScreen() {
 private fun ProfileSection(title: String, rows: List<String>, icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Column(Modifier.padding(horizontal = 20.dp)) {
         Text(title, color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 2.dp, bottom = 8.dp))
-        Surface(Modifier.fillMaxWidth(), RoundedCornerShape(16.dp), Panel) {
+        GlassSurface(Modifier.fillMaxWidth(), HlovetUi.panelShape, Panel) {
             Column {
                 rows.forEachIndexed { index, label ->
                     Row(Modifier.fillMaxWidth().clickable {}.padding(horizontal = 15.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
