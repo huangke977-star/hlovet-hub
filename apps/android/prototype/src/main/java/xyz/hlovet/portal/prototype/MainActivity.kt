@@ -1,9 +1,10 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package xyz.hlovet.portal.prototype
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,7 +22,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.ArrowForward
@@ -37,15 +37,28 @@ import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.PersonOutline
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -53,20 +66,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 
-private val Night = HlovetUi.background
-private val Panel = HlovetUi.glass
-private val PanelRaised = HlovetUi.glassRaised
+private val Background = HlovetUi.background
+private val SurfaceLow = HlovetUi.surfaceLow
+private val SurfaceAccent = HlovetUi.surfaceAccent
 private val TextPrimary = HlovetUi.foreground
 private val TextMuted = HlovetUi.muted
 private val Accent = HlovetUi.accent
-private val AccentSoft = HlovetUi.accentSoft
 private val Coral = HlovetUi.secondaryAccent
 
 private val articles = listOf(
@@ -84,9 +96,11 @@ private val chats = listOf(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Night.toArgbCompat()
-        window.navigationBarColor = Night.toArgbCompat()
-        setContent { HlovetPreviewTheme { HlovetMobilePreview() } }
+        window.statusBarColor = Background.toArgbCompat()
+        window.navigationBarColor = Background.toArgbCompat()
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = true
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightNavigationBars = true
+        setContent { HlovetTheme { HlovetMobilePreview() } }
     }
 }
 
@@ -94,9 +108,12 @@ class MainActivity : ComponentActivity() {
 private fun HlovetMobilePreview() {
     var selectedTab by remember { mutableIntStateOf(0) }
     Scaffold(
-        containerColor = Color.Transparent,
+        containerColor = Background,
         bottomBar = {
-            NavigationBar(containerColor = PanelRaised, tonalElevation = 0.dp) {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp
+            ) {
                 val items = listOf(
                     Triple("首页", Icons.Filled.Home, 0),
                     Triple("发现", Icons.Filled.Explore, 1),
@@ -109,45 +126,54 @@ private fun HlovetMobilePreview() {
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
                         icon = { Icon(icon, contentDescription = label) },
-                        label = { Text(label, fontSize = 11.sp) }
+                        label = { Text(label, fontSize = 11.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Accent,
+                            selectedTextColor = Accent,
+                            indicatorColor = HlovetUi.accentSoft,
+                            unselectedIconColor = TextMuted,
+                            unselectedTextColor = TextMuted
+                        )
                     )
                 }
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().background(HlovetUi.backgroundBrush).padding(padding)) {
-            when (selectedTab) {
-                0 -> HomeScreen()
-                1 -> DiscoverScreen()
-                2 -> WriteScreen()
-                3 -> MessagesScreen()
-                else -> ProfileScreen()
-            }
+        when (selectedTab) {
+            0 -> HomeScreen(padding)
+            1 -> DiscoverScreen(padding)
+            2 -> WriteScreen(padding)
+            3 -> MessagesScreen(padding)
+            else -> ProfileScreen(padding)
         }
     }
 }
 
 @Composable
-private fun AppHeader(title: String, subtitle: String? = null, action: @Composable (() -> Unit)? = null) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(HlovetUi.contentPadding).padding(vertical = 18.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            if (subtitle != null) {
-                Spacer(Modifier.height(3.dp))
-                Text(subtitle, color = TextMuted, fontSize = 12.sp)
+private fun AppHeader(
+    title: String,
+    subtitle: String? = null,
+    action: @Composable (() -> Unit)? = null
+) {
+    TopAppBar(
+        title = {
+            Column {
+                Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                if (subtitle != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(subtitle, color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Normal)
+                }
             }
-        }
-        action?.invoke()
-    }
+        },
+        actions = { action?.invoke() },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+    )
 }
 
 @Composable
-private fun HomeScreen() {
+private fun HomeScreen(scaffoldPadding: PaddingValues) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -155,246 +181,303 @@ private fun HomeScreen() {
             AppHeader(
                 title = "HLOVET",
                 subtitle = "今天，也为值得留下的内容留一点空间。",
-                action = {
-                    IconButton(onClick = {}) { Icon(Icons.Filled.NotificationsNone, "通知", tint = TextPrimary) }
-                }
+                action = { IconButton(onClick = {}) { Icon(Icons.Filled.NotificationsNone, "通知") } }
             )
         }
-        item { HomeFeature() }
-        item { SectionHeading("为你推荐", "更多", Icons.Filled.ArrowForward) }
-        items(articles) { article -> ArticleRow(article) }
-        item { SectionHeading("正在关注", "查看订阅", Icons.Filled.ChevronRight) }
+        item { FeaturedEntry() }
+        item { SectionHeading("为你推荐", "更多") }
+        item { ArticleGroup(articles) }
+        item { SectionHeading("正在关注", "查看订阅") }
         item { FollowingStrip() }
     }
 }
 
 @Composable
-private fun HomeFeature() {
-    GlassSurface(
+private fun FeaturedEntry() {
+    Card(
         modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
-        shape = HlovetUi.panelShape,
-        color = PanelRaised
+        shape = HlovetUi.cardShape,
+        colors = CardDefaults.cardColors(containerColor = SurfaceAccent),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Accent), contentAlignment = Alignment.Center) {
-                    Text("H", color = Night, fontSize = 21.sp, fontWeight = FontWeight.Black)
-                }
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("今日灵感", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Text("从一篇好文章开始", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(Modifier.height(22.dp))
-            Text("把零散的想法整理成可继续使用的知识，也把正在发生的事好好记录下来。", color = TextPrimary, fontSize = 15.sp, lineHeight = 22.sp)
-            Spacer(Modifier.height(18.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("开始探索", color = Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(5.dp))
-                Icon(Icons.Filled.ArrowForward, null, tint = Accent, modifier = Modifier.size(16.dp))
-            }
-        }
+        ListItem(
+            headlineContent = { Text("从一篇好文章开始", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            supportingContent = { Text("把想法整理成可以继续使用的知识。", color = TextMuted, fontSize = 12.sp) },
+            leadingContent = { Avatar("H", Accent, large = true) },
+            trailingContent = { Icon(Icons.Filled.ArrowForward, contentDescription = null, tint = Accent) },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            modifier = Modifier.clickable {}
+        )
     }
 }
 
 @Composable
-private fun SectionHeading(title: String, action: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+private fun SectionHeading(title: String, action: String) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         Text(action, color = TextMuted, fontSize = 12.sp)
-        Spacer(Modifier.width(3.dp))
-        Icon(icon, null, tint = TextMuted, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(4.dp))
+        Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
     }
 }
 
 @Composable
-private fun ArticleRow(article: ArticlePreview) {
-    GlassSurface(
-        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().clickable {} ,
-        shape = HlovetUi.panelShape,
-        color = Panel
+private fun ArticleGroup(displayArticles: List<ArticlePreview>) {
+    Card(
+        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+        shape = HlovetUi.cardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(Modifier.padding(15.dp), verticalAlignment = Alignment.Top) {
-            Avatar(article.author.takeLast(2), Coral)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(article.title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(7.dp))
-                Text("${article.author} · ${article.readTime}", color = TextMuted, fontSize = 11.sp)
-                Spacer(Modifier.height(8.dp))
-                Text(article.category, color = Accent, fontSize = 11.sp)
+        Column {
+            displayArticles.forEachIndexed { index, article ->
+                ListItem(
+                    headlineContent = {
+                        Text(article.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
+                    supportingContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(article.author, color = TextMuted, fontSize = 11.sp)
+                            Text(" · ", color = TextMuted, fontSize = 11.sp)
+                            Text(article.readTime, color = TextMuted, fontSize = 11.sp)
+                            Spacer(Modifier.width(7.dp))
+                            Text(article.category, color = Accent, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    },
+                    leadingContent = { Avatar(article.author.takeLast(2), Coral) },
+                    trailingContent = { Icon(Icons.Filled.BookmarkBorder, contentDescription = null, tint = TextMuted) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {}
+                )
+                if (index < displayArticles.lastIndex) {
+                    HorizontalDivider(color = HlovetUi.divider, thickness = 1.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                }
             }
-            Icon(Icons.Filled.BookmarkBorder, null, tint = TextMuted, modifier = Modifier.size(18.dp))
         }
     }
 }
 
 @Composable
 private fun FollowingStrip() {
-    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(listOf("nice3", "hlovet", "maria", "工程笔记")) { name ->
-            Surface(shape = RoundedCornerShape(12.dp), color = AccentSoft) {
-                Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(name.takeLast(2), Accent)
-                    Spacer(Modifier.width(7.dp))
-                    Text(name, color = TextPrimary, fontSize = 12.sp)
-                }
-            }
+            AssistChip(
+                onClick = {},
+                label = { Text(name, fontSize = 12.sp) },
+                leadingIcon = { Avatar(name.takeLast(2), Accent, compact = true) },
+                colors = AssistChipDefaults.assistChipColors(containerColor = HlovetUi.surface),
+                border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = HlovetUi.outline)
+            )
         }
     }
 }
 
 @Composable
-private fun DiscoverScreen() {
+private fun DiscoverScreen(scaffoldPadding: PaddingValues) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
         contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item { AppHeader("发现", "找到正在发生的内容") }
         item {
-            GlassSurface(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), HlovetUi.compactShape, Panel) {
-                Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Search, null, tint = TextMuted, modifier = Modifier.size(19.dp))
-                    Spacer(Modifier.width(9.dp))
-                    Text("搜索文章、用户、专题和合集", color = TextMuted, fontSize = 13.sp)
-                }
+            Card(
+                modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                shape = HlovetUi.rowShape,
+                colors = CardDefaults.cardColors(containerColor = SurfaceLow)
+            ) {
+                ListItem(
+                    headlineContent = { Text("搜索文章、用户、专题和合集", color = TextMuted, fontSize = 13.sp) },
+                    leadingContent = { Icon(Icons.Filled.Search, contentDescription = null, tint = TextMuted) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {}
+                )
             }
         }
         item {
             LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(listOf("推荐", "热门", "最新", "专题", "合集")) { label ->
-                    Surface(shape = RoundedCornerShape(9.dp), color = if (label == "推荐") Accent else Panel) {
-                        Text(label, color = if (label == "推荐") Night else TextMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
-                    }
+                    FilterChip(
+                        selected = label == "推荐",
+                        onClick = {},
+                        label = { Text(label, fontSize = 12.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Accent,
+                            selectedLabelColor = HlovetUi.onAccent,
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
+                    )
                 }
             }
         }
-        item { SectionHeading("编辑精选", "全部", Icons.Filled.ArrowForward) }
+        item { SectionHeading("编辑精选", "全部") }
         item { TopicRow("长期主义的工作方法", "专题 · 18 篇文章 · 236 人订阅", Accent) }
         item { TopicRow("把知识整理成系统", "合集 · 12 篇文章 · 89 人订阅", Coral) }
-        item { SectionHeading("最近更新", "查看全部", Icons.Filled.ArrowForward) }
-        items(articles.take(2)) { article -> ArticleRow(article) }
+        item { SectionHeading("最近更新", "查看全部") }
+        item { ArticleGroup(articles.take(2)) }
     }
 }
 
 @Composable
 private fun TopicRow(title: String, meta: String, color: Color) {
-    GlassSurface(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), HlovetUi.panelShape, Panel) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(46.dp).clip(RoundedCornerShape(13.dp)).background(color.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.LibraryBooks, null, tint = color, modifier = Modifier.size(23.dp))
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(5.dp))
-                Text(meta, color = TextMuted, fontSize = 11.sp)
-            }
-            Icon(Icons.Filled.ChevronRight, null, tint = TextMuted)
-        }
+    Card(
+        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().clickable {},
+        shape = HlovetUi.rowShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        ListItem(
+            headlineContent = { Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            supportingContent = { Text(meta, color = TextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            leadingContent = {
+                Surface(shape = HlovetUi.rowShape, color = color.copy(alpha = .14f)) {
+                    Icon(Icons.Filled.LibraryBooks, contentDescription = null, tint = color, modifier = Modifier.padding(9.dp).size(20.dp))
+                }
+            },
+            trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = TextMuted) },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+        )
     }
 }
 
 @Composable
-private fun WriteScreen() {
-    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        AppHeader("写作", "把想法留下来")
-        GlassSurface(Modifier.fillMaxWidth(), HlovetUi.panelShape, PanelRaised) {
-            Column(Modifier.padding(20.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.AutoAwesome, null, tint = Accent, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("从一个空白草稿开始", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.height(10.dp))
-                Text("原生端会支持离线写作、自动保存和 AI 辅助，不打断你的思路。", color = TextMuted, fontSize = 13.sp, lineHeight = 20.sp)
-                Spacer(Modifier.height(20.dp))
-                Surface(Modifier.fillMaxWidth().clickable {}, RoundedCornerShape(12.dp), Accent) {
-                    Row(Modifier.padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.AddCircleOutline, null, tint = Night, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(7.dp))
-                        Text("新建文章", color = Night, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+private fun WriteScreen(scaffoldPadding: PaddingValues) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
+        contentPadding = PaddingValues(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item { AppHeader("写作", "把想法留下来") }
+        item {
+            Card(
+                modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                shape = HlovetUi.cardShape,
+                colors = CardDefaults.cardColors(containerColor = SurfaceAccent)
+            ) {
+                Column(Modifier.padding(18.dp)) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = Accent)
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("从一个空白草稿开始", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(3.dp))
+                            Text("离线保存、自动保存和 AI 辅助都在这里继续。", color = TextMuted, fontSize = 12.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    FilledTonalButton(onClick = {}, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.AddCircleOutline, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("新建文章", fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
-        Text("最近草稿", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-        DraftRow("移动端产品方向", "刚刚自动保存")
-        DraftRow("AI 知识库实践记录", "昨天编辑")
+        item { Text("最近草稿", fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp)) }
+        item { DraftGroup() }
     }
 }
 
 @Composable
-private fun DraftRow(title: String, status: String) {
-    GlassSurface(Modifier.fillMaxWidth().clickable {}, HlovetUi.compactShape, Panel) {
-        Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.LibraryBooks, null, tint = Accent, modifier = Modifier.size(19.dp))
-            Spacer(Modifier.width(11.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(4.dp))
-                Text(status, color = TextMuted, fontSize = 11.sp)
-            }
-            Icon(Icons.Filled.MoreHoriz, null, tint = TextMuted)
-        }
-    }
-}
-
-@Composable
-private fun MessagesScreen() {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-        item { AppHeader("消息", "聊天、评论和提醒", action = { IconButton(onClick = {}) { Icon(Icons.Filled.Settings, "设置", tint = TextMuted) } }) }
-        item {
-            GlassSurface(Modifier.padding(horizontal = 20.dp, vertical = 2.dp).fillMaxWidth(), HlovetUi.compactShape, AccentSoft) {
-                Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.NotificationsNone, null, tint = Accent, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("你有 3 条未读消息", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text("包括 1 条 @提醒", color = TextMuted, fontSize = 11.sp)
-                    }
-                    Icon(Icons.Filled.ChevronRight, null, tint = TextMuted)
-                }
+private fun DraftGroup() {
+    Card(
+        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+        shape = HlovetUi.cardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        val drafts = listOf("移动端产品方向" to "刚刚自动保存", "AI 知识库实践记录" to "昨天编辑")
+        Column {
+            drafts.forEachIndexed { index, draft ->
+                ListItem(
+                    headlineContent = { Text(draft.first, fontWeight = FontWeight.SemiBold) },
+                    supportingContent = { Text(draft.second, color = TextMuted, fontSize = 11.sp) },
+                    leadingContent = { Icon(Icons.Filled.LibraryBooks, contentDescription = null, tint = Accent) },
+                    trailingContent = { Icon(Icons.Filled.MoreHoriz, contentDescription = null, tint = TextMuted) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {}
+                )
+                if (index < drafts.lastIndex) HorizontalDivider(color = HlovetUi.divider, modifier = Modifier.padding(horizontal = 16.dp))
             }
         }
-        items(chats) { chat -> ChatRow(chat) }
     }
 }
 
 @Composable
-private fun ChatRow(chat: ChatPreview) {
-    Row(Modifier.fillMaxWidth().clickable {}.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Avatar(chat.initials, Accent)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(chat.name, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Text(chat.message, color = TextMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun MessagesScreen(scaffoldPadding: PaddingValues) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
+        contentPadding = PaddingValues(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item { AppHeader("消息", "聊天、评论和提醒", action = { IconButton(onClick = {}) { Icon(Icons.Filled.Settings, "设置") } }) }
+        item {
+            Card(
+                modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                shape = HlovetUi.rowShape,
+                colors = CardDefaults.cardColors(containerColor = SurfaceAccent)
+            ) {
+                ListItem(
+                    headlineContent = { Text("你有 3 条未读消息", fontWeight = FontWeight.SemiBold, fontSize = 14.sp) },
+                    supportingContent = { Text("包括 1 条 @提醒", color = TextMuted, fontSize = 11.sp) },
+                    leadingContent = { Icon(Icons.Filled.NotificationsNone, contentDescription = null, tint = Accent) },
+                    trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = TextMuted) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {}
+                )
+            }
         }
-        Text(chat.time, color = TextMuted, fontSize = 10.sp)
+        item { ChatGroup() }
     }
 }
 
 @Composable
-private fun ProfileScreen() {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item {
-            AppHeader("我的", "账号、内容和安全设置", action = { IconButton(onClick = {}) { Icon(Icons.Filled.MoreHoriz, "更多", tint = TextMuted) } })
+private fun ChatGroup() {
+    Card(
+        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+        shape = HlovetUi.cardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column {
+            chats.forEachIndexed { index, chat ->
+                ListItem(
+                    headlineContent = { Text(chat.name, fontWeight = FontWeight.SemiBold) },
+                    supportingContent = { Text(chat.message, color = TextMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingContent = { Avatar(chat.initials, Accent) },
+                    trailingContent = { Text(chat.time, color = TextMuted, fontSize = 10.sp) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {}
+                )
+                if (index < chats.lastIndex) HorizontalDivider(color = HlovetUi.divider, modifier = Modifier.padding(horizontal = 16.dp))
+            }
         }
+    }
+}
+
+@Composable
+private fun ProfileScreen(scaffoldPadding: PaddingValues) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
+        contentPadding = PaddingValues(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item { AppHeader("我的", "账号、内容和安全设置", action = { IconButton(onClick = {}) { Icon(Icons.Filled.MoreHoriz, "更多") } }) }
         item {
-            GlassSurface(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), HlovetUi.panelShape, PanelRaised) {
-                Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Avatar("VT", Coral, large = true)
-                    Spacer(Modifier.width(13.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("你的 HLOVET", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(4.dp))
-                        Text("@hlovet · 已发布 12 篇文章", color = TextMuted, fontSize = 12.sp)
-                    }
-                    Icon(Icons.Filled.ChevronRight, null, tint = TextMuted)
-                }
+            Card(
+                modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                shape = HlovetUi.cardShape,
+                colors = CardDefaults.cardColors(containerColor = SurfaceAccent)
+            ) {
+                ListItem(
+                    headlineContent = { Text("你的 HLOVET", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+                    supportingContent = { Text("@hlovet · 已发布 12 篇文章", color = TextMuted, fontSize = 11.sp) },
+                    leadingContent = { Avatar("VT", Coral, large = true) },
+                    trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = TextMuted) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {}
+                )
             }
         }
         item { ProfileSection("内容管理", listOf("我的文章", "我的合集", "我的订阅"), Icons.Filled.LibraryBooks) }
@@ -406,17 +489,22 @@ private fun ProfileScreen() {
 @Composable
 private fun ProfileSection(title: String, rows: List<String>, icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Column(Modifier.padding(horizontal = 20.dp)) {
-        Text(title, color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 2.dp, bottom = 8.dp))
-        GlassSurface(Modifier.fillMaxWidth(), HlovetUi.panelShape, Panel) {
+        Text(title, color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 2.dp, bottom = 7.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = HlovetUi.cardShape,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
             Column {
                 rows.forEachIndexed { index, label ->
-                    Row(Modifier.fillMaxWidth().clickable {}.padding(horizontal = 15.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(icon, null, tint = Accent, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(11.dp))
-                        Text(label, color = TextPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                        Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(17.dp))
-                    }
-                    if (index < rows.lastIndex) Spacer(Modifier.height(1.dp).fillMaxWidth().background(Night))
+                    ListItem(
+                        headlineContent = { Text(label, fontSize = 13.sp) },
+                        leadingContent = { Icon(icon, contentDescription = null, tint = Accent) },
+                        trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = TextMuted) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        modifier = Modifier.clickable {}
+                    )
+                    if (index < rows.lastIndex) HorizontalDivider(color = HlovetUi.divider, modifier = Modifier.padding(horizontal = 16.dp))
                 }
             }
         }
@@ -424,12 +512,16 @@ private fun ProfileSection(title: String, rows: List<String>, icon: androidx.com
 }
 
 @Composable
-private fun Avatar(text: String, color: Color, large: Boolean = false) {
-    Box(
-        modifier = Modifier.size(if (large) 54.dp else 38.dp).clip(CircleShape).background(color.copy(alpha = .2f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(text.takeLast(2), color = color, fontSize = if (large) 15.sp else 11.sp, fontWeight = FontWeight.Bold)
+private fun Avatar(text: String, color: Color, large: Boolean = false, compact: Boolean = false) {
+    val size = when {
+        large -> 54.dp
+        compact -> 24.dp
+        else -> 40.dp
+    }
+    Surface(shape = CircleShape, color = color.copy(alpha = .14f), modifier = Modifier.size(size)) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(text.takeLast(2), color = color, fontSize = if (large) 15.sp else 11.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -442,18 +534,3 @@ private fun Color.toArgbCompat(): Int = android.graphics.Color.argb(
     (green * 255).toInt(),
     (blue * 255).toInt()
 )
-
-@Composable
-private fun HlovetPreviewTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            background = Night,
-            surface = Panel,
-            primary = Accent,
-            onPrimary = Night,
-            onBackground = TextPrimary,
-            onSurface = TextPrimary
-        ),
-        content = content
-    )
-}

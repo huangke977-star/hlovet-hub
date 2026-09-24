@@ -1,55 +1,58 @@
 package xyz.hlovet.portal.prototype
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 
-/** One source of truth for the native app's visual language. */
+/** HLOVET tokens on top of the open-source Material 3 design system. */
 internal object HlovetUi {
-    val background = Color(0xFF0B111A)
-    val backgroundBrush = Brush.verticalGradient(
-        0f to Color(0xFF142432),
-        0.28f to Color(0xFF0F1A24),
-        0.62f to background,
-        1f to background
-    )
-    val foreground = Color(0xFFF1F6FA)
-    val muted = Color(0xFF9EB0BF)
-    val accent = Color(0xFF73DCC5)
-    val accentSoft = Color(0x5A2F9387)
-    val secondaryAccent = Color(0xFFFFAD98)
-    val glass = Color(0xA5162432)
-    val glassRaised = Color(0xC5253647)
-    val glassSubtle = Color(0x64253545)
-    val glassBorder = Color(0x3D9AB2C1)
-    val glassHighlight = Color(0x38FFFFFF)
+    val background = Color(0xFFF8FAF9)
+    val surface = Color(0xFFFFFFFF)
+    val surfaceLow = Color(0xFFF0F6F4)
+    val surfaceAccent = Color(0xFFDCEFEB)
+    val foreground = Color(0xFF172A31)
+    val muted = Color(0xFF60767E)
+    val accent = Color(0xFF0D756B)
+    val accentSoft = Color(0xFFDCEFEB)
+    val secondaryAccent = Color(0xFFB85C4A)
+    val onAccent = Color(0xFFFFFFFF)
+    val outline = Color(0xFFC9D8D8)
+    val divider = Color(0xFFE4EBEA)
     val contentPadding = PaddingValues(horizontal = 20.dp)
-    val panelShape: Shape = RoundedCornerShape(16.dp)
-    val compactShape: Shape = RoundedCornerShape(12.dp)
-    val pillShape: Shape = RoundedCornerShape(10.dp)
-    val panelBorder = BorderStroke(1.dp, glassBorder)
+    val cardShape = RoundedCornerShape(20.dp)
+    val rowShape = RoundedCornerShape(16.dp)
 }
 
 @Composable
-internal fun GlassSurface(
-    modifier: Modifier = Modifier,
-    shape: Shape = HlovetUi.panelShape,
-    color: Color = HlovetUi.glass,
-    content: @Composable () -> Unit
-) {
-    Surface(
-        modifier = modifier,
-        shape = shape,
-        color = color,
-        border = HlovetUi.panelBorder,
-        shadowElevation = 10.dp,
+internal fun HlovetTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = lightColorScheme(
+            primary = HlovetUi.accent,
+            onPrimary = HlovetUi.onAccent,
+            primaryContainer = HlovetUi.accentSoft,
+            onPrimaryContainer = HlovetUi.foreground,
+            secondary = HlovetUi.secondaryAccent,
+            onSecondary = HlovetUi.onAccent,
+            background = HlovetUi.background,
+            onBackground = HlovetUi.foreground,
+            surface = HlovetUi.surface,
+            onSurface = HlovetUi.foreground,
+            surfaceVariant = HlovetUi.surfaceLow,
+            onSurfaceVariant = HlovetUi.muted,
+            outline = HlovetUi.outline
+        ),
+        shapes = Shapes(
+            extraSmall = RoundedCornerShape(6.dp),
+            small = RoundedCornerShape(12.dp),
+            medium = RoundedCornerShape(16.dp),
+            large = RoundedCornerShape(20.dp),
+            extraLarge = RoundedCornerShape(28.dp)
+        ),
         content = content
     )
 }
