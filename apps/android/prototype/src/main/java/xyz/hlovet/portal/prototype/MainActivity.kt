@@ -65,6 +65,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -84,6 +85,8 @@ import androidx.compose.ui.res.painterResource
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val Background = HlovetUi.background
 private val SurfaceLow = HlovetUi.surfaceLow
@@ -94,8 +97,19 @@ private val Accent = HlovetUi.accent
 private val Coral = HlovetUi.secondaryAccent
 
 private sealed interface DetailTarget {
-    data class Article(val article: ArticlePreview) : DetailTarget
-    data class Topic(val title: String, val meta: String, val color: Color) : DetailTarget
+    data class Article(val article: RemoteArticle) : DetailTarget
+    data class Topic(
+        val title: String,
+        val meta: String,
+        val color: Color,
+        val articles: List<RemoteArticle>,
+    ) : DetailTarget
+}
+
+private sealed interface PreviewLoadState {
+    data object Loading : PreviewLoadState
+    data class Ready(val data: PreviewData) : PreviewLoadState
+    data class Error(val message: String) : PreviewLoadState
 }
 
 /** Keeps the existing page code on one shared glass surface implementation. */
@@ -109,18 +123,6 @@ private fun Card(
 ) {
     GlassCard(modifier = modifier, shape = shape, content = content)
 }
-
-private val articles = listOf(
-    ArticlePreview("把复杂的事情，写成清晰的路径", "nice3", "8 分钟阅读", "产品与思考"),
-    ArticlePreview("一份适合长期维护的系统设计清单", "hlovet", "12 分钟阅读", "工程实践"),
-    ArticlePreview("从草稿到发布：我的内容工作流", "maria", "6 分钟阅读", "创作方法")
-)
-
-private val chats = listOf(
-    ChatPreview("项目讨论组", "今天的首页草稿已经更新了", "刚刚", "P"),
-    ChatPreview("nice3", "我看到了你 @ 的消息", "12:36", "N"),
-    ChatPreview("内容共创", "附件：移动端设计方向.pdf", "昨天", "C")
-)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -137,7 +139,17 @@ class MainActivity : ComponentActivity() {
 private fun HlovetMobilePreview() {
     var selectedTab by remember { mutableIntStateOf(0) }
     var detailTarget by remember { mutableStateOf<DetailTarget?>(null) }
+    var reloadKey by remember { mutableIntStateOf(0) }
+    var loadState by remember { mutableStateOf<PreviewLoadState>(PreviewLoadState.Loading) }
     val hazeState = rememberHazeState()
+    LaunchedEffect(reloadKey) {
+        loadState = PreviewLoadState.Loading
+        loadState = try {
+            PreviewLoadState.Ready(withContext(Dispatchers.IO) { PreviewApi.load() })
+        } catch (error: Exception) {
+            PreviewLoadState.Error(error.message ?: "暂时无法读取站内公开内容")
+        }
+    }
     CompositionLocalProvider(LocalHlovetHaze provides hazeState) {
         Box(Modifier.fillMaxSize()) {
             Image(
@@ -147,9 +159,16 @@ private fun HlovetMobilePreview() {
                 modifier = Modifier.fillMaxSize().hazeSource(hazeState)
             )
             Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = .34f)))
-            if (detailTarget != null) {
-                DetailScreen(target = detailTarget!!, onBack = { detailTarget = null })
-            } else Scaffold(
+            when (val state = loadState) {
+                PreviewLoadState.Loading -> PreviewStatusScreen("正在读取站内内容…", null)
+                is PreviewLoadState.Error -> PreviewStatusScreen(
+                    title = "暂时无法读取内容",
+                    detail = state.message,
+                    onRetry = { reloadKey += 1 },
+                )
+                is PreviewLoadState.Ready -> if (detailTarget != null) {
+                    DetailScreen(target = detailTarget!!, onBack = { detailTarget = null })
+                } else Scaffold(
                 containerColor = Color.Transparent,
                 bottomBar = {
                     NavigationBar(
@@ -183,15 +202,39 @@ private fun HlovetMobilePreview() {
                 }
             ) { padding ->
                 when (selectedTab) {
-                    0 -> HomeScreen(padding, onArticleClick = { detailTarget = DetailTarget.Article(it) })
+                    0 -> HomeScreen(padding, state.data.articles, onArticleClick = { detailTarget = DetailTarget.Article(it) })
                     1 -> DiscoverScreen(
                         padding,
-                        onTopicClick = { title, meta, color -> detailTarget = DetailTarget.Topic(title, meta, color) },
+                        topics = state.data.topics,
+                        collections = state.data.collections,
+                        onTopicClick = { title, meta, color, entries -> detailTarget = DetailTarget.Topic(title, meta, color, entries) },
                         onArticleClick = { detailTarget = DetailTarget.Article(it) }
                     )
                     2 -> WriteScreen(padding)
                     3 -> MessagesScreen(padding)
                     else -> ProfileScreen(padding)
+                }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviewStatusScreen(title: String, detail: String?, onRetry: (() -> Unit)? = null) {
+    Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
+        GlassCard(modifier = Modifier.fillMaxWidth(), shape = HlovetUi.cardShape) {
+            Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Filled.Explore, contentDescription = null, tint = Accent, modifier = Modifier.size(32.dp))
+                Spacer(Modifier.height(12.dp))
+                Text(title, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                if (!detail.isNullOrBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(detail, color = TextMuted, fontSize = 13.sp)
+                }
+                if (onRetry != null) {
+                    Spacer(Modifier.height(16.dp))
+                    FilledTonalButton(onClick = onRetry) { Text("重新加载") }
                 }
             }
         }
@@ -255,11 +298,11 @@ private fun DetailScreen(target: DetailTarget, onBack: () -> Unit) {
                     ) {
                         Column(Modifier.padding(20.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Avatar(target.article.author.takeLast(2), Coral)
+                                Avatar(target.article.authorName.takeLast(2), Coral)
                                 Spacer(Modifier.width(10.dp))
                                 Column {
-                                    Text(target.article.author, fontWeight = FontWeight.SemiBold)
-                                    Text(target.article.readTime, color = TextMuted, fontSize = 11.sp)
+                                    Text(target.article.authorName, fontWeight = FontWeight.SemiBold)
+                                    Text(articleReadTime(target.article), color = TextMuted, fontSize = 11.sp)
                                 }
                             }
                             Spacer(Modifier.height(18.dp))
@@ -271,6 +314,10 @@ private fun DetailScreen(target: DetailTarget, onBack: () -> Unit) {
                                 border = null,
                                 colors = AssistChipDefaults.assistChipColors(containerColor = HlovetUi.accentSoft)
                             )
+                            if (target.article.tags.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text(target.article.tags.joinToString("  ·  "), color = TextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                         }
                     }
                 }
@@ -280,9 +327,20 @@ private fun DetailScreen(target: DetailTarget, onBack: () -> Unit) {
                         shape = HlovetUi.cardShape
                     ) {
                         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Text("把复杂的事情拆开，先看清路径，再决定速度。好的内容不急着给答案，而是帮助人把问题放到正确的位置。", fontSize = 16.sp, lineHeight = 27.sp)
-                            Text("当一个想法可以被复述、被验证，也能在下一次遇到类似问题时继续使用，它才真正从记录变成了内容。", color = TextMuted, fontSize = 15.sp, lineHeight = 25.sp)
-                            Text("这是一段原生端详情页预览，后续接入真实文章接口后，正文、图片、附件和评论都会沿用同一套玻璃内容容器。", color = TextMuted, fontSize = 15.sp, lineHeight = 25.sp)
+                            if (target.article.summary.isNotBlank()) {
+                                Text(target.article.summary, fontSize = 16.sp, lineHeight = 27.sp, fontWeight = FontWeight.Medium)
+                            }
+                            Text(
+                                cleanArticleText(target.article.content).ifBlank { "这篇文章暂时没有可预览的正文。" },
+                                color = if (target.article.summary.isNotBlank()) TextMuted else TextPrimary,
+                                fontSize = 15.sp,
+                                lineHeight = 25.sp,
+                            )
+                            Text(
+                                "阅读 ${target.article.viewCount}  ·  点赞 ${target.article.likeCount}  ·  评论 ${target.article.commentCount}",
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                            )
                         }
                     }
                 }
@@ -307,14 +365,17 @@ private fun DetailScreen(target: DetailTarget, onBack: () -> Unit) {
                     }
                 }
                 item { SectionHeading("收录文章", "查看全部") }
-                item { ArticleGroup(articles) }
+                item {
+                    if (target.articles.isEmpty()) EmptyState("这个内容集合暂时还没有文章")
+                    else ArticleGroup(target.articles)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun HomeScreen(scaffoldPadding: PaddingValues, onArticleClick: (ArticlePreview) -> Unit) {
+private fun HomeScreen(scaffoldPadding: PaddingValues, articles: List<RemoteArticle>, onArticleClick: (RemoteArticle) -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
         contentPadding = PaddingValues(bottom = 24.dp),
@@ -329,7 +390,10 @@ private fun HomeScreen(scaffoldPadding: PaddingValues, onArticleClick: (ArticleP
         }
         item { FeaturedEntry() }
         item { SectionHeading("为你推荐", "更多") }
-        item { ArticleGroup(articles, onArticleClick = onArticleClick) }
+        item {
+            if (articles.isEmpty()) EmptyState("暂时没有公开文章")
+            else ArticleGroup(articles, onArticleClick = onArticleClick)
+        }
         item { SectionHeading("正在关注", "查看订阅") }
         item { FollowingStrip() }
     }
@@ -369,8 +433,8 @@ private fun SectionHeading(title: String, action: String) {
 
 @Composable
 private fun ArticleGroup(
-    displayArticles: List<ArticlePreview>,
-    onArticleClick: (ArticlePreview) -> Unit = {}
+    displayArticles: List<RemoteArticle>,
+    onArticleClick: (RemoteArticle) -> Unit = {}
 ) {
     Card(
         modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
@@ -387,15 +451,15 @@ private fun ArticleGroup(
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Avatar(article.author.takeLast(2), Coral)
+                    Avatar(article.authorName.takeLast(2), Coral)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(article.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(article.author, color = TextMuted, fontSize = 11.sp)
+                            Text(article.authorName, color = TextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(" · ", color = TextMuted, fontSize = 11.sp)
-                            Text(article.readTime, color = TextMuted, fontSize = 11.sp)
+                            Text(articleReadTime(article), color = TextMuted, fontSize = 11.sp)
                             Spacer(Modifier.width(7.dp))
                             Text(article.category, color = Accent, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -429,8 +493,10 @@ private fun FollowingStrip() {
 @Composable
 private fun DiscoverScreen(
     scaffoldPadding: PaddingValues,
-    onTopicClick: (String, String, Color) -> Unit = { _, _, _ -> },
-    onArticleClick: (ArticlePreview) -> Unit = {}
+    topics: List<RemoteTopic>,
+    collections: List<RemoteCollection>,
+    onTopicClick: (String, String, Color, List<RemoteArticle>) -> Unit = { _, _, _, _ -> },
+    onArticleClick: (RemoteArticle) -> Unit = {}
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
@@ -469,11 +535,35 @@ private fun DiscoverScreen(
                 }
             }
         }
-        item { SectionHeading("编辑精选", "全部") }
-        item { TopicRow("长期主义的工作方法", "专题 · 18 篇文章 · 236 人订阅", Accent, onClick = onTopicClick) }
-        item { TopicRow("把知识整理成系统", "合集 · 12 篇文章 · 89 人订阅", Coral, onClick = onTopicClick) }
+        item { SectionHeading("专题与合集", "全部") }
+        if (topics.isEmpty() && collections.isEmpty()) {
+            item { EmptyState("暂时没有公开专题或合集") }
+        } else {
+            items(topics.take(3)) { topic ->
+                TopicRow(
+                    title = topic.title,
+                    meta = "专题 · ${topic.articleCount} 篇文章 · ${topic.subscriberCount} 人订阅",
+                    color = Accent,
+                    articles = topic.articles,
+                    onClick = onTopicClick,
+                )
+            }
+            items(collections.take(3)) { collection ->
+                TopicRow(
+                    title = collection.name,
+                    meta = "合集 · ${collection.articleCount} 篇文章 · ${collection.subscriberCount} 人订阅",
+                    color = Coral,
+                    articles = collection.articles,
+                    onClick = onTopicClick,
+                )
+            }
+        }
         item { SectionHeading("最近更新", "查看全部") }
-        item { ArticleGroup(articles.take(2), onArticleClick = onArticleClick) }
+        item {
+            val recent = (topics.flatMap { it.articles } + collections.flatMap { it.articles }).distinctBy { it.id }.take(4)
+            if (recent.isEmpty()) EmptyState("暂无可展示的最近更新")
+            else ArticleGroup(recent, onArticleClick = onArticleClick)
+        }
     }
 }
 
@@ -482,10 +572,11 @@ private fun TopicRow(
     title: String,
     meta: String,
     color: Color,
-    onClick: (String, String, Color) -> Unit = { _, _, _ -> }
+    articles: List<RemoteArticle>,
+    onClick: (String, String, Color, List<RemoteArticle>) -> Unit = { _, _, _, _ -> }
 ) {
     Card(
-        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().clickable { onClick(title, meta, color) },
+        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().clickable { onClick(title, meta, color, articles) },
         shape = HlovetUi.rowShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
@@ -596,6 +687,11 @@ private fun MessagesScreen(scaffoldPadding: PaddingValues) {
 
 @Composable
 private fun ChatGroup() {
+    val chats = listOf(
+        ChatPreview("项目讨论组", "今天的首页草稿已经更新了", "刚刚", "P"),
+        ChatPreview("nice3", "我看到了你 @ 的消息", "12:36", "N"),
+        ChatPreview("内容共创", "附件：移动端设计方向.pdf", "昨天", "C"),
+    )
     Card(
         modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
         shape = HlovetUi.cardShape,
@@ -686,8 +782,26 @@ private fun Avatar(text: String, color: Color, large: Boolean = false, compact: 
     }
 }
 
-private data class ArticlePreview(val title: String, val author: String, val readTime: String, val category: String)
 private data class ChatPreview(val name: String, val message: String, val time: String, val initials: String)
+
+@Composable
+private fun EmptyState(message: String) {
+    GlassCard(modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(), shape = HlovetUi.rowShape) {
+        Text(message, color = TextMuted, fontSize = 13.sp, modifier = Modifier.padding(18.dp))
+    }
+}
+
+private fun articleReadTime(article: RemoteArticle): String {
+    val minutes = maxOf(1, cleanArticleText(article.content).length / 420)
+    return "$minutes 分钟阅读"
+}
+
+private fun cleanArticleText(content: String): String = content
+    .replace(Regex("!\\[[^]]*]\\([^)]*\\)"), "")
+    .replace(Regex("<[^>]+>"), "")
+    .replace(Regex("[`*_>#]"), "")
+    .replace(Regex("\\n{3,}"), "\\n\\n")
+    .trim()
 
 private fun Color.toArgbCompat(): Int = android.graphics.Color.argb(
     (alpha * 255).toInt(),
