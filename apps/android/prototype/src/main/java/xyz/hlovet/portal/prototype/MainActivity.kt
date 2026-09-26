@@ -6,6 +6,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -39,7 +42,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Card
+import androidx.compose.material3.CardColors
+import androidx.compose.material3.CardElevation
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -60,18 +64,26 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+import androidx.compose.ui.res.painterResource
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 private val Background = HlovetUi.background
 private val SurfaceLow = HlovetUi.surfaceLow
@@ -80,6 +92,23 @@ private val TextPrimary = HlovetUi.foreground
 private val TextMuted = HlovetUi.muted
 private val Accent = HlovetUi.accent
 private val Coral = HlovetUi.secondaryAccent
+
+private sealed interface DetailTarget {
+    data class Article(val article: ArticlePreview) : DetailTarget
+    data class Topic(val title: String, val meta: String, val color: Color) : DetailTarget
+}
+
+/** Keeps the existing page code on one shared glass surface implementation. */
+@Composable
+private fun Card(
+    modifier: Modifier = Modifier,
+    shape: Shape = HlovetUi.cardShape,
+    colors: CardColors = CardDefaults.cardColors(),
+    elevation: CardElevation = CardDefaults.cardElevation(),
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
+) {
+    GlassCard(modifier = modifier, shape = shape, content = content)
+}
 
 private val articles = listOf(
     ArticlePreview("把复杂的事情，写成清晰的路径", "nice3", "8 分钟阅读", "产品与思考"),
@@ -107,44 +136,64 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun HlovetMobilePreview() {
     var selectedTab by remember { mutableIntStateOf(0) }
-    Scaffold(
-        containerColor = Background,
-        bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp
-            ) {
-                val items = listOf(
-                    Triple("首页", Icons.Filled.Home, 0),
-                    Triple("发现", Icons.Filled.Explore, 1),
-                    Triple("写作", Icons.Filled.AddCircleOutline, 2),
-                    Triple("消息", Icons.Filled.ChatBubbleOutline, 3),
-                    Triple("我的", Icons.Filled.PersonOutline, 4)
-                )
-                items.forEach { (label, icon, index) ->
-                    NavigationBarItem(
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        icon = { Icon(icon, contentDescription = label) },
-                        label = { Text(label, fontSize = 11.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Accent,
-                            selectedTextColor = Accent,
-                            indicatorColor = HlovetUi.accentSoft,
-                            unselectedIconColor = TextMuted,
-                            unselectedTextColor = TextMuted
+    var detailTarget by remember { mutableStateOf<DetailTarget?>(null) }
+    val hazeState = rememberHazeState()
+    CompositionLocalProvider(LocalHlovetHaze provides hazeState) {
+        Box(Modifier.fillMaxSize()) {
+            Image(
+                painter = painterResource(id = R.drawable.hlovet_city_lights),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().hazeSource(hazeState)
+            )
+            Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = .34f)))
+            if (detailTarget != null) {
+                DetailScreen(target = detailTarget!!, onBack = { detailTarget = null })
+            } else Scaffold(
+                containerColor = Color.Transparent,
+                bottomBar = {
+                    NavigationBar(
+                        modifier = Modifier.hazeEffect(state = hazeState, style = NavigationGlassStyle),
+                        containerColor = Color.Transparent,
+                        tonalElevation = 0.dp
+                    ) {
+                        val items = listOf(
+                            Triple("首页", Icons.Filled.Home, 0),
+                            Triple("发现", Icons.Filled.Explore, 1),
+                            Triple("写作", Icons.Filled.AddCircleOutline, 2),
+                            Triple("消息", Icons.Filled.ChatBubbleOutline, 3),
+                            Triple("我的", Icons.Filled.PersonOutline, 4)
                         )
+                        items.forEach { (label, icon, index) ->
+                            NavigationBarItem(
+                                selected = selectedTab == index,
+                                onClick = { selectedTab = index },
+                                icon = { Icon(icon, contentDescription = label) },
+                                label = { Text(label, fontSize = 11.sp) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = Accent,
+                                    selectedTextColor = Accent,
+                                    indicatorColor = HlovetUi.accentSoft,
+                                    unselectedIconColor = TextMuted,
+                                    unselectedTextColor = TextMuted
+                                )
+                            )
+                        }
+                    }
+                }
+            ) { padding ->
+                when (selectedTab) {
+                    0 -> HomeScreen(padding, onArticleClick = { detailTarget = DetailTarget.Article(it) })
+                    1 -> DiscoverScreen(
+                        padding,
+                        onTopicClick = { title, meta, color -> detailTarget = DetailTarget.Topic(title, meta, color) },
+                        onArticleClick = { detailTarget = DetailTarget.Article(it) }
                     )
+                    2 -> WriteScreen(padding)
+                    3 -> MessagesScreen(padding)
+                    else -> ProfileScreen(padding)
                 }
             }
-        }
-    ) { padding ->
-        when (selectedTab) {
-            0 -> HomeScreen(padding)
-            1 -> DiscoverScreen(padding)
-            2 -> WriteScreen(padding)
-            3 -> MessagesScreen(padding)
-            else -> ProfileScreen(padding)
         }
     }
 }
@@ -171,7 +220,101 @@ private fun AppHeader(
 }
 
 @Composable
-private fun HomeScreen(scaffoldPadding: PaddingValues) {
+private fun DetailScreen(target: DetailTarget, onBack: () -> Unit) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = when (target) {
+                            is DetailTarget.Article -> "文章详情"
+                            is DetailTarget.Topic -> "专题与合集"
+                        },
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", modifier = Modifier.size(22.dp))
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+            )
+        }
+        when (target) {
+            is DetailTarget.Article -> {
+                item {
+                    GlassCard(
+                        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                        shape = HlovetUi.cardShape
+                    ) {
+                        Column(Modifier.padding(20.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Avatar(target.article.author.takeLast(2), Coral)
+                                Spacer(Modifier.width(10.dp))
+                                Column {
+                                    Text(target.article.author, fontWeight = FontWeight.SemiBold)
+                                    Text(target.article.readTime, color = TextMuted, fontSize = 11.sp)
+                                }
+                            }
+                            Spacer(Modifier.height(18.dp))
+                            Text(target.article.title, fontSize = 25.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(10.dp))
+                            AssistChip(
+                                onClick = {},
+                                label = { Text(target.article.category, fontSize = 12.sp) },
+                                border = null,
+                                colors = AssistChipDefaults.assistChipColors(containerColor = HlovetUi.accentSoft)
+                            )
+                        }
+                    }
+                }
+                item {
+                    GlassCard(
+                        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                        shape = HlovetUi.cardShape
+                    ) {
+                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Text("把复杂的事情拆开，先看清路径，再决定速度。好的内容不急着给答案，而是帮助人把问题放到正确的位置。", fontSize = 16.sp, lineHeight = 27.sp)
+                            Text("当一个想法可以被复述、被验证，也能在下一次遇到类似问题时继续使用，它才真正从记录变成了内容。", color = TextMuted, fontSize = 15.sp, lineHeight = 25.sp)
+                            Text("这是一段原生端详情页预览，后续接入真实文章接口后，正文、图片、附件和评论都会沿用同一套玻璃内容容器。", color = TextMuted, fontSize = 15.sp, lineHeight = 25.sp)
+                        }
+                    }
+                }
+            }
+            is DetailTarget.Topic -> {
+                item {
+                    GlassCard(
+                        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                        shape = HlovetUi.cardShape
+                    ) {
+                        Column(Modifier.padding(20.dp)) {
+                            Surface(shape = HlovetUi.rowShape, color = target.color.copy(alpha = .15f)) {
+                                Icon(Icons.Filled.LibraryBooks, contentDescription = null, tint = target.color, modifier = Modifier.padding(12.dp).size(26.dp))
+                            }
+                            Spacer(Modifier.height(14.dp))
+                            Text(target.title, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(6.dp))
+                            Text(target.meta, color = TextMuted, fontSize = 13.sp)
+                            Spacer(Modifier.height(14.dp))
+                            Text("围绕一个主题持续整理，让每一篇文章都能成为下一篇文章的入口。", color = TextMuted, fontSize = 14.sp, lineHeight = 23.sp)
+                        }
+                    }
+                }
+                item { SectionHeading("收录文章", "查看全部") }
+                item { ArticleGroup(articles) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeScreen(scaffoldPadding: PaddingValues, onArticleClick: (ArticlePreview) -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
         contentPadding = PaddingValues(bottom = 24.dp),
@@ -186,7 +329,7 @@ private fun HomeScreen(scaffoldPadding: PaddingValues) {
         }
         item { FeaturedEntry() }
         item { SectionHeading("为你推荐", "更多") }
-        item { ArticleGroup(articles) }
+        item { ArticleGroup(articles, onArticleClick = onArticleClick) }
         item { SectionHeading("正在关注", "查看订阅") }
         item { FollowingStrip() }
     }
@@ -225,7 +368,10 @@ private fun SectionHeading(title: String, action: String) {
 }
 
 @Composable
-private fun ArticleGroup(displayArticles: List<ArticlePreview>) {
+private fun ArticleGroup(
+    displayArticles: List<ArticlePreview>,
+    onArticleClick: (ArticlePreview) -> Unit = {}
+) {
     Card(
         modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
         shape = HlovetUi.cardShape,
@@ -234,11 +380,18 @@ private fun ArticleGroup(displayArticles: List<ArticlePreview>) {
     ) {
         Column {
             displayArticles.forEachIndexed { index, article ->
-                ListItem(
-                    headlineContent = {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onArticleClick(article) }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Avatar(article.author.takeLast(2), Coral)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
                         Text(article.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    },
-                    supportingContent = {
+                        Spacer(Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(article.author, color = TextMuted, fontSize = 11.sp)
                             Text(" · ", color = TextMuted, fontSize = 11.sp)
@@ -246,12 +399,10 @@ private fun ArticleGroup(displayArticles: List<ArticlePreview>) {
                             Spacer(Modifier.width(7.dp))
                             Text(article.category, color = Accent, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                    },
-                    leadingContent = { Avatar(article.author.takeLast(2), Coral) },
-                    trailingContent = { Icon(Icons.Filled.BookmarkBorder, contentDescription = null, tint = TextMuted) },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    modifier = Modifier.clickable {}
-                )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Icon(Icons.Filled.BookmarkBorder, contentDescription = null, tint = TextMuted)
+                }
                 if (index < displayArticles.lastIndex) {
                     HorizontalDivider(color = HlovetUi.divider, thickness = 1.dp, modifier = Modifier.padding(horizontal = 16.dp))
                 }
@@ -269,14 +420,18 @@ private fun FollowingStrip() {
                 label = { Text(name, fontSize = 12.sp) },
                 leadingIcon = { Avatar(name.takeLast(2), Accent, compact = true) },
                 colors = AssistChipDefaults.assistChipColors(containerColor = HlovetUi.surface),
-                border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = HlovetUi.outline)
+                border = null
             )
         }
     }
 }
 
 @Composable
-private fun DiscoverScreen(scaffoldPadding: PaddingValues) {
+private fun DiscoverScreen(
+    scaffoldPadding: PaddingValues,
+    onTopicClick: (String, String, Color) -> Unit = { _, _, _ -> },
+    onArticleClick: (ArticlePreview) -> Unit = {}
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
         contentPadding = PaddingValues(bottom = 24.dp),
@@ -308,23 +463,29 @@ private fun DiscoverScreen(scaffoldPadding: PaddingValues) {
                             selectedContainerColor = Accent,
                             selectedLabelColor = HlovetUi.onAccent,
                             containerColor = MaterialTheme.colorScheme.surface
-                        )
+                        ),
+                        border = null
                     )
                 }
             }
         }
         item { SectionHeading("编辑精选", "全部") }
-        item { TopicRow("长期主义的工作方法", "专题 · 18 篇文章 · 236 人订阅", Accent) }
-        item { TopicRow("把知识整理成系统", "合集 · 12 篇文章 · 89 人订阅", Coral) }
+        item { TopicRow("长期主义的工作方法", "专题 · 18 篇文章 · 236 人订阅", Accent, onClick = onTopicClick) }
+        item { TopicRow("把知识整理成系统", "合集 · 12 篇文章 · 89 人订阅", Coral, onClick = onTopicClick) }
         item { SectionHeading("最近更新", "查看全部") }
-        item { ArticleGroup(articles.take(2)) }
+        item { ArticleGroup(articles.take(2), onArticleClick = onArticleClick) }
     }
 }
 
 @Composable
-private fun TopicRow(title: String, meta: String, color: Color) {
+private fun TopicRow(
+    title: String,
+    meta: String,
+    color: Color,
+    onClick: (String, String, Color) -> Unit = { _, _, _ -> }
+) {
     Card(
-        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().clickable {},
+        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().clickable { onClick(title, meta, color) },
         shape = HlovetUi.rowShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)

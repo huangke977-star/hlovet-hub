@@ -1,13 +1,24 @@
 package xyz.hlovet.portal.prototype
 
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeDefaults
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 
 /** HLOVET tokens on top of the open-source Material 3 design system. */
 internal object HlovetUi {
@@ -23,9 +34,49 @@ internal object HlovetUi {
     val onAccent = Color(0xFFFFFFFF)
     val outline = Color(0xFFC9D8D8)
     val divider = Color(0xFFE4EBEA)
+    val glassTint = Color.White.copy(alpha = .46f)
+    val glassFallback = Color.White.copy(alpha = .78f)
     val contentPadding = PaddingValues(horizontal = 20.dp)
     val cardShape = RoundedCornerShape(20.dp)
     val rowShape = RoundedCornerShape(16.dp)
+}
+
+internal val LocalHlovetHaze = compositionLocalOf<HazeState?> { null }
+
+private val GlassStyle = HazeStyle(
+    backgroundColor = HlovetUi.glassFallback,
+    tints = listOf(HazeTint(HlovetUi.glassTint)),
+    blurRadius = 22.dp,
+    noiseFactor = HazeDefaults.noiseFactor,
+    fallbackTint = HazeTint(HlovetUi.glassFallback)
+)
+
+internal val NavigationGlassStyle = HazeStyle(
+    backgroundColor = HlovetUi.glassFallback,
+    tints = listOf(HazeTint(HlovetUi.glassTint.copy(alpha = .62f))),
+    blurRadius = 18.dp,
+    noiseFactor = HazeDefaults.noiseFactor,
+    fallbackTint = HazeTint(HlovetUi.glassFallback)
+)
+
+@Composable
+internal fun GlassCard(
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = HlovetUi.cardShape,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val hazeState = LocalHlovetHaze.current
+    Card(
+        modifier = if (hazeState != null) {
+            modifier.clip(shape).hazeEffect(state = hazeState, style = GlassStyle)
+        } else {
+            modifier
+        },
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        content = content
+    )
 }
 
 @Composable
