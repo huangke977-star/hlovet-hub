@@ -1,7 +1,10 @@
 package xyz.hlovet.portal.prototype
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -44,6 +47,20 @@ internal data class PreviewData(
     val articles: List<RemoteArticle>,
     val topics: List<RemoteTopic>,
     val collections: List<RemoteCollection>,
+    val appearance: PreviewAppearance,
+    val backgroundUrl: String?,
+)
+
+internal data class PreviewAppearance(
+    val themeId: String,
+    val accent: String,
+    val foreground: String,
+    val muted: String,
+    val surface: String,
+    val cardAlpha: Int,
+    val glassBlur: Int,
+    val glassTint: String,
+    val glassTintAlpha: Int,
 )
 
 internal object PreviewApi {
@@ -53,6 +70,8 @@ internal object PreviewApi {
         get() = BuildConfig.API_BASE_URL.trimEnd('/').ifBlank { DEFAULT_BASE_URL }
 
     fun load(): PreviewData {
+        val settings = request("/site-settings/public")
+        val theme = settings.optJSONObject("defaultTheme") ?: JSONObject()
         val articles = request("/articles?page=1&pageSize=8&sort=latest")
             .optJSONArray("items")
             .toRemoteArticles()
@@ -62,7 +81,28 @@ internal object PreviewApi {
         val collections = request("/discovery/collections?page=1&pageSize=8")
             .optJSONArray("items")
             .toRemoteCollections()
-        return PreviewData(articles, topics, collections)
+        return PreviewData(
+            articles = articles,
+            topics = topics,
+            collections = collections,
+            appearance = theme.toPreviewAppearance(),
+            backgroundUrl = settings.optString("defaultBackgroundUrl").takeIf { it.isNotBlank() }?.let(::absoluteUrl),
+        )
+    }
+
+    fun loadBitmap(url: String): Bitmap? {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 12_000
+            readTimeout = 20_000
+            setRequestProperty("Accept", "image/*")
+        }
+        return try {
+            if (connection.responseCode !in 200..299) return null
+            BufferedInputStream(connection.inputStream).use(BitmapFactory::decodeStream)
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun request(path: String): JSONObject {
@@ -83,6 +123,65 @@ internal object PreviewApi {
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun absoluteUrl(path: String): String {
+        if (path.startsWith("http://") || path.startsWith("https://")) return path
+        return if (path.startsWith("/api/")) {
+            baseUrl.substringBeforeLast("/api") + path
+        } else {
+            baseUrl + "/" + path.trimStart('/')
+        }
+    }
+
+    private fun JSONObject.toPreviewAppearance(): PreviewAppearance {
+        val themeId = optString("themeId", "cloud-blue")
+        val defaults = when (themeId) {
+            "sakura-mist" -> PreviewAppearance(
+                themeId = themeId,
+                accent = "#db2777",
+                foreground = "#2b2530",
+                muted = "#665867",
+                surface = "#ffffff",
+                cardAlpha = 52,
+                glassBlur = 22,
+                glassTint = "#fff3f6",
+                glassTintAlpha = 72,
+            )
+            "night-purple" -> PreviewAppearance(
+                themeId = themeId,
+                accent = "#6d5bd0",
+                foreground = "#252534",
+                muted = "#5d5d70",
+                surface = "#ffffff",
+                cardAlpha = 48,
+                glassBlur = 18,
+                glassTint = "#e8e5f2",
+                glassTintAlpha = 70,
+            )
+            else -> PreviewAppearance(
+                themeId = "cloud-blue",
+                accent = "#0284c7",
+                foreground = "#1f2937",
+                muted = "#52616f",
+                surface = "#ffffff",
+                cardAlpha = 50,
+                glassBlur = 18,
+                glassTint = "#fff3f6",
+                glassTintAlpha = 0,
+            )
+        }
+        if (themeId != "custom") return defaults
+        return defaults.copy(
+            accent = optString("customAccent", defaults.accent),
+            foreground = optString("customForeground", defaults.foreground),
+            muted = optString("customMuted", defaults.muted),
+            surface = optString("customSurface", defaults.surface),
+            cardAlpha = optInt("cardAlpha", defaults.cardAlpha),
+            glassBlur = optInt("glassBlur", defaults.glassBlur),
+            glassTint = optString("glassTint", defaults.glassTint),
+            glassTintAlpha = optInt("glassTintAlpha", defaults.glassTintAlpha),
+        )
     }
 
     private fun JSONArray?.toRemoteArticles(): List<RemoteArticle> = buildList {

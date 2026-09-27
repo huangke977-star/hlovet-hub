@@ -2,6 +2,7 @@
 
 package xyz.hlovet.portal.prototype
 
+import android.graphics.Bitmap
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -75,6 +76,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,19 +84,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private val Background = HlovetUi.background
-private val SurfaceLow = HlovetUi.surfaceLow
-private val SurfaceAccent = HlovetUi.surfaceAccent
-private val TextPrimary = HlovetUi.foreground
-private val TextMuted = HlovetUi.muted
-private val Accent = HlovetUi.accent
-private val Coral = HlovetUi.secondaryAccent
+private val Background: Color get() = HlovetUi.background
+private val SurfaceLow: Color get() = HlovetUi.surfaceLow
+private val SurfaceAccent: Color get() = HlovetUi.surfaceAccent
+private val TextPrimary: Color get() = HlovetUi.foreground
+private val TextMuted: Color get() = HlovetUi.muted
+private val Accent: Color get() = HlovetUi.accent
+private val Coral: Color get() = HlovetUi.secondaryAccent
 
 private sealed interface DetailTarget {
     data class Article(val article: RemoteArticle) : DetailTarget
@@ -141,23 +144,30 @@ private fun HlovetMobilePreview() {
     var detailTarget by remember { mutableStateOf<DetailTarget?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
     var loadState by remember { mutableStateOf<PreviewLoadState>(PreviewLoadState.Loading) }
+    var backgroundBitmap by remember { mutableStateOf<Bitmap?>(null) }
     val hazeState = rememberHazeState()
     LaunchedEffect(reloadKey) {
         loadState = PreviewLoadState.Loading
         loadState = try {
-            PreviewLoadState.Ready(withContext(Dispatchers.IO) { PreviewApi.load() })
+            val data = withContext(Dispatchers.IO) { PreviewApi.load() }
+            HlovetUi.applyAppearance(data.appearance)
+            PreviewLoadState.Ready(data)
         } catch (error: Exception) {
             PreviewLoadState.Error(error.message ?: "暂时无法读取站内公开内容")
         }
     }
+    LaunchedEffect(loadState) {
+        val data = (loadState as? PreviewLoadState.Ready)?.data ?: return@LaunchedEffect
+        backgroundBitmap = data.backgroundUrl?.let { url -> withContext(Dispatchers.IO) { PreviewApi.loadBitmap(url) } }
+    }
     CompositionLocalProvider(LocalHlovetHaze provides hazeState) {
         Box(Modifier.fillMaxSize()) {
-            Image(
-                painter = painterResource(id = R.drawable.hlovet_city_lights),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().hazeSource(hazeState)
-            )
+            val backgroundPainter = backgroundBitmap?.asImageBitmap()?.let(::BitmapPainter)
+            if (backgroundPainter != null) {
+                Image(backgroundPainter, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().hazeSource(hazeState))
+            } else {
+                Image(painterResource(id = R.drawable.hlovet_city_lights), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().hazeSource(hazeState))
+            }
             Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = .34f)))
             when (val state = loadState) {
                 PreviewLoadState.Loading -> PreviewStatusScreen("正在读取站内内容…", null)
@@ -172,7 +182,7 @@ private fun HlovetMobilePreview() {
                 containerColor = Color.Transparent,
                 bottomBar = {
                     NavigationBar(
-                        modifier = Modifier.hazeEffect(state = hazeState, style = NavigationGlassStyle),
+                        modifier = Modifier.hazeEffect(state = hazeState, style = navigationGlassStyle()),
                         containerColor = Color.Transparent,
                         tonalElevation = 0.dp
                     ) {
