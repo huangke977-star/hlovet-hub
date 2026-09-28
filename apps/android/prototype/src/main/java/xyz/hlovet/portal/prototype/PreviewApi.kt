@@ -105,6 +105,8 @@ internal object PreviewApi {
         }
     }
 
+    internal fun appearanceFromJson(theme: JSONObject): PreviewAppearance = theme.toPreviewAppearance()
+
     private fun request(path: String): JSONObject {
         val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"

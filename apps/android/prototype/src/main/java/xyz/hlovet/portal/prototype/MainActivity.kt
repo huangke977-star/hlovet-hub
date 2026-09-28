@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,11 +37,16 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryBooks
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Login
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.PersonOutline
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.CardColors
@@ -62,6 +68,8 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -71,6 +79,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,6 +91,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.core.view.WindowCompat
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.painter.BitmapPainter
@@ -89,6 +101,7 @@ import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val Background: Color get() = HlovetUi.background
@@ -113,6 +126,12 @@ private sealed interface PreviewLoadState {
     data object Loading : PreviewLoadState
     data class Ready(val data: PreviewData) : PreviewLoadState
     data class Error(val message: String) : PreviewLoadState
+}
+
+private sealed interface NativeLoginStep {
+    data object Credentials : NativeLoginStep
+    data class Device(val challengeToken: String, val emailHint: String) : NativeLoginStep
+    data class Totp(val challengeToken: String) : NativeLoginStep
 }
 
 /** Keeps the existing page code on one shared glass surface implementation. */
@@ -145,6 +164,8 @@ private fun HlovetMobilePreview() {
     var reloadKey by remember { mutableIntStateOf(0) }
     var loadState by remember { mutableStateOf<PreviewLoadState>(PreviewLoadState.Loading) }
     var backgroundBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var session by remember { mutableStateOf<NativeSession?>(null) }
+    var loginVisible by remember { mutableStateOf(false) }
     val hazeState = rememberHazeState()
     LaunchedEffect(reloadKey) {
         loadState = PreviewLoadState.Loading
@@ -169,7 +190,15 @@ private fun HlovetMobilePreview() {
                 Image(painterResource(id = R.drawable.hlovet_city_lights), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().hazeSource(hazeState))
             }
             Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = .34f)))
-            when (val state = loadState) {
+            if (loginVisible) {
+                NativeLoginScreen(
+                    onAuthenticated = {
+                        session = it
+                        loginVisible = false
+                    },
+                    onCancel = { loginVisible = false },
+                )
+            } else when (val state = loadState) {
                 PreviewLoadState.Loading -> PreviewStatusScreen("正在读取站内内容…", null)
                 is PreviewLoadState.Error -> PreviewStatusScreen(
                     title = "暂时无法读取内容",
@@ -222,13 +251,162 @@ private fun HlovetMobilePreview() {
                     )
                     2 -> WriteScreen(padding)
                     3 -> MessagesScreen(padding)
-                    else -> ProfileScreen(padding)
+                    else -> ProfileScreen(
+                        padding = padding,
+                        session = session,
+                        onLogin = { loginVisible = true },
+                        onLogout = { session = null },
+                    )
                 }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun NativeLoginScreen(
+    onAuthenticated: (NativeSession) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var step by remember { mutableStateOf<NativeLoginStep>(NativeLoginStep.Credentials) }
+    var account by remember { mutableStateOf("admin") }
+    var password by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    fun submit(action: suspend () -> NativeAuthResult) {
+        if (loading) return
+        loading = true
+        error = null
+        scope.launch {
+            try {
+                when (val result = withContext(Dispatchers.IO) { action() }) {
+                    is NativeAuthResult.Authenticated -> {
+                        HlovetUi.applyAppearance(result.session.appearance)
+                        onAuthenticated(result.session)
+                    }
+                    is NativeAuthResult.DeviceVerification -> {
+                        step = NativeLoginStep.Device(result.challengeToken, result.emailHint)
+                        code = ""
+                    }
+                    is NativeAuthResult.TotpVerification -> {
+                        step = NativeLoginStep.Totp(result.challengeToken)
+                        code = ""
+                    }
+                }
+            } catch (exception: Exception) {
+                error = exception.message ?: "认证失败，请稍后重试。"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
+        GlassCard(modifier = Modifier.fillMaxWidth(), shape = HlovetUi.cardShape) {
+            Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text("登录 HLOVET", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text("登录后同步你的个人外观配置", color = TextMuted, fontSize = 12.sp)
+                    }
+                    Icon(Icons.Filled.Login, contentDescription = null, tint = Accent)
+                }
+                when (val currentStep = step) {
+                    NativeLoginStep.Credentials -> {
+                        OutlinedTextField(
+                            value = account,
+                            onValueChange = { account = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("账号或邮箱") },
+                            leadingIcon = { Icon(Icons.Filled.PersonOutline, contentDescription = null) },
+                            colors = loginFieldColors(),
+                        )
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("密码") },
+                            leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null) },
+                            trailingIcon = {
+                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                    Icon(
+                                        if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                        contentDescription = if (passwordVisible) "隐藏密码" else "显示密码",
+                                    )
+                                }
+                            },
+                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            colors = loginFieldColors(),
+                        )
+                        Text("原生预览不会保存密码，关闭应用后登录状态会清除。", color = TextMuted, fontSize = 11.sp)
+                        FilledTonalButton(
+                            onClick = { submit { NativeAuthApi.login(account.trim(), password) } },
+                            enabled = account.isNotBlank() && password.isNotBlank() && !loading,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(if (loading) "登录中…" else "登录")
+                        }
+                    }
+                    is NativeLoginStep.Device -> {
+                        Text("新设备验证", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text("验证码已发送到 ${currentStep.emailHint.ifBlank { "绑定邮箱" }}。", color = TextMuted, fontSize = 12.sp)
+                        VerificationCodeField(code, { code = it }, loading)
+                        FilledTonalButton(
+                            onClick = { submit { NativeAuthApi.verifyDevice(currentStep.challengeToken, code) } },
+                            enabled = code.length == 6 && !loading,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (loading) "验证中…" else "验证设备") }
+                    }
+                    is NativeLoginStep.Totp -> {
+                        Text("双因素认证", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text("请输入验证器中的 6 位验证码。", color = TextMuted, fontSize = 12.sp)
+                        VerificationCodeField(code, { code = it }, loading)
+                        FilledTonalButton(
+                            onClick = { submit { NativeAuthApi.verifyTotp(currentStep.challengeToken, code) } },
+                            enabled = code.length == 6 && !loading,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (loading) "验证中…" else "完成登录") }
+                    }
+                }
+                if (!error.isNullOrBlank()) {
+                    Text(error!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VerificationCodeField(value: String, onValueChange: (String) -> Unit, loading: Boolean) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onValueChange(it.filter(Char::isDigit).take(6)) },
+        modifier = Modifier.fillMaxWidth(),
+        enabled = !loading,
+        singleLine = true,
+        label = { Text("6 位验证码") },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+        colors = loginFieldColors(),
+    )
+}
+
+@Composable
+private fun loginFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = Accent,
+    unfocusedBorderColor = HlovetUi.divider,
+    focusedLabelColor = Accent,
+    cursorColor = Accent,
+)
 
 @Composable
 private fun PreviewStatusScreen(title: String, detail: String?, onRetry: (() -> Unit)? = null) {
@@ -724,13 +902,48 @@ private fun ChatGroup() {
 }
 
 @Composable
-private fun ProfileScreen(scaffoldPadding: PaddingValues) {
+private fun ProfileScreen(
+    padding: PaddingValues,
+    session: NativeSession?,
+    onLogin: () -> Unit,
+    onLogout: () -> Unit,
+) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
+        modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item { AppHeader("我的", "账号、内容和安全设置", action = { IconButton(onClick = {}) { Icon(Icons.Filled.MoreHoriz, "更多") } }) }
+        item {
+            Card(
+                modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                shape = HlovetUi.cardShape,
+                colors = CardDefaults.cardColors(containerColor = SurfaceAccent),
+            ) {
+                if (session == null) {
+                    ListItem(
+                        headlineContent = { Text("登录账号", fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+                        supportingContent = { Text("登录后同步 admin 的个人主题和卡片配置", color = TextMuted, fontSize = 11.sp) },
+                        leadingContent = { Icon(Icons.Filled.Login, contentDescription = null, tint = Accent) },
+                        trailingContent = { Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = TextMuted) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        modifier = Modifier.clickable(onClick = onLogin),
+                    )
+                } else {
+                    ListItem(
+                        headlineContent = { Text(session.nickname, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+                        supportingContent = { Text("@${session.username} · 已同步个人外观", color = TextMuted, fontSize = 11.sp) },
+                        leadingContent = { Avatar(session.username.takeLast(2), Accent) },
+                        trailingContent = {
+                            IconButton(onClick = onLogout) {
+                                Icon(Icons.Filled.Logout, contentDescription = "退出登录", tint = TextMuted)
+                            }
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+                }
+            }
+        }
         item {
             Card(
                 modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
