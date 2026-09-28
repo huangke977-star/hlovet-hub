@@ -108,7 +108,9 @@ internal fun GlassCard(
             modifier
         },
         shape = shape,
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        // Keep the configured surface alpha visible even when the device cannot
+        // render the blur layer or the Haze implementation falls back.
+        colors = CardDefaults.cardColors(containerColor = HlovetUi.glassFallback),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         content = content
     )
