@@ -44,11 +44,11 @@ export class AuthController {
   }
 
   @Get("google/start")
-  async googleStart(@Query("returnTo") returnTo: string | undefined, @Req() request: SessionRequest, @Res() response: Response) {
+  async googleStart(@Query("returnTo") returnTo: string | undefined, @Query("native") native: string | undefined, @Req() request: SessionRequest, @Res() response: Response) {
     const context = this.sessionContext(request);
     const shouldSetCookie = !context.trustedDeviceToken;
     context.trustedDeviceToken ??= createTrustedDeviceToken();
-    const url = await this.authService.startGoogleLogin(context, returnTo);
+    const url = await this.authService.startGoogleLogin(context, returnTo, native === "android");
     if (shouldSetCookie) setTrustedDeviceCookie(response, context.trustedDeviceToken);
     return response.redirect(url);
   }
@@ -57,6 +57,11 @@ export class AuthController {
   async googleCallback(@Query("code") code: string, @Query("state") state: string, @Res() response: Response) {
     try {
       const result = await this.authService.finishGoogleLogin(code, state);
+      if (result.nativeRedirect === "hlovet-native") {
+        const target = new URL(process.env.ANDROID_OAUTH_REDIRECT_URI ?? "https://5200918.xyz/native-auth/google");
+        target.searchParams.set("result", result.redirectToken);
+        return response.redirect(target.toString());
+      }
       const target = new URL(result.requiresInteraction ? "/login" : "/dashboard", process.env.WEB_ORIGIN ?? "http://localhost:3000");
       target.searchParams.set("oauthResult", result.redirectToken);
       if (result.requiresInteraction) {

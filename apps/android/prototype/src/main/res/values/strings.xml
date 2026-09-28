@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">HLOVET Mobile</string>
+    <string name="asset_statements">[{"include":"https://5200918.xyz/.well-known/assetlinks.json"}]</string>
+</resources>

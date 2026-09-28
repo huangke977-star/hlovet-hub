@@ -50,6 +50,7 @@ interface GoogleOAuthState {
   userAgent: string;
   trustedDeviceToken?: string;
   returnTo: string;
+  nativeRedirect?: "hlovet-native";
 }
 
 interface GoogleProfile {
@@ -773,13 +774,13 @@ export class AuthService {
     return { google: { enabled: google.enabled, provider: "google" as const } };
   }
 
-  async startGoogleLogin(context: RefreshSessionContext, returnTo?: string): Promise<string> {
+  async startGoogleLogin(context: RefreshSessionContext, returnTo?: string, nativeRedirect = false): Promise<string> {
     const google = await this.securityConfiguration.getGoogleOAuthConfig();
     if (!google.enabled) throw new BadRequestException("Google 登录尚未配置。\nGoogle sign-in is not configured.");
     const state = randomBytes(32).toString("base64url");
     const codeVerifier = randomBytes(48).toString("base64url");
     const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
-    const stateData: GoogleOAuthState = { codeVerifier, deviceFingerprint: this.loginDeviceFingerprint(context), ip: context.ip, userAgent: context.userAgent, trustedDeviceToken: context.trustedDeviceToken, returnTo: this.safeReturnTo(returnTo) };
+    const stateData: GoogleOAuthState = { codeVerifier, deviceFingerprint: this.loginDeviceFingerprint(context), ip: context.ip, userAgent: context.userAgent, trustedDeviceToken: context.trustedDeviceToken, returnTo: this.safeReturnTo(returnTo), ...(nativeRedirect ? { nativeRedirect: "hlovet-native" as const } : {}) };
     await this.redis.set(this.oauthStateKey(state), JSON.stringify(stateData), this.oauthStateTtlSeconds);
     const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     url.searchParams.set("client_id", google.clientId);
@@ -793,7 +794,7 @@ export class AuthService {
     return url.toString();
   }
 
-  async finishGoogleLogin(code: string, state: string): Promise<{ redirectToken: string; returnTo: string; requiresInteraction: boolean }> {
+  async finishGoogleLogin(code: string, state: string): Promise<{ redirectToken: string; returnTo: string; requiresInteraction: boolean; nativeRedirect?: "hlovet-native" }> {
     const raw = await this.redis.getdel(this.oauthStateKey(state));
     if (!raw) throw new BadRequestException("Google 登录请求已失效，请重新开始。\nThe Google sign-in request expired.");
     let stateData: GoogleOAuthState;
@@ -813,7 +814,7 @@ export class AuthService {
       if (existing) {
         const pendingToken = randomBytes(32).toString("base64url");
         await this.redis.set(`oauth_pending:${this.hashToken(pendingToken)}`, JSON.stringify({ provider: "google", subject, email, profile: this.oauthProfileJson(profile) }), this.oauthStateTtlSeconds);
-        return { redirectToken: await this.storeOAuthResult({ oauthLinkRequired: true as const, pendingToken, email, methods: await this.googleLinkVerificationMethods(existing.id) }), returnTo: stateData.returnTo, requiresInteraction: true };
+        return { redirectToken: await this.storeOAuthResult({ oauthLinkRequired: true as const, pendingToken, email, methods: await this.googleLinkVerificationMethods(existing.id) }), returnTo: stateData.returnTo, requiresInteraction: true, nativeRedirect: stateData.nativeRedirect };
       }
       const username = await this.generateGoogleUsername(email.split("@")[0]);
       const nickname = this.normalizeGoogleNickname(profile.name || email.split("@")[0]);
@@ -825,6 +826,7 @@ export class AuthService {
       redirectToken: await this.storeOAuthResult(result),
       returnTo: stateData.returnTo,
       requiresInteraction: "deviceVerificationRequired" in result || "totpVerificationRequired" in result,
+      nativeRedirect: stateData.nativeRedirect,
     };
   }
 
@@ -1157,7 +1159,7 @@ export class AuthService {
   }
 
   private passkeyExpectedOrigins(): string[] {
-    const configured = [process.env.PASSKEY_ORIGIN, process.env.WEB_ORIGIN]
+    const configured = [process.env.PASSKEY_ORIGIN, process.env.PASSKEY_ANDROID_ORIGINS, process.env.WEB_ORIGIN]
       .flatMap((value) => (value ?? "").split(","))
       .map((value) => value.trim().replace(/\/$/, ""))
       .filter(Boolean);

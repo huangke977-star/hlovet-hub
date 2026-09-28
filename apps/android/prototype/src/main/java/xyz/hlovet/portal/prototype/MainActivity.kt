@@ -2,10 +2,18 @@
 
 package xyz.hlovet.portal.prototype
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetPublicKeyCredentialOption
+import androidx.credentials.PublicKeyCredential
+import androidx.credentials.exceptions.GetCredentialException
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -82,6 +90,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
@@ -132,6 +141,10 @@ private sealed interface NativeLoginStep {
     data object Credentials : NativeLoginStep
     data class Device(val challengeToken: String, val emailHint: String) : NativeLoginStep
     data class Totp(val challengeToken: String) : NativeLoginStep
+    data class GoogleLink(val pendingToken: String, val email: String, val methods: GoogleLinkMethods) : NativeLoginStep
+    data class GoogleLinkEmail(val pendingToken: String, val emailHint: String, val challengeToken: String) : NativeLoginStep
+    data class GoogleLinkTotp(val pendingToken: String) : NativeLoginStep
+    data class GoogleLinkPassword(val pendingToken: String) : NativeLoginStep
 }
 
 /** Keeps the existing page code on one shared glass surface implementation. */
@@ -147,18 +160,46 @@ private fun Card(
 }
 
 class MainActivity : ComponentActivity() {
+    private var oauthResultToken by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        readOAuthResult(intent)
         window.statusBarColor = Background.toArgbCompat()
         window.navigationBarColor = Background.toArgbCompat()
         WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = true
         WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightNavigationBars = true
-        setContent { HlovetTheme { HlovetMobilePreview() } }
+        setContent {
+            HlovetTheme {
+                HlovetMobilePreview(
+                    oauthResultToken = oauthResultToken,
+                    onOAuthResultConsumed = { oauthResultToken = null },
+                )
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        readOAuthResult(intent)
+    }
+
+    private fun readOAuthResult(intent: Intent?) {
+        val data = intent?.data ?: return
+        val customScheme = data.scheme == "hlovet-native" && data.host == "auth" && data.path == "/google"
+        val verifiedAppLink = data.scheme == "https" && data.host == "5200918.xyz" && data.path == "/native-auth/google"
+        if (customScheme || verifiedAppLink) {
+            oauthResultToken = data.getQueryParameter("result")
+        }
     }
 }
 
 @Composable
-private fun HlovetMobilePreview() {
+private fun HlovetMobilePreview(
+    oauthResultToken: String? = null,
+    onOAuthResultConsumed: () -> Unit = {},
+) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var detailTarget by remember { mutableStateOf<DetailTarget?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
@@ -192,6 +233,8 @@ private fun HlovetMobilePreview() {
             Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = .34f)))
             if (loginVisible) {
                 NativeLoginScreen(
+                    oauthResultToken = oauthResultToken,
+                    onOAuthResultConsumed = onOAuthResultConsumed,
                     onAuthenticated = {
                         session = it
                         loginVisible = false
@@ -266,6 +309,8 @@ private fun HlovetMobilePreview() {
 
 @Composable
 private fun NativeLoginScreen(
+    oauthResultToken: String?,
+    onOAuthResultConsumed: () -> Unit,
     onAuthenticated: (NativeSession) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -276,7 +321,14 @@ private fun NativeLoginScreen(
     var passwordVisible by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
+    var googleAvailable by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val credentialManager = remember { CredentialManager.create(context) }
+
+    LaunchedEffect(Unit) {
+        googleAvailable = runCatching { withContext(Dispatchers.IO) { NativeAuthApi.externalAuthProviders() } }.getOrDefault(false)
+    }
 
     fun submit(action: suspend () -> NativeAuthResult) {
         if (loading) return
@@ -297,9 +349,129 @@ private fun NativeLoginScreen(
                         step = NativeLoginStep.Totp(result.challengeToken)
                         code = ""
                     }
+                    is NativeAuthResult.GoogleLinkRequired -> {
+                        step = NativeLoginStep.GoogleLink(result.pendingToken, result.email, result.methods)
+                    }
                 }
             } catch (exception: Exception) {
                 error = exception.message ?: "认证失败，请稍后重试。"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    LaunchedEffect(oauthResultToken) {
+        val token = oauthResultToken?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        onOAuthResultConsumed()
+        submit { NativeAuthApi.consumeOAuthResult(token) }
+    }
+
+    fun submitPasskey() {
+        if (loading) return
+        loading = true
+        error = null
+        scope.launch {
+            try {
+                val options = withContext(Dispatchers.IO) { NativeAuthApi.passkeyLoginOptions() }
+                val credentialResult = credentialManager.getCredential(
+                    context = context,
+                    request = GetCredentialRequest(
+                        credentialOptions = listOf(GetPublicKeyCredentialOption(options.requestJson)),
+                    ),
+                )
+                val credential = credentialResult.credential as? PublicKeyCredential
+                    ?: throw IllegalStateException("未返回通行密钥凭据")
+                when (val result = withContext(Dispatchers.IO) {
+                    NativeAuthApi.verifyPasskeyLogin(options.challengeToken, credential.authenticationResponseJson)
+                }) {
+                    is NativeAuthResult.Authenticated -> {
+                        HlovetUi.applyAppearance(result.session.appearance)
+                        onAuthenticated(result.session)
+                    }
+                    is NativeAuthResult.DeviceVerification -> step = NativeLoginStep.Device(result.challengeToken, result.emailHint)
+                    is NativeAuthResult.TotpVerification -> step = NativeLoginStep.Totp(result.challengeToken)
+                    is NativeAuthResult.GoogleLinkRequired -> step = NativeLoginStep.GoogleLink(result.pendingToken, result.email, result.methods)
+                }
+            } catch (exception: GetCredentialException) {
+                val message = exception.message.orEmpty()
+                error = if (message.contains("no provider dependencies", ignoreCase = true)) {
+                    "当前模拟器的 Google Play 服务版本过旧，暂时无法使用通行密钥；请更新 Play services 或改用真实 Android 设备。"
+                } else {
+                    message.ifBlank { "通行密钥验证已取消。" }
+                }
+            } catch (exception: Exception) {
+                error = exception.message ?: "通行密钥登录失败，请稍后重试。"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    fun startGoogleLogin() {
+        if (loading) return
+        loading = true
+        error = null
+        scope.launch {
+            try {
+                val authorizationUrl = withContext(Dispatchers.IO) { NativeAuthApi.startGoogleLogin() }
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(authorizationUrl)))
+            } catch (exception: ActivityNotFoundException) {
+                error = "设备没有可用的浏览器，无法打开 Google 登录。"
+            } catch (exception: Exception) {
+                error = exception.message ?: "Google 登录暂不可用，请稍后重试。"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    fun submitGoogleLinkPasskey(current: NativeLoginStep.GoogleLink) {
+        if (loading) return
+        loading = true
+        error = null
+        scope.launch {
+            try {
+                val options = withContext(Dispatchers.IO) { NativeAuthApi.googleLinkPasskeyOptions(current.pendingToken) }
+                val credentialResult = credentialManager.getCredential(
+                    context = context,
+                    request = GetCredentialRequest(
+                        credentialOptions = listOf(GetPublicKeyCredentialOption(options.requestJson)),
+                    ),
+                )
+                val credential = credentialResult.credential as? PublicKeyCredential
+                    ?: throw IllegalStateException("未返回通行密钥凭据")
+                when (val result = withContext(Dispatchers.IO) {
+                    NativeAuthApi.verifyGoogleLinkPasskey(current.pendingToken, options.challengeToken, credential.authenticationResponseJson)
+                }) {
+                    is NativeAuthResult.Authenticated -> {
+                        HlovetUi.applyAppearance(result.session.appearance)
+                        onAuthenticated(result.session)
+                    }
+                    is NativeAuthResult.DeviceVerification -> step = NativeLoginStep.Device(result.challengeToken, result.emailHint)
+                    is NativeAuthResult.TotpVerification -> step = NativeLoginStep.Totp(result.challengeToken)
+                    is NativeAuthResult.GoogleLinkRequired -> step = NativeLoginStep.GoogleLink(result.pendingToken, result.email, result.methods)
+                }
+            } catch (exception: GetCredentialException) {
+                error = exception.message ?: "通行密钥验证已取消。"
+            } catch (exception: Exception) {
+                error = exception.message ?: "Google 关联验证失败，请稍后重试。"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    fun requestGoogleLinkEmail(current: NativeLoginStep.GoogleLink) {
+        if (loading) return
+        loading = true
+        error = null
+        scope.launch {
+            try {
+                val challenge = withContext(Dispatchers.IO) { NativeAuthApi.requestGoogleLinkEmail(current.pendingToken) }
+                step = NativeLoginStep.GoogleLinkEmail(current.pendingToken, challenge.emailHint, challenge.challengeToken)
+            } catch (exception: Exception) {
+                error = exception.message ?: "验证码发送失败，请稍后重试。"
             } finally {
                 loading = false
             }
@@ -317,7 +489,6 @@ private fun NativeLoginScreen(
                         Text("登录 HLOVET", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                         Text("登录后同步你的个人外观配置", color = TextMuted, fontSize = 12.sp)
                     }
-                    Icon(Icons.Filled.Login, contentDescription = null, tint = Accent)
                 }
                 when (val currentStep = step) {
                     NativeLoginStep.Credentials -> {
@@ -356,6 +527,25 @@ private fun NativeLoginScreen(
                         ) {
                             Text(if (loading) "登录中…" else "登录")
                         }
+                        if (googleAvailable || !loading) {
+                            Spacer(Modifier.height(2.dp))
+                            FilledTonalButton(
+                                onClick = ::submitPasskey,
+                                enabled = !loading,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("使用通行密钥登录")
+                            }
+                        }
+                        if (googleAvailable) {
+                            FilledTonalButton(
+                                onClick = ::startGoogleLogin,
+                                enabled = !loading,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("使用 Google 登录")
+                            }
+                        }
                     }
                     is NativeLoginStep.Device -> {
                         Text("新设备验证", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
@@ -376,6 +566,92 @@ private fun NativeLoginScreen(
                             enabled = code.length == 6 && !loading,
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text(if (loading) "验证中…" else "完成登录") }
+                    }
+                    is NativeLoginStep.GoogleLink -> {
+                        Text("关联 Google 账号", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${currentStep.email} 已存在站内账号，需要完成一次安全验证后才能关联。",
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                        )
+                        if (currentStep.methods.passkey) {
+                            FilledTonalButton(
+                                onClick = { submitGoogleLinkPasskey(currentStep) },
+                                enabled = !loading,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("使用通行密钥验证") }
+                        }
+                        if (currentStep.methods.email) {
+                            FilledTonalButton(
+                                onClick = { requestGoogleLinkEmail(currentStep) },
+                                enabled = !loading,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("使用邮箱验证码") }
+                        }
+                        if (currentStep.methods.totp) {
+                            FilledTonalButton(
+                                onClick = { step = NativeLoginStep.GoogleLinkTotp(currentStep.pendingToken) },
+                                enabled = !loading,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("使用双因素认证") }
+                        }
+                        if (currentStep.methods.password) {
+                            FilledTonalButton(
+                                onClick = { step = NativeLoginStep.GoogleLinkPassword(currentStep.pendingToken) },
+                                enabled = !loading,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("使用账号密码") }
+                        }
+                    }
+                    is NativeLoginStep.GoogleLinkEmail -> {
+                        Text("邮箱验证", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "验证码已发送到 ${currentStep.emailHint.ifBlank { "绑定邮箱" }}。",
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                        )
+                        VerificationCodeField(code, { code = it }, loading)
+                        FilledTonalButton(
+                            onClick = { submit { NativeAuthApi.verifyGoogleLinkEmail(currentStep.pendingToken, currentStep.challengeToken, code) } },
+                            enabled = code.length == 6 && !loading,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (loading) "验证中…" else "完成关联") }
+                    }
+                    is NativeLoginStep.GoogleLinkTotp -> {
+                        Text("双因素认证", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text("请输入身份验证器中的 6 位验证码。", color = TextMuted, fontSize = 12.sp)
+                        VerificationCodeField(code, { code = it }, loading)
+                        FilledTonalButton(
+                            onClick = { submit { NativeAuthApi.verifyGoogleLinkTotp(currentStep.pendingToken, code) } },
+                            enabled = code.length == 6 && !loading,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (loading) "验证中…" else "完成关联") }
+                    }
+                    is NativeLoginStep.GoogleLinkPassword -> {
+                        Text("账号密码验证", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("当前密码") },
+                            leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null) },
+                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                    Icon(
+                                        if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                        contentDescription = if (passwordVisible) "隐藏密码" else "显示密码",
+                                    )
+                                }
+                            },
+                            colors = loginFieldColors(),
+                        )
+                        FilledTonalButton(
+                            onClick = { submit { NativeAuthApi.verifyGoogleLinkPassword(currentStep.pendingToken, password) } },
+                            enabled = password.isNotBlank() && !loading,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (loading) "验证中…" else "完成关联") }
                     }
                 }
                 if (!error.isNullOrBlank()) {
