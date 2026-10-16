@@ -24,3 +24,14 @@ Thumbs.db
 .turbo
 .cache
 uploads
+
+# Local emulator/browser evidence and generated artifacts. These files are
+# useful for verification but must never enter production image build context.
+/tmp-*
+/tmp_*
+/codex-clipboard-*
+/output
+/test-results
+/playwright-report
+*.apk
+*.aab

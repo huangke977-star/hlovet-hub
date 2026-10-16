@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { BadRequestException } from "@nestjs/common";
 import sanitizeHtml from "sanitize-html";
 
+// 统一文章 HTML 安全白名单与积分资源解析，媒体节点仅保留展示所需属性。
 const RESOURCE_OPEN_PATTERN = /^:::resource\{points=(\d+)\}\s*$/;
 const RESOURCE_CLOSE_PATTERN = /^:::\s*$/;
 const RESOURCE_HTML_PATTERN = /<resource-block\b([^>]*)>([\s\S]*?)<\/resource-block>/gi;
@@ -17,11 +18,15 @@ const HTML_ALLOWED_TAGS = [
   "p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "s", "u",
   "blockquote", "ul", "ol", "li", "pre", "code", "a", "img", "hr", "table",
   "thead", "tbody", "tr", "th", "td", "div", "span", "label", "input", "resource-block",
+  "audio", "video", "source",
 ];
 
 const HTML_ALLOWED_ATTRIBUTES: sanitizeHtml.IOptions["allowedAttributes"] = {
   a: ["href", "target", "rel"],
   img: ["src", "alt", "title"],
+  audio: ["src", "controls", "preload"],
+  video: ["src", "controls", "preload", "playsinline", "poster"],
+  source: ["src", "type"],
   ul: ["data-type"],
   li: ["class", "data-type", "data-checked"],
   input: ["type", "checked"],
@@ -42,18 +47,21 @@ const HTML_ALLOWED_STYLES: sanitizeHtml.IOptions["allowedStyles"] = {
   },
 };
 
+/** 清理 source 中可执行 HTML，返回保留文章排版和安全媒体播放器的正文。 */
 export function sanitizeArticleHtml(source: string): string {
+  // 媒体可使用站内相对路径或 HTTP(S)，不放行脚本协议、事件属性和自动播放。
   return sanitizeHtml(source, {
     allowedTags: HTML_ALLOWED_TAGS,
     allowedAttributes: HTML_ALLOWED_ATTRIBUTES,
     allowedClasses: HTML_ALLOWED_CLASSES,
     allowedStyles: HTML_ALLOWED_STYLES,
     allowedSchemes: ["http", "https", "mailto"],
+    allowedSchemesByTag: { audio: ["http", "https"], video: ["http", "https"], source: ["http", "https"] },
     allowProtocolRelative: false,
     disallowedTagsMode: "discard",
     transformTags: {
       pre: (tagName, attribs) => {
-        // Keep legacy plain code blocks byte-compatible; explicit language metadata is normalized.
+        // 旧代码块保持原样，只有显式语言元数据才按支持列表归一化。
         const hasLanguage = attribs["data-language"] !== undefined || Boolean(attribs.class);
         return {
           tagName,

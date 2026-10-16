@@ -7,7 +7,6 @@ import {
   IsIn,
   IsInt,
   IsOptional,
-  ValidateIf,
   IsString,
   IsUrl,
   Max,
@@ -16,17 +15,23 @@ import {
   MinLength,
 } from "class-validator";
 
+/** 用户搜索参数；提及模式可按当前会话约束候选范围。 */
 export class SearchSocialUsersQueryDto {
+  // 提及允许省略关键词，但仍验证类型和最大长度；普通搜索的最小长度由服务层统一校验。
   @IsString()
-  @ValidateIf((value) => !value.mention)
-  @MinLength(2)
   @MaxLength(32)
-  q!: string;
+  q = "";
 
   @IsOptional()
   @Transform(({ value }) => value === true || value === "true")
   @IsBoolean()
   mention?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  conversationId?: number;
 
   @IsOptional()
   @Type(() => Number)

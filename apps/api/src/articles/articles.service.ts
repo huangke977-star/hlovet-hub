@@ -28,6 +28,7 @@ import {
   PortalVisibility,
   Prisma,
   RecommendationTargetType,
+  ResourceDeliveryStatus,
   UserNotificationChannel,
   UserNotificationType,
 } from "../generated/prisma/client";
@@ -198,6 +199,11 @@ const articleInclude = {
     orderBy: [{ sortOrder: "asc" as const }, { id: "asc" as const }],
     select: { storedName: true },
   },
+  // 同批加载已确认附件的展示字段，保存回包与重新编辑共用，避免逐文章补查。
+  attachments: {
+    orderBy: [{ sortOrder: "asc" as const }, { id: "asc" as const }],
+    select: { id: true, kind: true, originalName: true, mimeType: true, sizeBytes: true, createdAt: true },
+  },
   likes: { select: { userId: true } },
   favorites: { select: { userId: true } },
   collectionItems: {
@@ -356,6 +362,7 @@ function countDistinctReportPublications<T extends {
   ).size;
 }
 
+/** 负责文章发布、编辑、阅读权限及附件访问，统一生成受权限约束的文章响应。 */
 @Injectable()
 export class ArticlesService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ArticlesService.name);
@@ -1386,6 +1393,20 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async removeAttachment(id: number, attachmentId: number, user: AuthenticatedUser): Promise<{ success: true }> {
+    const article = await this.getArticleOrThrow(id);
+    this.assertCanEdit(article, user);
+    const attachment = await this.prisma.articleAttachment.findFirst({
+      where: { id: attachmentId, articleId: id },
+      select: { id: true, storedName: true },
+    });
+    if (!attachment) throw new NotFoundException("文章附件不存在。\nThe article attachment does not exist.");
+    await this.prisma.articleAttachment.delete({ where: { id: attachment.id } });
+    await this.chatAttachmentsService?.deleteStoredFiles([attachment.storedName]);
+    return { success: true };
+  }
+
+  /** 按 id 读取附件文件；user 为空按访客处理，先校验文章及资源块权限再访问存储。 */
   async getArticleAttachment(id: number, user: AuthenticatedUser | null): Promise<{
     filePath: string;
     kind: ChatAttachmentKind;
@@ -1393,6 +1414,7 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
     originalName: string;
     sizeBytes: number;
   }> {
+    // 同批读取附件所属正文，积分资源权限以当前文章及当前块为准，不使用客户端描述。
     const attachment = await this.prisma.articleAttachment.findUnique({
       where: { id },
       select: {
@@ -1401,29 +1423,61 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
         mimeType: true,
         originalName: true,
         sizeBytes: true,
-        article: { select: { authorId: true, status: true, visibility: true, allowedRoles: { select: { role: { select: { code: true } } } } } },
+        article: { select: { id: true, authorId: true, content: true, contentFormat: true, status: true, visibility: true, allowedRoles: { select: { role: { select: { code: true } } } } } },
       },
     });
+    // 草稿和受限文章沿用原有阅读边界；锁定块中的附件不能通过猜测编号下载。
     if (!attachment) throw new NotFoundException("附件不存在。");
     this.assertCanRead(attachment.article, user);
+    await this.assertCanReadAttachmentResource(id, attachment.article, user);
+    // 权限通过后才触碰磁盘，返回受控下载所需描述而非存储文件名。
     if (!this.chatAttachmentsService) throw new NotFoundException("附件文件不存在。");
     const file = await this.chatAttachmentsService.getStoredFile(attachment.storedName);
     return { ...file, kind: attachment.kind, mimeType: attachment.mimeType, originalName: attachment.originalName, sizeBytes: attachment.sizeBytes };
   }
 
+  /** 按 id 读取图片缩略图，user 的资源解锁要求与原文件完全相同。 */
   async getArticleAttachmentThumbnail(id: number, user: AuthenticatedUser | null): Promise<{ filePath: string; sizeBytes: number }> {
+    // 缩略图同样读取当前正文，不能成为积分图片的未授权预览入口。
     const attachment = await this.prisma.articleAttachment.findUnique({
       where: { id },
       select: {
         storedName: true,
         kind: true,
-        article: { select: { authorId: true, status: true, visibility: true, allowedRoles: { select: { role: { select: { code: true } } } } } },
+        article: { select: { id: true, authorId: true, content: true, contentFormat: true, status: true, visibility: true, allowedRoles: { select: { role: { select: { code: true } } } } } },
       },
     });
+    // 图片类型、文章可见性和资源兑换都通过后才读取缩略图文件。
     if (!attachment || attachment.kind !== ChatAttachmentKind.image) throw new NotFoundException("图片缩略图不存在。");
     this.assertCanRead(attachment.article, user);
+    await this.assertCanReadAttachmentResource(id, attachment.article, user);
     if (!this.chatAttachmentsService) throw new NotFoundException("图片缩略图不存在。");
     return this.chatAttachmentsService.getStoredThumbnail(attachment.storedName);
+  }
+
+  /** 校验 attachmentId 在 article 中的资源引用；作者/管理员免兑换，普通 user 需解锁对应块。 */
+  private async assertCanReadAttachmentResource(
+    attachmentId: number,
+    article: Pick<ArticleRecord, "id" | "authorId" | "content" | "contentFormat">,
+    user: AuthenticatedUser | null,
+  ): Promise<void> {
+    // 完整编辑者沿用已有权限，普通文章附件不额外查询积分表。
+    if (user && (user.id === article.authorId || this.canManageContent(user))) return;
+    const parsed = parseArticleContent(article.content, article.contentFormat);
+    const reference = new RegExp(String.raw`/articles/attachments/${attachmentId}/(?:download|thumbnail)(?=$|[\s"'<>?#)\]])`);
+    const lockedKeys = parsed.blocks.filter((block) => reference.test(block.content)).map((block) => block.key);
+    if (!lockedKeys.length) return;
+    // 作者在公开段落也引用了同一附件时视为公开，避免重复引用被错误限制。
+    if (parsed.segments.some((segment) => segment.type !== "resource" && reference.test(segment.content))) return;
+    if (!user) throw new ForbiddenException("请兑换对应资源后再访问附件。");
+    // 只接受当前账号、本篇文章及匹配块的有效交付；失败需重试，退款不能继续读取。
+    const exchanges = await this.prisma.articleResourceExchange.findMany({
+      where: { articleId: article.id, buyerId: user.id, blockKey: { in: lockedKeys }, deliveryStatus: { in: [ResourceDeliveryStatus.unlocked, ResourceDeliveryStatus.downloaded] } },
+      select: { blockKey: true },
+    });
+    if (!exchanges.some((exchange) => lockedKeys.includes(exchange.blockKey))) {
+      throw new ForbiddenException("请兑换对应资源后再访问附件。");
+    }
   }
 
   private async cleanupUploadedFiles(files: UploadedChatAttachment[]): Promise<void> {
@@ -1565,11 +1619,13 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
     return { favorited, likeCount: article.likeCount, favoriteCount: Math.max(0, article.favoriteCount) };
   }
 
+  /** 为 user 兑换 id 文章的 dto 指定资源块，事务内扣分一次；失败或退款记录不重新授权。 */
   async redeemResource(
     id: number,
     user: AuthenticatedUser,
     dto: RedeemArticleResourceDto,
   ): Promise<ArticleResponse> {
+    // 先校验当前文章权限、发布状态和稳定资源块键，避免过期内容或其它块凭据参与兑换。
     const article = await this.getArticleOrThrow(id);
     this.assertCanRead(article, user);
     if (article.status !== ArticleStatus.published) throw new BadRequestException("文章当前不能兑换资源。");
@@ -1577,14 +1633,19 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
     const block = parsed.blocks.find((candidate) => candidate.key === dto.blockKey);
     if (!block) throw new BadRequestException("资源区域不存在或已经更新，请刷新文章后重试。");
     let exchangeId: number | null = null;
+    // 作者及内容管理员沿用编辑权限；普通读者的兑换与积分转移处于同一事务。
     if (article.authorId !== user.id && !this.canManageContent(user)) {
       try {
         await this.prisma.$transaction(async (transaction) => {
           const existing = await transaction.articleResourceExchange.findUnique({
             where: { articleId_buyerId_blockKey: { articleId: id, buyerId: user.id, blockKey: block.key } },
-            select: { id: true },
+            select: { id: true, deliveryStatus: true },
           });
+          // 已退款不允许免费恢复权限，交付失败必须通过既有重试入口恢复且不再次扣分。
+          if (existing?.deliveryStatus === ResourceDeliveryStatus.refunded) throw new BadRequestException("该资源已退款，不能再次兑换。");
+          if (existing?.deliveryStatus === ResourceDeliveryStatus.failed) throw new BadRequestException("资源交付失败，请在兑换记录中重试。");
           if (existing) return;
+          // 唯一的文章、买家和资源块维度创建交付，事件与账本跟随事务一起提交。
           const exchange = await transaction.articleResourceExchange.create({
             data: {
               articleId: id,
@@ -1610,12 +1671,14 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
           });
         });
       } catch (error) {
+        // 并发唯一冲突不能触发第二次支付，其余失败保持原业务异常并回滚事务。
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
           throw new BadRequestException("该资源已经兑换，无需重复支付。");
         }
         throw error;
       }
     }
+    // 事务成功后才异步通知集成服务，不以通知失败回滚已完成的兑换。
     if (exchangeId !== null) {
       void this.integrations?.emit("resource.redeemed", {
         exchangeId,
@@ -1626,6 +1689,7 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
         pointCost: block.pointCost,
       }, `exchange:${exchangeId}`).catch(() => undefined);
     }
+    // 返回当前正文和按有效交付重新计算的阅读权限，不复用兑换前的旧对象。
     const [refreshed, readerState] = await Promise.all([
       this.getArticleOrThrow(id),
       this.getReaderState(id, user.id),
@@ -3195,7 +3259,9 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
     }, `article:${article.id}:publication:${article.publicationCount}`).catch(() => undefined);
   }
 
+  /** 批量读取 userId 对 articleId 的阅读状态，只将有效交付映射为资源解锁键。 */
   private async getReaderState(articleId: number, userId: number): Promise<ArticleReaderState> {
+    // 阅读标记与进度独立查询，资源正文权限与附件下载使用完全相同的交付状态白名单。
     const [readLater, history, exchange] = await Promise.all([
       this.prisma.articleReadLater.findUnique({
         where: { articleId_userId: { articleId, userId } },
@@ -3206,10 +3272,11 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
         select: { progress: true, lastReadAt: true },
       }),
       this.prisma.articleResourceExchange.findMany({
-        where: { articleId, buyerId: userId },
+        where: { articleId, buyerId: userId, deliveryStatus: { in: [ResourceDeliveryStatus.unlocked, ResourceDeliveryStatus.downloaded] } },
         select: { blockKey: true },
       }),
     ]);
+    // 无记录时保留空值语义；失败和退款记录不会进入已解锁集合。
     return {
       readLater: Boolean(readLater),
       readingProgress: history?.progress ?? null,
@@ -3362,11 +3429,13 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  /** 按 viewer 权限和 readerState 解锁状态序列化 article；未登录不返回编辑附件列表。 */
   private toResponse(
     article: ArticleRecord,
     viewer?: AuthenticatedUser | null,
     readerState?: ArticleReaderState,
   ): ArticleResponse {
+    // 最近评论者按稳定用户 ID 去重，最多展示五位，不因昵称变化重复展示。
     const recentCommenters: ArticleAuthorResponse[] = [];
     const commenterIds = new Set<number>();
     for (const comment of article.comments) {
@@ -3375,6 +3444,7 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
       recentCommenters.push(this.toAuthor(comment.author));
       if (recentCommenters.length === 5) break;
     }
+    // 作者和内容管理员可编辑完整正文，其余用户只能读取公开段落及已解锁资源。
     const parsedContent = parseArticleContent(article.content, article.contentFormat);
     const fullContentAccess = Boolean(viewer && (viewer.id === article.authorId || this.canManageContent(viewer)));
     const unlockedKeys = fullContentAccess
@@ -3391,6 +3461,7 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
       .filter((segment): segment is Extract<typeof segment, { type: "markdown" | "html" }> => segment.type === "markdown" || segment.type === "html")
       .map((segment) => segment.content)
       .join("\n\n");
+    // 在共用响应中返回展示字段；附件元数据与完整编辑权限绑定，避免旁路泄露资源。
     return {
       id: article.id,
       title: article.title,
@@ -3456,6 +3527,7 @@ export class ArticlesService implements OnModuleInit, OnModuleDestroy {
           href: `/topics/${topic.slug}`,
         })),
       images: article.images.map((image) => `/articles/images/${image.storedName}`),
+      attachments: fullContentAccess ? (article.attachments ?? []).map((attachment) => this.toArticleAttachmentResponse(attachment)) : [],
       liked: Boolean(viewer && article.likes.some((like) => like.userId === viewer.id)),
       favorited: Boolean(viewer && article.favorites.some((favorite) => favorite.userId === viewer.id)),
       readLater: readerState?.readLater ?? false,

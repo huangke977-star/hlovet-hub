@@ -44,22 +44,28 @@ export class AuthController {
   }
 
   @Get("google/start")
-  async googleStart(@Query("returnTo") returnTo: string | undefined, @Query("native") native: string | undefined, @Req() request: SessionRequest, @Res() response: Response) {
+  async googleStart(@Query("returnTo") returnTo: string | undefined, @Query("native") native: string | undefined, @Query("purpose") purpose: string | undefined, @Req() request: SessionRequest, @Res() response: Response) {
     const context = this.sessionContext(request);
     const shouldSetCookie = !context.trustedDeviceToken;
     context.trustedDeviceToken ??= createTrustedDeviceToken();
-    const url = await this.authService.startGoogleLogin(context, returnTo, native === "android");
+    const url = await this.authService.startGoogleLogin(context, returnTo, native === "android", purpose === "link");
     if (shouldSetCookie) setTrustedDeviceCookie(response, context.trustedDeviceToken);
     return response.redirect(url);
   }
 
   @Get("google/callback")
   async googleCallback(@Query("code") code: string, @Query("state") state: string, @Res() response: Response) {
+    let nativeOAuthRequest = false;
+    let nativeOAuthReturnTo: string | undefined;
     try {
+      const nativeState = await this.authService.getNativeGoogleOAuthState(state);
+      nativeOAuthRequest = nativeState.native;
+      nativeOAuthReturnTo = nativeState.returnTo;
       const result = await this.authService.finishGoogleLogin(code, state);
       if (result.nativeRedirect === "hlovet-native") {
         const target = new URL(process.env.ANDROID_OAUTH_REDIRECT_URI ?? "https://5200918.xyz/native-auth/google");
         target.searchParams.set("result", result.redirectToken);
+        if (result.returnTo !== "/dashboard") target.searchParams.set("from", result.returnTo);
         return response.redirect(target.toString());
       }
       const target = new URL(result.requiresInteraction ? "/login" : "/dashboard", process.env.WEB_ORIGIN ?? "http://localhost:3000");
@@ -71,6 +77,12 @@ export class AuthController {
       }
       return response.redirect(target.toString());
     } catch (error) {
+      if (nativeOAuthRequest) {
+        const target = new URL(process.env.ANDROID_OAUTH_REDIRECT_URI ?? "https://5200918.xyz/native-auth/google");
+        target.searchParams.set("error", error instanceof Error ? error.message.split("\n")[0] : "Google sign-in failed.");
+        if (nativeOAuthReturnTo && nativeOAuthReturnTo !== "/dashboard") target.searchParams.set("from", nativeOAuthReturnTo);
+        return response.redirect(target.toString());
+      }
       const target = new URL("/login", process.env.WEB_ORIGIN ?? "http://localhost:3000");
       target.searchParams.set("oauthError", error instanceof Error ? error.message.split("\n")[0] : "Google sign-in failed.");
       return response.redirect(target.toString());
@@ -137,7 +149,7 @@ export class AuthController {
   @Post("password-recovery/request")
   @HttpCode(200)
   requestPasswordRecovery(@Body() dto: PasswordRecoveryRequestDto, @Req() request: SessionRequest) {
-    return this.accountSecurity.requestPasswordReset(dto.email, dto.turnstileToken, this.sessionContext(request));
+    return this.accountSecurity.requestPasswordReset(dto.email, dto.turnstileToken, this.sessionContext(request), dto.client);
   }
 
   @Post("password-recovery/reset")

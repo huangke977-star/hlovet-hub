@@ -4,17 +4,50 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+def configuredApiBaseUrl = (project.findProperty('previewApiBaseUrl') ?: 'https://5200918.xyz/api').toString().trim().replaceAll('/+$', '')
+def configuredPortalBaseUrl = (project.findProperty('previewPortalBaseUrl') ?: configuredApiBaseUrl).toString().trim().replaceAll('/+$', '')
+def configuredPortalHost = '5200918.xyz'
+def configuredPortalAlternateHost = 'www.5200918.xyz'
+def configuredPortalOrigin = configuredPortalBaseUrl
+try {
+    def portalUri = java.net.URI.create(configuredPortalBaseUrl)
+    configuredPortalHost = portalUri.host ?: configuredPortalHost
+    configuredPortalAlternateHost = configuredPortalHost.startsWith('www.')
+        ? configuredPortalHost.substring(4)
+        : "www.${configuredPortalHost}"
+    if (portalUri.scheme && portalUri.rawAuthority) {
+        configuredPortalOrigin = "${portalUri.scheme}://${portalUri.rawAuthority}"
+    }
+} catch (ignored) {
+    // Keep the production host when a preview property is malformed; the API
+    // URL itself is still visible in the generated BuildConfig for diagnostics.
+}
+
 android {
     namespace 'xyz.hlovet.portal.prototype'
     compileSdk 36
 
     defaultConfig {
+        def firebaseApiKey = (project.findProperty('firebaseApiKey') ?: '').toString().replace('\\', '\\\\').replace('"', '\\"')
+        def firebaseProjectId = (project.findProperty('firebaseProjectId') ?: '').toString().replace('\\', '\\\\').replace('"', '\\"')
+        def firebaseApplicationId = (project.findProperty('firebaseApplicationId') ?: '').toString().replace('\\', '\\\\').replace('"', '\\"')
+        def firebaseSenderId = (project.findProperty('firebaseSenderId') ?: '').toString().replace('\\', '\\\\').replace('"', '\\"')
         applicationId 'xyz.hlovet.portal.prototype'
+        manifestPlaceholders = [
+            portalHost: configuredPortalHost,
+            portalAlternateHost: configuredPortalAlternateHost,
+        ]
         minSdk 24
         targetSdk 35
         versionCode 1
         versionName '0.1.0'
-        buildConfigField 'String', 'API_BASE_URL', '"' + (project.findProperty('previewApiBaseUrl') ?: 'https://5200918.xyz/api') + '"'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        buildConfigField 'String', 'API_BASE_URL', '"' + configuredApiBaseUrl.replace('\\', '\\\\').replace('"', '\\"') + '"'
+        buildConfigField 'String', 'PORTAL_BASE_URL', '"' + configuredPortalOrigin.replace('\\', '\\\\').replace('"', '\\"') + '"'
+        buildConfigField 'String', 'FIREBASE_API_KEY', '"' + firebaseApiKey + '"'
+        buildConfigField 'String', 'FIREBASE_PROJECT_ID', '"' + firebaseProjectId + '"'
+        buildConfigField 'String', 'FIREBASE_APPLICATION_ID', '"' + firebaseApplicationId + '"'
+        buildConfigField 'String', 'FIREBASE_SENDER_ID', '"' + firebaseSenderId + '"'
     }
 
     buildFeatures {
@@ -29,19 +62,41 @@ android {
 
     kotlinOptions {
         jvmTarget = '17'
+        languageVersion = '1.9'
     }
 }
 
 dependencies {
     implementation platform('androidx.compose:compose-bom:2025.06.01')
     implementation 'androidx.activity:activity-compose:1.10.1'
+    implementation 'androidx.core:core-ktx:1.16.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.9.1'
     implementation 'androidx.credentials:credentials:1.5.0'
     implementation 'androidx.credentials:credentials-play-services-auth:1.5.0'
+    implementation 'com.google.firebase:firebase-messaging:24.1.2'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'io.socket:socket.io-client:2.1.0'
+    implementation 'io.github.webrtc-sdk:android:125.6422.07'
+    implementation 'org.commonmark:commonmark:0.24.0'
+    implementation 'org.commonmark:commonmark-ext-gfm-tables:0.24.0'
+    implementation 'org.commonmark:commonmark-ext-task-list-items:0.24.0'
+    implementation 'org.jsoup:jsoup:1.18.3'
     implementation 'androidx.compose.foundation:foundation'
     implementation 'androidx.compose.material3:material3'
     implementation 'androidx.compose.material:material-icons-extended'
     implementation 'androidx.compose.ui:ui-tooling-preview'
     implementation 'dev.chrisbanes.haze:haze:1.6.10'
     debugImplementation 'androidx.compose.ui:ui-tooling'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
+    androidTestImplementation platform('androidx.compose:compose-bom:2025.06.01')
+    androidTestImplementation 'androidx.compose.ui:ui-test-junit4'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    // 真实 DocumentsUI 多选使用系统 UI 测试工具，不模拟 ActivityResult 或读取任意文件权限。
+    androidTestImplementation 'androidx.test.uiautomator:uiautomator:2.3.0'
+    androidTestImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
 }

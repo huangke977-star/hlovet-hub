@@ -4,24 +4,28 @@ import webpush from "web-push";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import type { ChatMessageResponse } from "../social/social.types";
-import { PushSubscriptionDto } from "./dto/push.dto";
+import { NativePushTokenDto, PushSubscriptionDto } from "./dto/push.dto";
+import { FcmClient } from "./fcm.client";
 import { IntegrationsService } from "../integrations/integrations.service";
 import { BrowserPushPayload, PushConfigResponse, PushStatusResponse } from "./push.types";
 
 @Injectable()
 export class PushService implements OnModuleInit, OnModuleDestroy {
+  private readonly fcm = new FcmClient();
   private readonly publicKey = process.env.VAPID_PUBLIC_KEY?.trim() || "";
   private readonly privateKey = process.env.VAPID_PRIVATE_KEY?.trim() || "";
   private readonly subject = process.env.VAPID_SUBJECT?.trim() || "";
-  private readonly enabled = Boolean(this.publicKey && this.privateKey && this.subject);
+  private readonly browserEnabled = Boolean(this.publicKey && this.privateKey && this.subject);
+  private readonly nativeEnabled = this.fcm.enabled;
+  private readonly enabled = this.browserEnabled || this.nativeEnabled;
   private pollTimer: NodeJS.Timeout | null = null;
   private polling = false;
 
   constructor(private readonly prisma: PrismaService, @Optional() private readonly integrations?: IntegrationsService) {}
 
   onModuleInit(): void {
+    if (this.browserEnabled) webpush.setVapidDetails(this.subject, this.publicKey, this.privateKey);
     if (!this.enabled) return;
-    webpush.setVapidDetails(this.subject, this.publicKey, this.privateKey);
     this.pollTimer = setInterval(() => void this.deliverPendingNotifications(), 12_000);
     this.pollTimer.unref();
     setTimeout(() => void this.deliverPendingNotifications(), 2_000).unref();
@@ -32,13 +36,19 @@ export class PushService implements OnModuleInit, OnModuleDestroy {
   }
 
   getConfig(): PushConfigResponse {
-    return { enabled: this.enabled, publicKey: this.enabled ? this.publicKey : null };
+    return {
+      enabled: this.browserEnabled,
+      publicKey: this.browserEnabled ? this.publicKey : null,
+      nativeEnabled: this.nativeEnabled,
+    };
   }
 
   async getStatus(user: AuthenticatedUser): Promise<PushStatusResponse> {
+    const nativeSubscriptionCount = await this.nativeTokenCount(user.id);
     return {
       ...this.getConfig(),
       subscriptionCount: await this.prisma.pushSubscription.count({ where: { userId: user.id } }),
+      nativeSubscriptionCount,
     };
   }
 
@@ -78,6 +88,43 @@ export class PushService implements OnModuleInit, OnModuleDestroy {
     return this.getStatus(user);
   }
 
+  async registerNativeToken(user: AuthenticatedUser, dto: NativePushTokenDto, userAgent: string): Promise<PushStatusResponse> {
+    const token = dto.token.trim();
+    const nativePushTokens = this.nativePushTokensClient();
+    if (!nativePushTokens) throw new BadRequestException("Android 原生推送存储尚未就绪。");
+    await nativePushTokens.upsert({
+      where: { tokenHash: this.endpointHash(token) },
+      create: {
+        userId: user.id,
+        tokenHash: this.endpointHash(token),
+        token,
+        platform: dto.platform || "android",
+        appId: dto.appId?.trim() || "",
+        deviceId: dto.deviceId?.trim() || "",
+        userAgent: userAgent.slice(0, 500),
+      },
+      update: {
+        userId: user.id,
+        token,
+        platform: dto.platform || "android",
+        appId: dto.appId?.trim() || "",
+        deviceId: dto.deviceId?.trim() || "",
+        userAgent: userAgent.slice(0, 500),
+      },
+    });
+    return this.getStatus(user);
+  }
+
+  async unregisterNativeToken(user: AuthenticatedUser, dto: NativePushTokenDto): Promise<PushStatusResponse> {
+    const nativePushTokens = this.nativePushTokensClient();
+    if (nativePushTokens) {
+      await nativePushTokens.deleteMany({
+        where: { userId: user.id, tokenHash: this.endpointHash(dto.token.trim()) },
+      });
+    }
+    return this.getStatus(user);
+  }
+
   async sendChatMessage(senderId: number, recipientId: number, message: ChatMessageResponse): Promise<void> {
     if (!this.enabled || senderId === recipientId) return;
     const state = await this.prisma.conversationParticipantState.findUnique({
@@ -94,6 +141,8 @@ export class PushService implements OnModuleInit, OnModuleDestroy {
       url: `/messages?conversation=${message.conversationId}`,
       tag: `chat-${message.conversationId}`,
       dedupeKey: `chat-message-${message.id}-${recipientId}`,
+      messageId: message.id,
+      type: "chat_message",
     });
     await this.integrations?.deliverExternalNotification(recipientId, "interaction", { type: "chat_message", messageId: message.id, conversationId: message.conversationId, body: message.body || "[attachment]", url: `/messages?conversation=${message.conversationId}` });
   }
@@ -132,6 +181,9 @@ export class PushService implements OnModuleInit, OnModuleDestroy {
             dedupeKey: notification.messageId
               ? `chat-message-${notification.messageId}-${notification.userId}`
               : `notification-${notification.id}`,
+            notificationId: notification.id,
+            messageId: notification.messageId ?? undefined,
+            type: notification.type,
           });
         }
         await this.integrations?.deliverExternalNotification(notification.userId, String(notification.channel), { notificationId: notification.id, type: notification.type, title: notification.title, body: notification.body, actionUrl: notification.actionUrl });
@@ -148,29 +200,68 @@ export class PushService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async sendToUser(userId: number, payload: BrowserPushPayload): Promise<void> {
-    const configuredIcon = payload.icon || await this.configuredPwaIcon();
-    const subscriptions = await this.prisma.pushSubscription.findMany({
-      where: { userId },
-      select: { id: true, endpoint: true, p256dh: true, auth: true },
-    });
-    await Promise.all(subscriptions.map(async (subscription) => {
-      try {
-        await webpush.sendNotification({
-          endpoint: subscription.endpoint,
-          keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-        }, JSON.stringify({
-          ...payload,
-          recipientUserId: userId,
-          icon: configuredIcon,
-          badge: payload.badge || "/favicon-48x48.png",
-        }), { TTL: 300, urgency: "normal" });
-      } catch (error) {
-        const statusCode = typeof error === "object" && error && "statusCode" in error
-          ? Number((error as { statusCode?: unknown }).statusCode)
-          : 0;
-        if (statusCode === 404 || statusCode === 410) {
-          await this.prisma.pushSubscription.delete({ where: { id: subscription.id } }).catch(() => undefined);
+    if (this.browserEnabled) {
+      const configuredIcon = payload.icon || await this.configuredPwaIcon();
+      const subscriptions = await this.prisma.pushSubscription.findMany({
+        where: { userId },
+        select: { id: true, endpoint: true, p256dh: true, auth: true },
+      });
+      await Promise.all(subscriptions.map(async (subscription) => {
+        try {
+          await webpush.sendNotification({
+            endpoint: subscription.endpoint,
+            keys: { p256dh: subscription.p256dh, auth: subscription.auth },
+          }, JSON.stringify({
+            ...payload,
+            recipientUserId: userId,
+            icon: configuredIcon,
+            badge: payload.badge || "/favicon-48x48.png",
+          }), { TTL: 300, urgency: "normal" });
+        } catch (error) {
+          const statusCode = typeof error === "object" && error && "statusCode" in error
+            ? Number((error as { statusCode?: unknown }).statusCode)
+            : 0;
+          if (statusCode === 404 || statusCode === 410) {
+            await this.prisma.pushSubscription.delete({ where: { id: subscription.id } }).catch(() => undefined);
+          }
         }
+      }));
+    }
+    await this.sendNativeToUser(userId, payload);
+  }
+
+  private async sendNativeToUser(userId: number, payload: BrowserPushPayload): Promise<void> {
+    if (!this.nativeEnabled) return;
+    const nativePushTokens = this.nativePushTokensClient();
+    if (!nativePushTokens) return;
+    let tokens: Array<{ id: number; token: string }>;
+    try {
+      tokens = await nativePushTokens.findMany({
+        where: { userId, platform: "android" },
+        select: { id: true, token: true },
+      });
+    } catch {
+      // Keep browser delivery working while an older deployment is waiting for the native-token migration.
+      return;
+    }
+    await Promise.all(tokens.map(async (row: { id: number; token: string }) => {
+      try {
+        const result = await this.fcm.send(row.token, {
+          title: payload.title,
+          body: payload.body,
+          titleEn: payload.titleEn,
+          bodyEn: payload.bodyEn,
+          locale: payload.locale,
+          category: payload.category,
+          url: payload.url,
+          tag: payload.tag,
+          notificationId: payload.notificationId,
+          messageId: payload.messageId,
+          type: payload.type,
+        });
+        if (result === "invalid") await nativePushTokens.delete({ where: { id: row.id } }).catch(() => undefined);
+      } catch {
+        // A transient FCM failure must not prevent the browser channel or the next retry cycle.
       }
     }));
   }
@@ -223,7 +314,7 @@ export class PushService implements OnModuleInit, OnModuleDestroy {
   }
 
   private assertConfigured(): void {
-    if (!this.enabled) throw new BadRequestException("浏览器推送尚未在服务器上配置。");
+    if (!this.browserEnabled) throw new BadRequestException("浏览器推送尚未在服务器上配置。");
   }
 
   private assertEndpoint(endpoint: string): void {
@@ -236,5 +327,26 @@ export class PushService implements OnModuleInit, OnModuleDestroy {
 
   private endpointHash(endpoint: string): string {
     return createHash("sha256").update(endpoint).digest("hex");
+  }
+
+  private nativePushTokensClient(): {
+    upsert: (args: unknown) => Promise<unknown>;
+    deleteMany: (args: unknown) => Promise<unknown>;
+    findMany: (args: unknown) => Promise<Array<{ id: number; token: string }>>;
+    delete: (args: unknown) => Promise<unknown>;
+    count: (args: unknown) => Promise<number>;
+  } | null {
+    return (this.prisma as unknown as { nativePushToken?: ReturnType<PushService["nativePushTokensClient"]> }).nativePushToken ?? null;
+  }
+
+  private async nativeTokenCount(userId: number): Promise<number> {
+    const nativePushTokens = this.nativePushTokensClient();
+    if (!nativePushTokens) return 0;
+    try {
+      return await nativePushTokens.count({ where: { userId } });
+    } catch {
+      // The API can be upgraded before the optional native-token table is migrated.
+      return 0;
+    }
   }
 }

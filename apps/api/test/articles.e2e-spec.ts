@@ -265,6 +265,23 @@ describe("ArticlesService article center extensions", () => {
     jest.clearAllMocks();
   });
 
+  // 编辑文章必须重读附件元数据，不能上传成功后在保存回包或重新打开时丢失列表。
+  it("returns confirmed attachment metadata when an author reopens the editor", async () => {
+    // 复用原有文章和账号夹具，只添加已确认的数据库附件，不模拟客户端自行拼装列表。
+    const attachment = { id: 301, kind: "audio", originalName: "voice.wav", mimeType: "audio/wav", sizeBytes: 52, createdAt: new Date() };
+    const article = Object.assign(articleRecord(ArticleStatus.draft), { attachments: [attachment] });
+    const prisma = createPrismaMock();
+    prisma.article.findUnique.mockResolvedValue(article);
+    const service = createService(prisma);
+
+    // 作者编辑入口仍校验权限，响应只含公开下载描述，不泄露服务端存储文件名。
+    const result = await service.getMineById(article.id, user);
+    expect(result).toMatchObject({ attachments: [{ id: 301, kind: "audio", originalName: "voice.wav", downloadUrl: "/articles/attachments/301/download" }] });
+    expect(prisma.article.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      include: expect.objectContaining({ attachments: expect.objectContaining({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }) }),
+    }));
+  });
+
   it("lists favorites in interaction order and applies expanded search", async () => {
     const prisma = createPrismaMock();
     const service = createService(prisma);

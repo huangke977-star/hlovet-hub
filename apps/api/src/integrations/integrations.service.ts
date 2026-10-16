@@ -10,6 +10,7 @@ import { CreateExternalChannelDto, CreateReadOnlyTokenDto, CreateWebhookDto, Rea
 const MAX_WEBHOOK_ATTEMPTS = 5;
 const WEBHOOK_EVENTS = new Set(["integration.test", "user.registered", "article.published", "article.commented", "notification.created", "resource.redeemed"]);
 
+/** 管理外部集成凭据、只读授权及通知投递，不扩大凭据持有者的站内权限。 */
 @Injectable()
 export class IntegrationsService implements OnModuleInit, OnModuleDestroy {
   private deliveryTimer: NodeJS.Timeout | null = null;
@@ -80,13 +81,18 @@ export class IntegrationsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** 为 user 创建 dto 指定的只读凭据；明文仅返回一次，数据库只保存摘要。 */
   async createToken(user: AuthenticatedUser, dto: CreateReadOnlyTokenDto) {
+    // DTO 长度校验先于 trim，仍需阻止全空白名称成为不可辨识的凭据。
+    const name = dto.name.trim();
+    if (!name) throw new BadRequestException("令牌名称不能为空。\nToken name is required.");
     const scopes = [...new Set(dto.scopes)] as ReadOnlyScope[];
     if (!scopes.length) throw new BadRequestException("至少选择一个只读权限。\nChoose at least one read-only scope.");
     const expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
     if (expiresAt && (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now())) throw new BadRequestException("过期时间必须晚于当前时间。\nExpiry must be in the future.");
+    // 持久化绑定所有者的摘要，响应正文是唯一取回完整令牌的机会。
     const raw = `lvt_${randomBytes(32).toString("base64url")}`;
-    const item = await this.prisma.readOnlyApiToken.create({ data: { userId: user.id, name: dto.name.trim(), tokenPrefix: raw.slice(0, 16), tokenHash: this.hash(raw), scopes, expiresAt } });
+    const item = await this.prisma.readOnlyApiToken.create({ data: { userId: user.id, name, tokenPrefix: raw.slice(0, 16), tokenHash: this.hash(raw), scopes, expiresAt } });
     return { id: item.id, name: item.name, token: raw, tokenPrefix: item.tokenPrefix, scopes, expiresAt: item.expiresAt?.toISOString() ?? null, createdAt: item.createdAt.toISOString() };
   }
 
@@ -101,13 +107,16 @@ export class IntegrationsService implements OnModuleInit, OnModuleDestroy {
     return { success: true as const };
   }
 
+  /** 校验 rawHeader 的凭据、requiredScope 和限流，返回当前所有者权限而非创建时快照。 */
   async authenticateReadOnlyToken(rawHeader: string | undefined, requiredScope: ReadOnlyScope) {
+    // 每次读取最新账号和角色，账号停用、凭据撤销或角色变更立即生效。
     const raw = rawHeader?.startsWith("Bearer ") ? rawHeader.slice(7).trim() : "";
     if (!raw.startsWith("lvt_")) throw new UnauthorizedException("只读 API 令牌无效。\nInvalid read-only API token.");
-    const item = await this.prisma.readOnlyApiToken.findUnique({ where: { tokenHash: this.hash(raw), }, include: { user: { select: { id: true, username: true, nickname: true, email: true, status: true } } } });
+    const item = await this.prisma.readOnlyApiToken.findUnique({ where: { tokenHash: this.hash(raw), }, include: { user: { select: { id: true, username: true, nickname: true, email: true, status: true, isSuperAdmin: true, role: { select: { code: true } } } } } });
     if (!item || item.revokedAt || (item.expiresAt && item.expiresAt <= new Date()) || item.user.status !== "active") throw new UnauthorizedException("只读 API 令牌无效或已过期。\nRead-only API token is invalid or expired.");
     const scopes = this.asStringArray(item.scopes);
     if (!scopes.includes(requiredScope)) throw new UnauthorizedException("令牌没有所需权限。\nToken scope is insufficient.");
+    // 仅权限验证通过的访问计入每令牌分钟限流和最近使用记录。
     const rateKey = `readonly_api_rate:${item.id}:${Math.floor(Date.now() / 60_000)}`;
     const count = await this.redis.incr(rateKey);
     if (count === 1) await this.redis.expire(rateKey, 70);
@@ -116,9 +125,24 @@ export class IntegrationsService implements OnModuleInit, OnModuleDestroy {
     return item;
   }
 
+  /** 按 rawHeader 所有者权限检索 search；limit 在权限过滤后的查询中生效。 */
   async listReadOnlyArticles(rawHeader: string | undefined, search?: string, limit = 20) {
-    await this.authenticateReadOnlyToken(rawHeader, "read_articles");
-    const rows = await this.prisma.article.findMany({ where: { status: "published", ...(search?.trim() ? { OR: [{ title: { contains: search.trim() } }, { summary: { contains: search.trim() } }] } : {}) }, orderBy: [{ publishedAt: "desc" }, { id: "desc" }], take: Math.min(50, Math.max(1, limit)), select: { id: true, slug: true, title: true, summary: true, category: true, publishedAt: true, author: { select: { username: true, nickname: true } } } });
+    // 与文章发现列表保持相同的公开、登录可见、本人私密和角色授权规则。
+    const token = await this.authenticateReadOnlyToken(rawHeader, "read_articles");
+    const where: Prisma.ArticleWhereInput = { status: "published" };
+    if (!token.user.isSuperAdmin) {
+      where.OR = [
+        { visibility: "public" },
+        { visibility: "authenticated" },
+        { visibility: "private", authorId: token.userId },
+        { visibility: "role_restricted", allowedRoles: { some: { role: { code: token.user.role.code } } } },
+      ];
+    }
+    // 搜索条件与权限求交，不能用搜索 OR 覆盖可见性 OR。
+    const term = search?.trim();
+    if (term) where.AND = [{ OR: [{ title: { contains: term } }, { summary: { contains: term } }] }];
+    const rows = await this.prisma.article.findMany({ where, orderBy: [{ publishedAt: "desc" }, { id: "desc" }], take: Math.min(50, Math.max(1, limit)), select: { id: true, slug: true, title: true, summary: true, category: true, publishedAt: true, author: { select: { username: true, nickname: true } } } });
+    // 仅返回只读列表元数据，不附带正文、管理字段或完整凭据。
     return { items: rows.map((row) => ({ ...row, publishedAt: row.publishedAt?.toISOString() ?? null })), count: rows.length };
   }
 

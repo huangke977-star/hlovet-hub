@@ -742,6 +742,46 @@ describe("SocialService", () => {
     }));
   });
 
+  // 空提及关键词必须能返回当前会话成员；不可搜索的群成员也能被本群合法提及。
+  it("scopes empty mention searches to active conversation participants before limiting results", async () => {
+    const prisma = {
+      conversation: { findUnique: jest.fn(async () => ({
+        kind: "group", friendship: null,
+        group: { id: 3, status: "active", expiresAt: null, members: [{ userId: user.id }, { userId: 8 }] },
+      })) },
+      user: { findMany: jest.fn(async () => [socialUser(8)]) },
+      friendship: { findMany: jest.fn(async () => []) },
+    };
+    const result = await createService(prisma).searchUsers(user, { q: "", limit: 20, mention: true, conversationId: 19 });
+    expect(result.items.map((item) => item.id)).toEqual([8]);
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { not: user.id, in: [user.id, 8] }, AND: [{ OR: [
+        { username: { contains: "" } }, { nickname: { contains: "" } },
+      ] }] }),
+    }));
+  });
+
+  // 非成员不能通过提及搜索枚举群成员，拒绝发生在用户查询之前。
+  it("rejects mention candidate enumeration outside the caller conversation", async () => {
+    const findMany = jest.fn();
+    const service = createService({ conversation: { findUnique: jest.fn(async () => null) }, user: { findMany } });
+    await expect(service.searchUsers(user, { q: "", limit: 20, mention: true, conversationId: 91 })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(findMany).not.toHaveBeenCalled();
+  });
+
+  // 评论提及沿用可搜索用户范围；无提及标志时仍保留普通搜索门槛。
+  it("keeps comment discoverability and normal search minimum separate from mention mode", async () => {
+    const prisma = { user: { findMany: jest.fn(async () => []) } };
+    const service = createService(prisma);
+    await expect(service.searchUsers(user, { q: "", limit: 8 })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.searchUsers(user, { q: "", limit: 8, mention: true })).resolves.toEqual({ items: [] });
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ AND: expect.arrayContaining([{ OR: [
+        { profileSettings: null }, { profileSettings: { is: { searchable: true } } },
+      ] }]) }),
+    }));
+  });
+
   it("clears only the current account history while keeping the conversation visible", async () => {
     const friendship = { userOneId: 7, userTwoId: 8, status: FriendshipStatus.accepted };
     const stateUpsert = jest.fn(async () => ({ id: 1 }));

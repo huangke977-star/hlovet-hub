@@ -729,6 +729,20 @@ describe("P2 account security", () => {
       await expect(harness.service.consumePasswordResetToken(token)).rejects.toThrow("重置链接无效或已过期");
     });
 
+    it("sends an Android deep link with a web fallback without exposing the stored token", async () => {
+      const harness = createAccountSecurityHarness({
+        configuration: { passwordRecoveryEnabled: true },
+      });
+
+      await harness.service.requestPasswordReset("security@example.com", undefined, sessionContext, "android");
+      const mailText = latestMailText(harness.sendMail);
+      const token = resetTokenFrom(mailText);
+
+      expect(mailText).toContain("hlovet-native://auth/password-reset?token=");
+      expect(mailText).toContain("/forgot-password?token=");
+      expect(harness.passwordResetRequests[0].tokenHash).not.toBe(token);
+    });
+
     it("binds a new-device email code to the browser credential and trusts it after verification", async () => {
       const harness = createAccountSecurityHarness();
       const challenge = await harness.service.requestDeviceLoginVerification(authenticatedUser(), sessionContext);

@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- 仅测试 APK 使用的独立 UID 查看器，验证临时 URI 读取授权，不进入正式 APK。 -->
+        <activity
+            android:name="xyz.hlovet.portal.prototype.NativeAttachmentReceiverActivity"
+            android:exported="true" />
+        <!-- 独立 UID 文件来源只存在于测试包，校验系统剪贴板和拖放的临时 URI 授权。 -->
+        <provider
+            android:name="xyz.hlovet.portal.prototype.NativeEditorFileSourceProvider"
+            android:authorities="xyz.hlovet.portal.prototype.test.editor-files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+        <activity
+            android:name="xyz.hlovet.portal.prototype.NativeEditorFileSourceActivity"
+            android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
+            android:exported="true" />
+    </application>
+</manifest>

@@ -547,7 +547,12 @@ export class AccountSecurityService {
     return { userId: request.userId! };
   }
 
-  async requestPasswordReset(email: string, turnstileToken: string | undefined, context: RefreshSessionContext) {
+  async requestPasswordReset(
+    email: string,
+    turnstileToken: string | undefined,
+    context: RefreshSessionContext,
+    client: "web" | "android" = "web",
+  ) {
     const config = await this.configuration.getConfiguration();
     if (!config.smtpEnabled || !config.passwordRecoveryEnabled) throw new BadRequestException("密码找回当前未启用。");
     await this.turnstile.verify(turnstileToken, context.ip, config.turnstileRecoveryEnabled);
@@ -577,13 +582,20 @@ export class AccountSecurityService {
       },
     });
     const origin = (process.env.WEB_ORIGIN ?? `https://${process.env.SITE_DOMAIN ?? "5200918.xyz"}`).replace(/\/$/, "");
-    const resetUrl = `${origin}/forgot-password?token=${encodeURIComponent(token)}`;
+    const webResetUrl = `${origin}/forgot-password?token=${encodeURIComponent(token)}`;
+    const nativeResetUrl = `hlovet-native://auth/password-reset?token=${encodeURIComponent(token)}`;
+    const resetText = client === "android"
+      ? `请在 30 分钟内打开以下地址，在 HLOVET Android 中重置密码：${nativeResetUrl}\n如果无法打开 App，可使用网页备用地址：${webResetUrl}`
+      : `请在 30 分钟内打开以下地址重置密码：${webResetUrl}`;
+    const resetHtml = client === "android"
+      ? `<p>请在 30 分钟内打开下面的地址，在 HLOVET Android 中重置密码：</p><p><a href="${nativeResetUrl}">在 HLOVET Android 中重置密码</a></p><p>如果无法打开 App，可使用<a href="${webResetUrl}">网页备用地址</a>。</p>`
+      : `<p>请在 30 分钟内打开下面的地址重置密码：</p><p><a href="${webResetUrl}">${webResetUrl}</a></p>`;
     await this.mail.send({
       type: MailJobType.password_reset,
       recipient: user.email,
       subject: "重置你的 HLOVET 密码",
-      text: `请在 30 分钟内打开以下地址重置密码：${resetUrl}\n如果不是你本人操作，请忽略这封邮件。`,
-      html: `<p>${this.escapeHtml(user.nickname)}，你好：</p><p>请在 30 分钟内打开下面的地址重置密码：</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>如果不是你本人操作，请忽略这封邮件。</p>`,
+      text: `${resetText}\n如果不是你本人操作，请忽略这封邮件。`,
+      html: `<p>${this.escapeHtml(user.nickname)}，你好：</p>${resetHtml}<p>如果不是你本人操作，请忽略这封邮件。</p>`,
       userId: user.id,
       metadata: { passwordResetRequestId: request.id },
     });

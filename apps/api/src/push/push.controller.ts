@@ -3,7 +3,7 @@ import type { Request } from "express";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
-import { PushSubscriptionDto } from "./dto/push.dto";
+import { NativePushTokenDto, PushSubscriptionDto } from "./dto/push.dto";
 import { PushService } from "./push.service";
 
 @Controller("push")
@@ -31,5 +31,17 @@ export class PushController {
   @UseGuards(JwtAuthGuard)
   unsubscribe(@CurrentUser() user: AuthenticatedUser, @Body() dto: PushSubscriptionDto) {
     return this.pushService.unsubscribe(user, dto);
+  }
+
+  @Post("native-subscriptions")
+  @UseGuards(JwtAuthGuard)
+  registerNativeToken(@CurrentUser() user: AuthenticatedUser, @Body() dto: NativePushTokenDto, @Req() request: Request) {
+    return this.pushService.registerNativeToken(user, dto, request.headers["user-agent"] ?? "");
+  }
+
+  @Delete("native-subscriptions")
+  @UseGuards(JwtAuthGuard)
+  unregisterNativeToken(@CurrentUser() user: AuthenticatedUser, @Body() dto: NativePushTokenDto) {
+    return this.pushService.unregisterNativeToken(user, dto);
   }
 }

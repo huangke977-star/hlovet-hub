@@ -1,23 +1,41 @@
 package xyz.hlovet.portal.prototype
 
+import android.net.Uri
 import org.json.JSONObject
-import java.net.CookieHandler
-import java.net.CookieManager
-import java.net.CookiePolicy
 import java.net.HttpURLConnection
 import java.net.URL
 
 internal data class NativeSession(
     val accessToken: String,
     val refreshToken: String,
+    val userId: Int = 0,
     val username: String,
     val nickname: String,
     val appearance: PreviewAppearance,
+    val email: String = "",
+    val profileBio: String = "",
+    val avatarUrl: String? = null,
+    val locale: String = "zh-CN",
+    val isSuperAdmin: Boolean = false,
+    val isAdministrator: Boolean = false,
+)
+
+internal data class NativeAuthSession(
+    val id: String,
+    val issuedAt: String,
+    val expiresAt: String,
+    val ip: String,
+    val userAgent: String,
+    val current: Boolean,
 )
 
 internal sealed interface NativeAuthResult {
     data class Authenticated(val session: NativeSession) : NativeAuthResult
-    data class DeviceVerification(val challengeToken: String, val emailHint: String) : NativeAuthResult
+    data class DeviceVerification(
+        val challengeToken: String,
+        val emailHint: String,
+        val retryAfterSeconds: Int,
+    ) : NativeAuthResult
     data class TotpVerification(val challengeToken: String) : NativeAuthResult
     data class GoogleLinkRequired(
         val pendingToken: String,
@@ -38,24 +56,99 @@ internal data class NativePasskeyOptions(
     val requestJson: String,
 )
 
+internal data class NativePasskeyCreationOptions(
+    val challengeToken: String,
+    val requestJson: String,
+)
+
+internal data class NativeRegistrationPolicy(
+    val registrationOpen: Boolean,
+    val emailVerificationEnabled: Boolean,
+    val turnstileEnabled: Boolean,
+    val loginTurnstileEnabled: Boolean,
+    val loginTurnstileFailureThreshold: Int,
+    val passwordRecoveryEnabled: Boolean,
+    val recoveryTurnstileEnabled: Boolean,
+    val turnstileSiteKey: String,
+)
+
+internal data class NativeRegistrationCodeResult(
+    val retryAfterSeconds: Int,
+)
+
+internal data class NativeDeviceVerificationResend(
+    val challengeToken: String,
+    val emailHint: String,
+    val retryAfterSeconds: Int,
+)
+
+internal fun parseNativeDeviceVerificationResend(
+    response: JSONObject,
+    fallbackChallengeToken: String,
+): NativeDeviceVerificationResend = NativeDeviceVerificationResend(
+    challengeToken = response.optString("challengeToken").ifBlank { fallbackChallengeToken },
+    emailHint = response.optString("emailHint"),
+    retryAfterSeconds = response.optInt("retryAfterSeconds", 60).coerceAtLeast(1),
+)
+
+internal class NativeAuthHttpException(
+    val statusCode: Int,
+    message: String,
+) : IllegalStateException(message)
+
 internal object NativeAuthApi {
     private const val DEFAULT_BASE_URL = "https://5200918.xyz/api"
     const val USER_AGENT = "HLOVET-Android-Preview"
 
-    init {
-        if (CookieHandler.getDefault() == null) {
-            CookieHandler.setDefault(CookieManager(null, CookiePolicy.ACCEPT_ALL))
-        }
-    }
-
     private val baseUrl: String
         get() = BuildConfig.API_BASE_URL.trimEnd('/').ifBlank { DEFAULT_BASE_URL }
 
-    fun login(account: String, password: String): NativeAuthResult =
+    fun login(account: String, password: String, turnstileToken: String? = null): NativeAuthResult =
         parseLoginResponse(request("/auth/login", JSONObject().apply {
             put("account", account)
             put("password", password)
+            if (!turnstileToken.isNullOrBlank()) put("turnstileToken", turnstileToken)
         }))
+
+    fun refresh(refreshToken: String): NativeSession =
+        parseSession(request("/auth/refresh", JSONObject().apply { put("refreshToken", refreshToken) }))
+
+    fun logout(refreshToken: String) {
+        request("/auth/logout", JSONObject().apply { put("refreshToken", refreshToken) })
+    }
+
+    fun listSessions(accessToken: String): List<NativeAuthSession> {
+        val response = authorizedRequest("/auth/sessions", "POST", accessToken)
+        val items = response.optJSONArray("sessions") ?: return emptyList()
+        return buildList {
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                add(
+                    NativeAuthSession(
+                        id = item.optString("id"),
+                        issuedAt = item.optString("issuedAt"),
+                        expiresAt = item.optString("expiresAt"),
+                        ip = item.optString("ip", "unknown"),
+                        userAgent = item.optString("userAgent", "unknown"),
+                        current = item.optBoolean("current"),
+                    ),
+                )
+            }
+        }
+    }
+
+    fun revokeOtherSessions(accessToken: String): Int =
+        authorizedRequest("/auth/sessions/revoke-others", "POST", accessToken).optInt("revokedSessions")
+
+    fun revokeAllSessions(accessToken: String): Int =
+        authorizedRequest("/auth/sessions/revoke-all", "POST", accessToken).optInt("revokedSessions")
+
+    fun revokeSession(accessToken: String, sessionId: String): Boolean {
+        val normalizedId = sessionId.trim()
+        require(normalizedId.isNotBlank()) { "登录设备标识缺失。" }
+        val encodedId = Uri.encode(normalizedId)
+        return authorizedRequest("/auth/sessions/$encodedId", "DELETE", accessToken).optBoolean("current")
+    }
 
     fun verifyDevice(challengeToken: String, code: String): NativeAuthResult =
         parseLoginResponse(request("/auth/login/device-verification", JSONObject().apply {
@@ -63,11 +156,75 @@ internal object NativeAuthApi {
             put("code", code)
         }))
 
+    fun resendDeviceVerification(challengeToken: String): NativeDeviceVerificationResend {
+        val response = request("/auth/login/device-verification/resend", JSONObject().apply {
+            put("challengeToken", challengeToken)
+        })
+        return parseNativeDeviceVerificationResend(response, challengeToken)
+    }
+
     fun verifyTotp(challengeToken: String, code: String): NativeAuthResult =
         parseLoginResponse(request("/auth/login/totp-verification", JSONObject().apply {
             put("challengeToken", challengeToken)
             put("code", code)
         }))
+
+    fun registrationPolicy(): NativeRegistrationPolicy {
+        val siteSettings = requestGet("/site-settings/public")
+        val securityPolicy = requestGet("/auth/security-policy")
+        val turnstile = securityPolicy.optJSONObject("turnstile") ?: JSONObject()
+        return NativeRegistrationPolicy(
+            registrationOpen = siteSettings.optBoolean("registrationOpen", true),
+            emailVerificationEnabled = securityPolicy.optBoolean("registrationEmailVerificationEnabled"),
+            turnstileEnabled = turnstile.optBoolean("registrationEnabled"),
+            loginTurnstileEnabled = turnstile.optBoolean("loginEnabled"),
+            loginTurnstileFailureThreshold = turnstile.optInt("loginFailureThreshold", 5).coerceAtLeast(1),
+            passwordRecoveryEnabled = securityPolicy.optBoolean("passwordRecoveryEnabled"),
+            recoveryTurnstileEnabled = turnstile.optBoolean("recoveryEnabled"),
+            turnstileSiteKey = turnstile.optString("siteKey"),
+        )
+    }
+
+    fun requestPasswordRecovery(email: String, turnstileToken: String?) {
+        request("/auth/password-recovery/request", JSONObject().apply {
+            put("email", email)
+            put("client", "android")
+            if (!turnstileToken.isNullOrBlank()) put("turnstileToken", turnstileToken)
+        })
+    }
+
+    fun resetPassword(token: String, newPassword: String, turnstileToken: String?): Int {
+        val response = request("/auth/password-recovery/reset", JSONObject().apply {
+            put("token", token)
+            put("newPassword", newPassword)
+            if (!turnstileToken.isNullOrBlank()) put("turnstileToken", turnstileToken)
+        })
+        return response.optInt("revokedSessions")
+    }
+
+    fun requestRegistrationCode(email: String, turnstileToken: String?): NativeRegistrationCodeResult {
+        val response = request("/auth/registration-code", JSONObject().apply {
+            put("email", email)
+            if (!turnstileToken.isNullOrBlank()) put("turnstileToken", turnstileToken)
+        })
+        return NativeRegistrationCodeResult(response.optInt("retryAfterSeconds", 60))
+    }
+
+    fun register(
+        username: String,
+        nickname: String,
+        email: String,
+        password: String,
+        verificationCode: String?,
+        turnstileToken: String?,
+    ): NativeAuthResult = NativeAuthResult.Authenticated(parseSession(request("/auth/register", JSONObject().apply {
+        put("username", username)
+        put("nickname", nickname)
+        put("email", email)
+        put("password", password)
+        if (!verificationCode.isNullOrBlank()) put("verificationCode", verificationCode)
+        if (!turnstileToken.isNullOrBlank()) put("turnstileToken", turnstileToken)
+    })))
 
     fun passkeyLoginOptions(): NativePasskeyOptions {
         val response = request("/auth/passkeys/login/options", JSONObject())
@@ -86,8 +243,9 @@ internal object NativeAuthApi {
     fun externalAuthProviders(): Boolean =
         requestGet("/auth/providers").optJSONObject("google")?.optBoolean("enabled") == true
 
-    fun startGoogleLogin(): String {
-        val path = "/auth/google/start?native=android&returnTo=%2Fdashboard"
+    fun startGoogleLogin(returnTo: String = "/dashboard", linkOnly: Boolean = false): String {
+        val purpose = if (linkOnly) "&purpose=link" else ""
+        val path = "/auth/google/start?native=android&returnTo=${Uri.encode(returnTo)}$purpose"
         val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 12_000
@@ -170,6 +328,7 @@ internal object NativeAuthApi {
             return NativeAuthResult.DeviceVerification(
                 challengeToken = response.optString("challengeToken"),
                 emailHint = response.optString("emailHint"),
+                retryAfterSeconds = response.optInt("retryAfterSeconds", 60).coerceAtLeast(1),
             )
         }
         if (response.optBoolean("totpVerificationRequired")) {
@@ -190,7 +349,7 @@ internal object NativeAuthApi {
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val responseBody = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) throw IllegalStateException("请求接口失败（HTTP $status）")
+            if (status !in 200..299) throw NativeAuthHttpException(status, "请求接口失败（HTTP $status）")
             JSONObject(responseBody)
         } finally {
             connection.disconnect()
@@ -203,10 +362,47 @@ internal object NativeAuthApi {
         return NativeSession(
             accessToken = response.optString("accessToken").ifBlank { throw IllegalStateException("登录响应缺少访问令牌") },
             refreshToken = response.optString("refreshToken"),
+            userId = user.optInt("id", 0),
             username = user.optString("username", "user"),
             nickname = user.optString("nickname", user.optString("username", "user")),
             appearance = PreviewApi.appearanceFromJson(appearance),
+            email = user.optString("email"),
+            profileBio = user.optString("profileBio"),
+            avatarUrl = user.optString("avatarUrl").takeIf { it.isNotBlank() && it != "null" },
+            locale = user.optString("locale", "zh-CN"),
+            isSuperAdmin = user.optBoolean("isSuperAdmin"),
+            isAdministrator = user.optBoolean("isAdministrator"),
         )
+    }
+
+    private fun authorizedRequest(path: String, method: String, accessToken: String): JSONObject {
+        val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
+            requestMethod = method
+            connectTimeout = 12_000
+            readTimeout = 12_000
+            doOutput = method == "POST"
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("User-Agent", USER_AGENT)
+            setRequestProperty("Authorization", "Bearer $accessToken")
+            if (doOutput) setRequestProperty("Content-Type", "application/json")
+        }
+        return try {
+            if (connection.doOutput) {
+                connection.outputStream.bufferedWriter().use { it.write("{}") }
+            }
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val responseBody = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) {
+                val message = runCatching { JSONObject(responseBody).optString("message") }.getOrNull()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "会话操作失败（HTTP $status）"
+                throw NativeAuthHttpException(status, message)
+            }
+            if (responseBody.isBlank()) JSONObject() else JSONObject(responseBody)
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun request(path: String, body: JSONObject): JSONObject {
@@ -228,7 +424,7 @@ internal object NativeAuthApi {
                 val message = runCatching { JSONObject(responseBody).optString("message") }.getOrNull()
                     ?.takeIf { it.isNotBlank() }
                     ?: "登录失败（HTTP $status）"
-                throw IllegalStateException(message)
+                throw NativeAuthHttpException(status, message)
             }
             JSONObject(responseBody)
         } finally {

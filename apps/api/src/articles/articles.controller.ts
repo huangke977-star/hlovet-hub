@@ -510,6 +510,16 @@ export class ArticlesController {
     return this.articlesService.uploadAttachments(id, user, files);
   }
 
+  @Delete(":id/attachments/:attachmentId")
+  @UseGuards(JwtAuthGuard)
+  removeAttachment(
+    @Param("id", ParseIntPipe) id: number,
+    @Param("attachmentId", ParseIntPipe) attachmentId: number,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.articlesService.removeAttachment(id, attachmentId, user);
+  }
+
   @Post(":id/like")
   @UseGuards(JwtAuthGuard)
   like(@Param("id", ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser) {

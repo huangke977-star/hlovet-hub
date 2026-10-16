@@ -38,6 +38,7 @@ export interface ArticleContentSegmentResponse {
   unlocked?: boolean;
 }
 
+/** 文章展示与编辑共用响应，附件列表只向可编辑完整正文的用户返回。 */
 export interface ArticleResponse {
   id: number;
   title: string;
@@ -75,6 +76,7 @@ export interface ArticleResponse {
   collections: ArticleGroupingResponse[];
   topics: ArticleGroupingResponse[];
   images: string[];
+  attachments: ArticleAttachmentResponse[];
   liked: boolean;
   favorited: boolean;
   readLater: boolean;

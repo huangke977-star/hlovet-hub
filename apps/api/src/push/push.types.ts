@@ -1,10 +1,12 @@
 export interface PushConfigResponse {
   enabled: boolean;
   publicKey: string | null;
+  nativeEnabled: boolean;
 }
 
 export interface PushStatusResponse extends PushConfigResponse {
   subscriptionCount: number;
+  nativeSubscriptionCount: number;
 }
 
 export interface BrowserPushPayload {
@@ -17,6 +19,9 @@ export interface BrowserPushPayload {
   url: string;
   tag: string;
   dedupeKey?: string;
+  notificationId?: number;
+  messageId?: number;
+  type?: string;
   icon?: string;
   badge?: string;
 }

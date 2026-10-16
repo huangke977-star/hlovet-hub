@@ -10,6 +10,7 @@ import { SecurityConfigurationService } from "../src/security/security-configura
 import { TurnstileService } from "../src/security/turnstile.service";
 import { AccountPrivacyService } from "../src/account-privacy/account-privacy.service";
 import { AuthService } from "../src/auth/auth.service";
+import { AuthController } from "../src/auth/auth.controller";
 
 interface StoredUser {
   id: number;
@@ -420,6 +421,69 @@ describe("AuthController (e2e)", () => {
     const response = await request(app.getHttpServer()).post("/auth/login").send({ account: "email-login@example.com", password: "Secret123!" }).expect(200);
 
     expect(response.body.user.username).toBe("email_user");
+  });
+
+  it("returns Google callback failures to the native login route", async () => {
+    const state = "native-google-state";
+    redisState.store.set(
+      `oauth_google_state:${createHash("sha256").update(state).digest("hex")}`,
+      JSON.stringify({ nativeRedirect: "hlovet-native" }),
+    );
+    const authService = app.get(AuthService);
+    jest.spyOn(authService, "finishGoogleLogin").mockRejectedValue(new Error("Google authorization was cancelled."));
+    const redirect = jest.fn((location: string) => location);
+    const response = { redirect } as never;
+
+    await app.get(AuthController).googleCallback("", state, response);
+
+    expect(redirect).toHaveBeenCalledWith(expect.stringContaining("https://5200918.xyz/native-auth/google?error="));
+    expect(new URL(redirect.mock.calls[0][0]).searchParams.get("error")).toBe("Google authorization was cancelled.");
+  });
+
+  it("preserves the native integrations return target when Google authorization fails", async () => {
+    const state = "native-google-integrations-state";
+    redisState.store.set(
+      `oauth_google_state:${createHash("sha256").update(state).digest("hex")}`,
+      JSON.stringify({ nativeRedirect: "hlovet-native", returnTo: "/profile/integrations" }),
+    );
+    const authService = app.get(AuthService);
+    jest.spyOn(authService, "finishGoogleLogin").mockRejectedValue(new Error("Google authorization was cancelled."));
+    const redirect = jest.fn((location: string) => location);
+    const response = { redirect } as never;
+
+    await app.get(AuthController).googleCallback("", state, response);
+
+    const location = new URL(redirect.mock.calls[0][0]);
+    expect(location.searchParams.get("error")).toBe("Google authorization was cancelled.");
+    expect(location.searchParams.get("from")).toBe("/profile/integrations");
+  });
+
+  it("keeps Google callback failures on the web login route for web state", async () => {
+    const state = "web-google-state";
+    redisState.store.set(
+      `oauth_google_state:${createHash("sha256").update(state).digest("hex")}`,
+      JSON.stringify({ nativeRedirect: undefined }),
+    );
+    const authService = app.get(AuthService);
+    jest.spyOn(authService, "finishGoogleLogin").mockRejectedValue(new Error("Google authorization failed."));
+    const redirect = jest.fn((location: string) => location);
+    const response = { redirect } as never;
+
+    await app.get(AuthController).googleCallback("", state, response);
+
+    expect(redirect).toHaveBeenCalledWith(expect.stringContaining("http://localhost:3000/login?oauthError="));
+    expect(new URL(redirect.mock.calls[0][0]).searchParams.get("oauthError")).toBe("Google authorization failed.");
+  });
+
+  it("does not treat an unknown Google state as a native callback", async () => {
+    const authService = app.get(AuthService);
+    jest.spyOn(authService, "finishGoogleLogin").mockRejectedValue(new Error("Google sign-in failed."));
+    const redirect = jest.fn((location: string) => location);
+    const response = { redirect } as never;
+
+    await app.get(AuthController).googleCallback("", "expired-google-state", response);
+
+    expect(redirect).toHaveBeenCalledWith(expect.stringContaining("http://localhost:3000/login?oauthError="));
   });
 
   it("links a Google identity directly after pre-authenticated password verification", async () => {

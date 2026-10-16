@@ -65,7 +65,9 @@ export class RegistrationCodeDto {
   @IsOptional() @IsString() @MaxLength(2048) turnstileToken?: string;
 }
 
-export class PasswordRecoveryRequestDto extends RegistrationCodeDto {}
+export class PasswordRecoveryRequestDto extends RegistrationCodeDto {
+  @IsOptional() @IsIn(["web", "android"]) client: "web" | "android" = "web";
+}
 
 export class PasswordRecoveryResetDto {
   @IsString() @MinLength(20) @MaxLength(512) token!: string;

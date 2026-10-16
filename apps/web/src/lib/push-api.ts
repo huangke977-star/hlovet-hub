@@ -3,10 +3,12 @@ import { requestJson } from "./auth-api";
 export interface PushConfig {
   enabled: boolean;
   publicKey: string | null;
+  nativeEnabled: boolean;
 }
 
 export interface PushStatus extends PushConfig {
   subscriptionCount: number;
+  nativeSubscriptionCount: number;
 }
 
 export interface BrowserPushState extends PushStatus {

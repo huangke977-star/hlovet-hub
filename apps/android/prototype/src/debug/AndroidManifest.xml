@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:usesCleartextTraffic="true">
+        <!-- 仅测试宿主自行响应分屏尺寸变化，避免空白 ComponentActivity 重建后丢失测试挂载内容。 -->
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout" />
+    </application>
+</manifest>

@@ -417,37 +417,46 @@ export class SocialService {
     };
   }
 
+  /** 按关键词返回可搜索用户；聊天提及额外校验会话访问权并只返回有效成员。 */
   async searchUsers(
     user: AuthenticatedUser,
     query: SearchSocialUsersQueryDto,
   ): Promise<{ items: SocialUserSearchResult[] }> {
+    // 普通搜索维持最小关键词限制；提及允许空关键词，但不能绕过会话成员权限。
     const keyword = query.q.trim();
     if (keyword.length < 2 && !query.mention) {
       throw new BadRequestException("搜索关键词至少需要 2 个字符。");
     }
+    const membership = query.mention && query.conversationId
+      ? await this.assertConversationMember(query.conversationId, user.id)
+      : null;
+    // 会话成员在查询前缩小范围，避免全站先截断造成群成员候选缺失；屏蔽关系仍在批量查询后排除。
     const candidates = await this.prisma.user.findMany({
       where: {
-        id: { not: user.id },
+        id: { not: user.id, ...(membership ? { in: membership.participantIds } : {}) },
         status: "active",
         AND: [
           { OR: [
             { username: { contains: keyword } },
             { nickname: { contains: keyword } },
           ] },
-          { OR: [
+          ...(membership ? [] : [{ OR: [
             { profileSettings: null },
             { profileSettings: { is: { searchable: true } } },
-          ] },
+          ] }]),
         ],
       },
       take: Math.min(query.limit * 2, 40),
       select: socialUserSelect,
     });
+    // 精确用户名优先，其次前缀和昵称；仅排序本次范围内的候选。
     const sorted = candidates.sort((left, right) => {
       const leftUsername = left.username.toLocaleLowerCase();
       const rightUsername = right.username.toLocaleLowerCase();
       const target = keyword.toLocaleLowerCase();
+      // 根据 candidate 用户名和昵称返回相关度分值，分数越小越接近用户输入。
       const score = (candidate: SocialUserRecord) => {
+        // 同一关键词的精确用户名、用户名起始、昵称起始按稳定优先级排序。
         const username = candidate.username.toLocaleLowerCase();
         const nickname = candidate.nickname.toLocaleLowerCase();
         if (username === target) return 0;
@@ -457,6 +466,7 @@ export class SocialService {
       };
       return score(left) - score(right) || leftUsername.localeCompare(rightUsername);
     }).slice(0, query.limit);
+    // 一次读取所有候选与当前账号的关系，避免逐个查询或显示被任一方屏蔽的人。
     const candidateIds = sorted.map((candidate) => candidate.id);
     const relationships = candidateIds.length
       ? await this.prisma.friendship.findMany({
@@ -476,6 +486,7 @@ export class SocialService {
         : relationship.userOneId;
       relationshipByUserId.set(targetId, relationship);
     });
+    // 保留普通搜索的好友状态结构，供评论与聊天使用相同候选组件。
     return {
       items: sorted.flatMap((candidate) => {
         const relationship = relationshipByUserId.get(candidate.id) ?? null;

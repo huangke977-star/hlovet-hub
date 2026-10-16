@@ -7,6 +7,56 @@ import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+
+/**
+ * 使用 client 请求 url 的 JSON；accessToken 为空时不发送账号凭据。
+ * 请求构造及调度在后台执行，返回解析结果；取消协程同时取消实际 HTTP 调用。
+ */
+internal suspend fun nativePreviewJsonRequest(
+    client: OkHttpClient,
+    url: String,
+    accessToken: String? = null,
+): JSONObject = withContext(Dispatchers.IO) {
+    // newCall/enqueue 也会触发客户端内部初始化，不能只把响应解析移到后台。
+    suspendCancellableCoroutine { continuation ->
+        val request = Request.Builder().url(url).header("Accept", "application/json").apply {
+            if (!accessToken.isNullOrBlank()) header("Authorization", "Bearer $accessToken")
+        }.build()
+        val call = client.newCall(request)
+        // 页面退出或刷新超时后停止网络调用，不继续消耗连接。
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            /** 将 call 的网络错误 e 传回等待协程，不发布成功结果。 */
+            override fun onFailure(call: Call, e: IOException) {
+                // 取消导致的失败仍由协程取消状态处理。
+                continuation.resumeWith(Result.failure(e))
+            }
+
+            /** 关闭 call 的 response 并解析 JSON，HTTP 失败只暴露状态码。 */
+            override fun onResponse(call: Call, response: Response) {
+                // 响应读取在 OkHttp 回调线程执行，所有结果均关闭响应体。
+                val result = runCatching {
+                    response.use {
+                        if (!it.isSuccessful) throw IOException("HTTP ${it.code}")
+                        JSONObject(it.body?.string().orEmpty())
+                    }
+                }
+                continuation.resumeWith(result)
+            }
+        })
+    }
+}
 
 internal data class RemoteArticle(
     val id: Int,
@@ -14,6 +64,7 @@ internal data class RemoteArticle(
     val slug: String,
     val summary: String,
     val content: String,
+    val contentFormat: String = "markdown",
     val category: String,
     val tags: List<String>,
     val viewCount: Int,
@@ -22,6 +73,38 @@ internal data class RemoteArticle(
     val commentCount: Int,
     val authorName: String,
     val authorUsername: String,
+    val authorId: Int = 0,
+    val liked: Boolean = false,
+    val favorited: Boolean = false,
+    val readLater: Boolean = false,
+    val readingProgress: Int? = null,
+    val lastReadAt: String? = null,
+    val contentSegments: List<RemoteArticleSegment> = emptyList(),
+    val resourceEnabled: Boolean = false,
+    val resourceBlocks: List<RemoteResourceBlock> = emptyList(),
+    val images: List<String> = emptyList(),
+    val status: String = "published",
+    val blockedReason: String? = null,
+    val isPinned: Boolean = false,
+    val pinOrder: Int = 0,
+    val visibility: String = "public",
+    val titleColor: String = "",
+    val allowedRoleCodes: List<String> = emptyList(),
+    val updatedAt: String = "",
+)
+
+internal data class RemoteArticleSegment(
+    val type: String,
+    val content: String? = null,
+    val key: String? = null,
+    val pointCost: Int? = null,
+    val unlocked: Boolean = true,
+)
+
+internal data class RemoteResourceBlock(
+    val key: String,
+    val pointCost: Int,
+    val unlocked: Boolean,
 )
 
 internal data class RemoteCollection(
@@ -32,6 +115,10 @@ internal data class RemoteCollection(
     val subscriberCount: Int,
     val ownerName: String,
     val articles: List<RemoteArticle>,
+    val coverPath: String? = null,
+    val visibility: String = "public",
+    val subscribed: Boolean = false,
+    val updatedAt: String = "",
 )
 
 internal data class RemoteTopic(
@@ -41,6 +128,14 @@ internal data class RemoteTopic(
     val articleCount: Int,
     val subscriberCount: Int,
     val articles: List<RemoteArticle>,
+    val slug: String = "",
+    val coverPath: String? = null,
+    val visibility: String = "public",
+    val subscribed: Boolean = false,
+    val updatedAt: String = "",
+    val status: String = "active",
+    val sortOrder: Int = 0,
+    val roleCodes: List<String> = emptyList(),
 )
 
 internal data class PreviewData(
@@ -63,22 +158,45 @@ internal data class PreviewAppearance(
     val glassTintAlpha: Int,
 )
 
+/** 首页公开/可见内容及外观读取；地址和外观工具不触发网络客户端初始化。 */
 internal object PreviewApi {
     private const val DEFAULT_BASE_URL = "https://5200918.xyz/api"
+    // 仅真正请求时创建客户端，避免界面调用地址工具就初始化整个 OkHttp。
+    private val client by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .callTimeout(12, TimeUnit.SECONDS)
+            .build()
+    }
 
     private val baseUrl: String
         get() = BuildConfig.API_BASE_URL.trimEnd('/').ifBlank { DEFAULT_BASE_URL }
 
-    fun load(): PreviewData {
-        val settings = request("/site-settings/public")
+    suspend fun load(accessToken: String? = null): PreviewData {
+        val settings = request("/site-settings/public", accessToken)
         val theme = settings.optJSONObject("defaultTheme") ?: JSONObject()
-        val articles = request("/articles?page=1&pageSize=8&sort=latest")
+        // The active uploaded background overrides the configured built-in
+        // background on the web client as well. Keep this lookup optional so
+        // an older server can still serve the configured default.
+        val activeBackground = try {
+            request("/backgrounds/active", accessToken)
+                .optJSONObject("background")
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
+        }
+        val articlePath = if (accessToken.isNullOrBlank()) "/articles?page=1&pageSize=8&sort=recommended" else "/articles/visible?page=1&pageSize=8&sort=recommended"
+        val topicPath = if (accessToken.isNullOrBlank()) "/discovery/topics?page=1&pageSize=8" else "/discovery/topics/visible?page=1&pageSize=8"
+        val collectionPath = if (accessToken.isNullOrBlank()) "/discovery/collections?page=1&pageSize=8" else "/discovery/collections/visible?page=1&pageSize=8"
+        val articles = request(articlePath, accessToken)
             .optJSONArray("items")
             .toRemoteArticles()
-        val topics = request("/discovery/topics?page=1&pageSize=8")
+        val topics = request(topicPath, accessToken)
             .optJSONArray("items")
             .toRemoteTopics()
-        val collections = request("/discovery/collections?page=1&pageSize=8")
+        val collections = request(collectionPath, accessToken)
             .optJSONArray("items")
             .toRemoteCollections()
         return PreviewData(
@@ -86,7 +204,12 @@ internal object PreviewApi {
             topics = topics,
             collections = collections,
             appearance = theme.toPreviewAppearance(),
-            backgroundUrl = settings.optString("defaultBackgroundUrl").takeIf { it.isNotBlank() }?.let(::absoluteUrl),
+            backgroundUrl = activeBackground?.optString("url")
+                ?.takeIf { it.isNotBlank() && it != "null" }
+                ?.let(::apiAbsoluteUrl)
+                ?: settings.optString("defaultBackgroundUrl")
+                    .takeIf { it.isNotBlank() && it != "null" }
+                    ?.let(::siteAbsoluteUrl),
         )
     }
 
@@ -107,33 +230,27 @@ internal object PreviewApi {
 
     internal fun appearanceFromJson(theme: JSONObject): PreviewAppearance = theme.toPreviewAppearance()
 
-    private fun request(path: String): JSONObject {
-        val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 12_000
-            readTimeout = 12_000
-            setRequestProperty("Accept", "application/json")
-        }
-        return try {
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) {
-                throw IllegalStateException("请求接口失败（HTTP $status）")
-            }
-            JSONObject(body)
-        } finally {
-            connection.disconnect()
-        }
+    /** 请求相对 API 的 path；accessToken 用于可见内容，返回 JSON 并在后台首次创建客户端。 */
+    private suspend fun request(path: String, accessToken: String? = null): JSONObject = withContext(Dispatchers.IO) {
+        // lazy 求值发生在后台，不能在给挂起函数传参时提前回到主线程初始化。
+        nativePreviewJsonRequest(client, baseUrl + path, accessToken)
     }
 
-    private fun absoluteUrl(path: String): String {
+    internal fun apiAbsoluteUrl(path: String): String {
         if (path.startsWith("http://") || path.startsWith("https://")) return path
         return if (path.startsWith("/api/")) {
             baseUrl.substringBeforeLast("/api") + path
         } else {
             baseUrl + "/" + path.trimStart('/')
         }
+    }
+
+    internal fun siteAbsoluteUrl(path: String): String {
+        if (path.startsWith("http://") || path.startsWith("https://")) return path
+        val origin = BuildConfig.PORTAL_BASE_URL.trimEnd('/').ifBlank {
+            baseUrl.substringBeforeLast("/api")
+        }
+        return origin + "/" + path.trimStart('/')
     }
 
     private fun JSONObject.toPreviewAppearance(): PreviewAppearance {
@@ -173,16 +290,18 @@ internal object PreviewApi {
                 glassTintAlpha = 0,
             )
         }
-        if (themeId != "custom") return defaults
-        return defaults.copy(
-            accent = optString("customAccent", defaults.accent),
-            foreground = optString("customForeground", defaults.foreground),
-            muted = optString("customMuted", defaults.muted),
-            surface = optString("customSurface", defaults.surface),
+        val configuredGlass = defaults.copy(
             cardAlpha = optInt("cardAlpha", defaults.cardAlpha),
             glassBlur = optInt("glassBlur", defaults.glassBlur),
             glassTint = optString("glassTint", defaults.glassTint),
             glassTintAlpha = optInt("glassTintAlpha", defaults.glassTintAlpha),
+        )
+        if (themeId != "custom") return configuredGlass
+        return configuredGlass.copy(
+            accent = optString("customAccent", defaults.accent),
+            foreground = optString("customForeground", defaults.foreground),
+            muted = optString("customMuted", defaults.muted),
+            surface = optString("customSurface", defaults.surface),
         )
     }
 
@@ -203,6 +322,14 @@ internal object PreviewApi {
                     articleCount = item.optInt("articleCount", item.optJSONArray("articles")?.length() ?: 0),
                     subscriberCount = item.optInt("subscriberCount"),
                     articles = item.optJSONArray("articles").toRemoteArticles(),
+                    slug = item.optString("slug"),
+                    coverPath = item.optString("coverPath").takeIf { it.isNotBlank() && it != "null" },
+                    visibility = item.optString("visibility", "public"),
+                    subscribed = item.optBoolean("subscribed"),
+                    updatedAt = item.optString("updatedAt"),
+                    status = item.optString("status", "active"),
+                    sortOrder = item.optInt("sortOrder"),
+                    roleCodes = item.optJSONArray("roleCodes").toStringList(),
                 ),
             )
         }
@@ -222,6 +349,10 @@ internal object PreviewApi {
                     subscriberCount = item.optInt("subscriberCount"),
                     ownerName = owner?.displayName() ?: "站内作者",
                     articles = item.optJSONArray("articles").toRemoteArticles(),
+                    coverPath = item.optString("coverPath").takeIf { it.isNotBlank() && it != "null" },
+                    visibility = item.optString("visibility", "public"),
+                    subscribed = item.optBoolean("subscribed"),
+                    updatedAt = item.optString("updatedAt"),
                 ),
             )
         }
@@ -229,12 +360,14 @@ internal object PreviewApi {
 
     private fun JSONObject.toRemoteArticle(): RemoteArticle {
         val author = optJSONObject("author")
+        val resource = optJSONObject("resource")
         return RemoteArticle(
             id = optInt("id"),
             title = optString("title", "未命名文章"),
             slug = optString("slug"),
             summary = optString("summary"),
             content = optString("content"),
+            contentFormat = optString("contentFormat", "markdown"),
             category = optString("category", "未分类"),
             tags = optJSONArray("tags").toStringList(),
             viewCount = optInt("viewCount"),
@@ -243,6 +376,21 @@ internal object PreviewApi {
             commentCount = optInt("commentCount"),
             authorName = author?.displayName() ?: "站内作者",
             authorUsername = author?.optString("username").orEmpty(),
+            authorId = author?.optInt("id") ?: 0,
+            liked = optBoolean("liked"),
+            favorited = optBoolean("favorited"),
+            readLater = optBoolean("readLater"),
+            readingProgress = optInt("readingProgress").takeIf { has("readingProgress") && !isNull("readingProgress") },
+            lastReadAt = optString("lastReadAt").takeIf { it.isNotBlank() && it != "null" },
+            contentSegments = optJSONArray("contentSegments").toRemoteArticleSegments(),
+            resourceEnabled = resource?.optBoolean("enabled") == true,
+            resourceBlocks = resource?.optJSONArray("blocks").toRemoteResourceBlocks(),
+            images = optJSONArray("images").toStringList(),
+            status = optString("status", "published"),
+            blockedReason = optString("blockedReason").takeIf(String::isNotBlank),
+            isPinned = optBoolean("isPinned"),
+            titleColor = optString("titleColor"),
+            updatedAt = optString("updatedAt"),
         )
     }
 
@@ -252,5 +400,35 @@ internal object PreviewApi {
     private fun JSONArray?.toStringList(): List<String> = buildList {
         if (this@toStringList == null) return@buildList
         for (index in 0 until length()) add(optString(index))
+    }
+
+    private fun JSONArray?.toRemoteResourceBlocks(): List<RemoteResourceBlock> = buildList {
+        if (this@toRemoteResourceBlocks == null) return@buildList
+        for (index in 0 until length()) {
+            val value = optJSONObject(index) ?: continue
+            add(
+                RemoteResourceBlock(
+                    key = value.optString("key"),
+                    pointCost = value.optInt("pointCost"),
+                    unlocked = value.optBoolean("unlocked"),
+                ),
+            )
+        }
+    }
+
+    private fun JSONArray?.toRemoteArticleSegments(): List<RemoteArticleSegment> = buildList {
+        if (this@toRemoteArticleSegments == null) return@buildList
+        for (index in 0 until length()) {
+            val value = optJSONObject(index) ?: continue
+            add(
+                RemoteArticleSegment(
+                    type = value.optString("type", "markdown"),
+                    content = value.optString("content").takeIf { it.isNotBlank() && it != "null" },
+                    key = value.optString("key").takeIf { it.isNotBlank() && it != "null" },
+                    pointCost = value.optInt("pointCost").takeIf { !value.isNull("pointCost") },
+                    unlocked = value.optBoolean("unlocked", true),
+                ),
+            )
+        }
     }
 }

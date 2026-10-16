@@ -51,6 +51,7 @@ interface GoogleOAuthState {
   trustedDeviceToken?: string;
   returnTo: string;
   nativeRedirect?: "hlovet-native";
+  linkOnly?: boolean;
 }
 
 interface GoogleProfile {
@@ -774,13 +775,13 @@ export class AuthService {
     return { google: { enabled: google.enabled, provider: "google" as const } };
   }
 
-  async startGoogleLogin(context: RefreshSessionContext, returnTo?: string, nativeRedirect = false): Promise<string> {
+  async startGoogleLogin(context: RefreshSessionContext, returnTo?: string, nativeRedirect = false, linkOnly = false): Promise<string> {
     const google = await this.securityConfiguration.getGoogleOAuthConfig();
     if (!google.enabled) throw new BadRequestException("Google 登录尚未配置。\nGoogle sign-in is not configured.");
     const state = randomBytes(32).toString("base64url");
     const codeVerifier = randomBytes(48).toString("base64url");
     const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
-    const stateData: GoogleOAuthState = { codeVerifier, deviceFingerprint: this.loginDeviceFingerprint(context), ip: context.ip, userAgent: context.userAgent, trustedDeviceToken: context.trustedDeviceToken, returnTo: this.safeReturnTo(returnTo), ...(nativeRedirect ? { nativeRedirect: "hlovet-native" as const } : {}) };
+    const stateData: GoogleOAuthState = { codeVerifier, deviceFingerprint: this.loginDeviceFingerprint(context), ip: context.ip, userAgent: context.userAgent, trustedDeviceToken: context.trustedDeviceToken, returnTo: this.safeReturnTo(returnTo), ...(nativeRedirect ? { nativeRedirect: "hlovet-native" as const } : {}), ...(linkOnly ? { linkOnly: true } : {}) };
     await this.redis.set(this.oauthStateKey(state), JSON.stringify(stateData), this.oauthStateTtlSeconds);
     const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     url.searchParams.set("client_id", google.clientId);
@@ -792,6 +793,23 @@ export class AuthService {
     url.searchParams.set("code_challenge_method", "S256");
     url.searchParams.set("prompt", "select_account");
     return url.toString();
+  }
+
+  async getNativeGoogleOAuthState(state?: string): Promise<{ native: boolean; returnTo?: string }> {
+    if (!state?.trim()) return { native: false };
+    const raw = await this.redis.get(this.oauthStateKey(state.trim()));
+    if (!raw) return { native: false };
+    try {
+      const stateData = JSON.parse(raw) as Partial<GoogleOAuthState>;
+      if (stateData.nativeRedirect !== "hlovet-native") return { native: false };
+      return { native: true, returnTo: this.safeReturnTo(stateData.returnTo) };
+    } catch {
+      return { native: false };
+    }
+  }
+
+  async isNativeGoogleOAuthState(state?: string): Promise<boolean> {
+    return (await this.getNativeGoogleOAuthState(state)).native;
   }
 
   async finishGoogleLogin(code: string, state: string): Promise<{ redirectToken: string; returnTo: string; requiresInteraction: boolean; nativeRedirect?: "hlovet-native" }> {
@@ -815,6 +833,9 @@ export class AuthService {
         const pendingToken = randomBytes(32).toString("base64url");
         await this.redis.set(`oauth_pending:${this.hashToken(pendingToken)}`, JSON.stringify({ provider: "google", subject, email, profile: this.oauthProfileJson(profile) }), this.oauthStateTtlSeconds);
         return { redirectToken: await this.storeOAuthResult({ oauthLinkRequired: true as const, pendingToken, email, methods: await this.googleLinkVerificationMethods(existing.id) }), returnTo: stateData.returnTo, requiresInteraction: true, nativeRedirect: stateData.nativeRedirect };
+      }
+      if (stateData.linkOnly) {
+        throw new ConflictException("该 Google 邮箱尚未绑定站内账号，不能从集成管理直接绑定。请先使用普通 Google 登录创建账号。\nThis Google email is not linked to a site account yet. Sign in with Google first before linking it from integrations.");
       }
       const username = await this.generateGoogleUsername(email.split("@")[0]);
       const nickname = this.normalizeGoogleNickname(profile.name || email.split("@")[0]);
