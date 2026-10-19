@@ -20,6 +20,7 @@
 
 - `/.well-known/assetlinks.json` 现在支持 `ANDROID_APP_LINKS_JSON`，可在 TWA 到正式原生包迁移期间同时声明多个包名和签名指纹；原有 `ANDROID_APP_PACKAGE_NAME` 与 `ANDROID_APP_SHA256_CERT_FINGERPRINT` 继续作为兼容配置，并对包名、64 位指纹做校验和去重。
 - 已用运行时环境分别验证旧单包输出、多包合并、重复项去重、无效项过滤和错误 JSON 回退；Web TypeScript、ESLint、Next 生产构建及 `git diff --check` 均通过。该改动只提供配置能力，没有修改线上环境、正式包名、证书、DNS 或 assetlinks 实际部署结果。
+- P22 发布契约现在也读取并校验 assetlinks；本地合法双关系声明和期望包/指纹边界通过，当前生产只读检查按真实返回结果失败，因为旧 TWA 声明缺少 `delegate_permission/common.get_login_creds`。这确认了正式 Passkey/App Links 仍不能提前宣称通过。
 - 正式闭环仍需要确定正式原生包名/签名，把旧 TWA 和新包的真实指纹配置到生产，再在主域名和实际使用的备用域名上完成系统 App Links 与 Passkey 成功回调验收。
 
 ### 公告时间选择与自然定时验收（本次推送）

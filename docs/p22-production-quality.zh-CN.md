@@ -39,6 +39,16 @@ pnpm p22:release-check
 
 结果为 JSON。所有 `checks[].ok` 必须为 `true`；重点查看 `api-readiness`、`manifest`、`english-manifest` 和 `service-worker`。
 
+结果还会包含 `assetlinks`：它会校验 `/.well-known/assetlinks.json` 是否有合法的 Android 声明，以及是否包含指定的包名/签名。正式发布时建议额外设置期望值：
+
+```powershell
+$env:P22_ANDROID_PACKAGE_NAME = "你的正式 applicationId"
+$env:P22_ANDROID_CERT_FINGERPRINT = "正式签名 SHA-256 指纹"
+pnpm p22:release-check
+```
+
+不设置这两个变量时，脚本仍会检查声明结构，但不会替你选择正式包名或证书；多包迁移请确认输出中的 `packages` 包含旧 TWA 和新原生包。
+
 视觉基线比较仍只建议在开发机执行。它需要读取和写入截图文件，适合页面设计确认，不属于每次部署都要执行的检查：
 
 ```powershell
