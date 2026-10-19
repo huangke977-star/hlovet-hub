@@ -6,8 +6,6 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -58,15 +56,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
@@ -76,7 +71,6 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -673,31 +667,15 @@ private fun NativeAnnouncementChoiceRow(label: String, options: List<Pair<String
 /** 展示 label/value 对应的只读时间字段；enabled 控制选择，回调修改草稿，modifier 提供布局与稳定定位。 */
 @Composable
 private fun NativeAnnouncementDateField(label: String, value: String, enabled: Boolean, onPick: () -> Unit, onClear: () -> Unit, modifier: Modifier = Modifier) {
-    // 只读文本框自己消费触摸，外层 clickable 只会让它获得焦点；监听自身释放事件才可靠打开选择器。
-    val interaction = remember { MutableInteractionSource() }
-    val currentOnPick by rememberUpdatedState(onPick)
-    LaunchedEffect(interaction, enabled) {
-        if (!enabled) return@LaunchedEffect
-        interaction.interactions.collect { event ->
-            if (event is PressInteraction.Release) currentOnPick()
-        }
-    }
-    // 无障碍点击复用相同行为；清除图标消费自己的触摸，不会顺带打开时间选择器。
-    OutlinedTextField(
+    // 公告只覆盖禁用态文案与配色，选择、清除和无障碍交互均复用共享时间字段。
+    HlovetDateTimeField(
+        label = label,
         value = value,
-        onValueChange = {},
-        modifier = modifier.fillMaxWidth().semantics {
-            onClick(label = label) { if (enabled) { currentOnPick(); true } else false }
-        },
+        onPick = onPick,
+        onClear = onClear,
+        modifier = modifier,
         enabled = enabled,
-        interactionSource = interaction,
-        readOnly = true,
-        singleLine = true,
-        label = { Text(label) },
-        placeholder = { Text(if (enabled) nativePhrase("点击选择时间", "Tap to choose a time") else nativePhrase("立即发布无需设置", "Not needed when publishing now")) },
-        trailingIcon = if (value.isNotBlank() && enabled) ({
-            IconButton(onClick = onClear, modifier = Modifier.size(32.dp)) { Icon(Icons.Filled.Close, contentDescription = nativePhrase("清除时间", "Clear time"), modifier = Modifier.size(15.dp)) }
-        }) else null,
+        placeholder = if (enabled) nativePhrase("点击选择时间", "Tap to choose a time") else nativePhrase("立即发布无需设置", "Not needed when publishing now"),
         colors = nativeAdminAnnouncementFieldColors(),
     )
 }

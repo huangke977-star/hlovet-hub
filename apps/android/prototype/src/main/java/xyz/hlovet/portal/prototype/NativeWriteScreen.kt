@@ -116,6 +116,7 @@ import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -3000,24 +3001,22 @@ internal fun NativeWriteEditorScreen(
                         color = HlovetUi.muted,
                         fontSize = 12.sp,
                     )
-                    OutlinedTextField(
+                    HlovetDateTimeField(
+                        label = nativePhrase("发布时间", "Publish time"),
                         value = schedulePublishAt,
-                        onValueChange = {},
-                        modifier = Modifier.fillMaxWidth().clickable { pickScheduleDate(schedulePublishAt) { schedulePublishAt = it } },
-                        readOnly = true,
-                        label = { Text(nativePhrase("发布时间", "Publish time")) },
-                        placeholder = { Text(nativePhrase("点击选择时间", "Tap to choose a time")) },
-                        singleLine = true,
+                        onPick = { pickScheduleDate(schedulePublishAt) { schedulePublishAt = it } },
+                        onClear = { schedulePublishAt = "" },
+                        modifier = Modifier.testTag("article-schedule-publish-at"),
+                        enabled = !scheduleBusy,
                         colors = editorFieldColors(),
                     )
-                    OutlinedTextField(
+                    HlovetDateTimeField(
+                        label = nativePhrase("下线时间（可选）", "Unpublish time (optional)"),
                         value = scheduleUnpublishAt,
-                        onValueChange = {},
-                        modifier = Modifier.fillMaxWidth().clickable { pickScheduleDate(scheduleUnpublishAt) { scheduleUnpublishAt = it } },
-                        readOnly = true,
-                        label = { Text(nativePhrase("下线时间（可选）", "Unpublish time (optional)")) },
-                        placeholder = { Text(nativePhrase("点击选择时间", "Tap to choose a time")) },
-                        singleLine = true,
+                        onPick = { pickScheduleDate(scheduleUnpublishAt) { scheduleUnpublishAt = it } },
+                        onClear = { scheduleUnpublishAt = "" },
+                        modifier = Modifier.testTag("article-schedule-unpublish-at"),
+                        enabled = !scheduleBusy,
                         colors = editorFieldColors(),
                     )
                     if (!scheduleError.isNullOrBlank()) {

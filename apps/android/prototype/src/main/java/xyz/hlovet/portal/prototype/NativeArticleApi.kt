@@ -249,6 +249,12 @@ internal object NativeArticleApi {
 
     internal fun parseArticle(value: JSONObject): RemoteArticle = value.toRemoteArticle()
 
+    /** 将 value 解析为编辑草稿，返回包含服务端计划与设备本地时间的完整编辑模型。 */
+    internal fun parseDraftArticle(value: JSONObject): NativeDraftArticle {
+        // 测试和真实读取共用解析入口，避免计划字段存在而编辑器回显为空。
+        return value.toDraftArticle()
+    }
+
     fun redeemResource(accessToken: String, articleId: Int, blockKey: String): RemoteArticle {
         return requestMutation(
             "/articles/$articleId/redeem",
@@ -959,7 +965,9 @@ internal object NativeArticleApi {
         }
     }
 
+    /** 解析本人计划列表；接口列表的顶层时间转换为设备本地展示值，缺少列表返回空集合。 */
     private fun JSONArray?.toScheduleItems(): List<NativeArticleScheduleItem> = buildList {
+        // 计划列表与文章详情结构不同，保留当前列表顺序和编号，不从名称推测身份。
         if (this@toScheduleItems == null) return@buildList
         for (index in 0 until length()) {
             val value = optJSONObject(index) ?: continue
@@ -969,8 +977,8 @@ internal object NativeArticleApi {
                     title = value.optString("title"),
                     slug = value.optString("slug"),
                     status = value.optString("status", "draft"),
-                    publishAt = value.optString("publishAt").takeIf { it.isNotBlank() && it != "null" }?.let(::formatTime),
-                    unpublishAt = value.optString("unpublishAt").takeIf { it.isNotBlank() && it != "null" }?.let(::formatTime),
+                    publishAt = nativeLocalDateTimeInput(value.optString("publishAt")),
+                    unpublishAt = nativeLocalDateTimeInput(value.optString("unpublishAt")),
                     error = value.optString("error").takeIf(String::isNotBlank),
                     updatedAt = formatTime(value.optString("updatedAt")),
                 ),
@@ -1021,7 +1029,9 @@ internal object NativeArticleApi {
         roleCodes = optJSONArray("roleCodes").toStrings(),
     )
 
+    /** 从当前文章 JSON 解析编辑模型，计划取嵌套 schedule，UTC 在编辑边界转为设备本地时间。 */
     private fun JSONObject.toDraftArticle(): NativeDraftArticle {
+        // 角色以服务端稳定代码为准；没有授权角色时保持空列表，不扩大可见范围。
         val roles = optJSONArray("allowedRoles")
         val roleCodes = buildList {
             if (roles == null) return@buildList
@@ -1032,6 +1042,8 @@ internal object NativeArticleApi {
                 if (code.isNotBlank()) add(code)
             }
         }
+        // 服务端详情只有 schedule 对象，不能从同名顶层字段读取或直接截断 UTC 时间。
+        val schedule = optJSONObject("schedule")
         return NativeDraftArticle(
             id = optInt("id"),
             title = optString("title"),
@@ -1046,9 +1058,9 @@ internal object NativeArticleApi {
             status = optString("status", "draft"),
             slug = optString("slug"),
             updatedAt = formatTime(optString("updatedAt")),
-            publishAt = optString("publishAt").takeIf { it.isNotBlank() && it != "null" }?.let(::formatTime),
-            unpublishAt = optString("unpublishAt").takeIf { it.isNotBlank() && it != "null" }?.let(::formatTime),
-            scheduleError = optString("scheduleError").takeIf(String::isNotBlank),
+            publishAt = nativeLocalDateTimeInput(schedule?.optString("publishAt")),
+            unpublishAt = nativeLocalDateTimeInput(schedule?.optString("unpublishAt")),
+            scheduleError = schedule?.optString("error")?.takeIf { it.isNotBlank() && it != "null" },
             attachments = optJSONArray("attachments").toAttachments(),
         )
     }
