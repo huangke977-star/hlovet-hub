@@ -88,7 +88,9 @@ internal data class NativeArticleAttachmentTarget(
     val fileName: String,
 )
 
-internal fun buildNativeArticleBodyHtml(content: String, contentFormat: String): String {
+/** 按 contentFormat 渲染净化后的 content，并用 appearance 初始化正文外观；主题不写入文章数据。 */
+internal fun buildNativeArticleBodyHtml(content: String, contentFormat: String, appearance: NativeArticleWebAppearance = nativeArticleWebAppearance()): String {
+    // 媒体路径仍按既有受控来源解析，外观变化不改变内容净化和附件访问边界。
     val document = nativeArticleBodyDocument(content, contentFormat)
     document.outputSettings().prettyPrint(false)
     document.body().select("img[src], audio[src], video[src], a[href], resource-block").forEach { element ->
@@ -99,42 +101,44 @@ internal fun buildNativeArticleBodyHtml(content: String, contentFormat: String):
         }
     }
     val body = document.body().html()
+    // 编辑、预览和阅读复用同一组颜色变量，代码高亮保持独立的高对比度深色表面。
     return """
         <!doctype html>
         <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
-        :root { color-scheme: light; }
+        ${appearance.stylesheet()}
         * { box-sizing: border-box; }
         html, body { margin: 0; padding: 0; background: transparent; }
-        body { color: #1f2937; font-family: sans-serif; font-size: 16px; line-height: 1.72; overflow-wrap: anywhere; word-break: break-word; }
+        body { color: var(--article-foreground); font-family: sans-serif; font-size: 16px; line-height: 1.72; overflow-wrap: anywhere; word-break: break-word; }
         p { margin: .7em 0; }
         h1, h2, h3, h4, h5, h6 { line-height: 1.4; margin: 1.15em 0 .55em; }
         h1:first-child, h2:first-child, h3:first-child { margin-top: 0; }
-        a { color: #0284c7; }
+        a { color: var(--article-accent); }
         img, audio, video { display: block; max-width: 100%; height: auto; margin: 10px 0; }
         img { border-radius: 8px; }
-        hr { border: 0; border-top: 1px solid #c9d8e2; margin: 1.2em 0; }
+        hr { border: 0; border-top: 1px solid var(--article-outline); margin: 1.2em 0; }
         s, del { text-decoration-thickness: 1px; }
         u { text-underline-offset: 2px; }
         pre { overflow-x: auto; padding: 12px; border-radius: 10px; background: #17212b; color: #e6edf3; white-space: pre; }
         code { font-family: monospace; font-size: .9em; }
         $nativeSyntaxHighlightCss
-        :not(pre) > code { padding: 2px 5px; border-radius: 5px; background: #eaf4fa; }
-        blockquote { margin: 1em 0; padding: 1px 14px; border-left: 3px solid #0284c7; background: #eaf4fa; }
-        resource-block { display: block; margin: 1em 0; padding: 12px 14px; border: 1px solid #b8ddec; border-radius: 10px; background: #eef8ff; }
-        resource-block::before { display: block; margin-bottom: 6px; color: #0284c7; content: '积分资源'; font-size: 12px; font-weight: 600; }
+        :not(pre) > code { padding: 2px 5px; border-radius: 5px; background: var(--article-accent-soft); }
+        blockquote { margin: 1em 0; padding: 1px 14px; border-left: 3px solid var(--article-accent); background: var(--article-accent-soft); }
+        resource-block { display: block; margin: 1em 0; padding: 12px 14px; border: 1px solid var(--article-outline); border-radius: 10px; background: var(--article-glass); }
+        resource-block::before { display: block; margin-bottom: 6px; color: var(--article-accent); content: '积分资源'; font-size: 12px; font-weight: 600; }
         table { width: 100%; border-collapse: collapse; display: block; overflow-x: auto; }
-        th, td { border: 1px solid #c9d8e2; padding: 6px 8px; text-align: left; }
+        th, td { border: 1px solid var(--article-outline); padding: 6px 8px; text-align: left; }
         ul[data-type=taskList] { list-style: none; margin: .24em 0 .38em; padding-left: 0; }
         li[data-type=taskItem] { display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 7px; align-items: start; width: 100%; min-width: 0; margin: .08em 0; list-style: none; }
         li[data-type=taskItem] > label { grid-column: 1; display: flex; position: relative; width: 12px; height: 1.72em; min-width: 12px; align-items: center; margin: 0; padding: 0; }
         li[data-type=taskItem] > label > input[type=checkbox] { position: absolute; inset: 50% auto auto 0; width: 12px; height: 12px; margin: 0; opacity: 0; transform: translateY(-50%); }
-        li[data-type=taskItem] > label > span { display: block; width: 12px; height: 12px; border: 1px solid #8a9aa3; border-radius: 3px; }
-        li[data-type=taskItem][data-checked=true] > label > span { border-color: #1687a7; background: #1687a7; box-shadow: inset 0 0 0 3px #fff; }
+        li[data-type=taskItem] > label > span { display: block; width: 12px; height: 12px; border: 1px solid var(--article-outline); border-radius: 3px; }
+        li[data-type=taskItem][data-checked=true] > label > span { border-color: var(--article-accent); background: var(--article-accent); box-shadow: inset 0 0 0 3px var(--article-surface); }
         li[data-type=taskItem] > div { grid-column: 2; min-width: 0; width: 100%; margin: 0; }
         li[data-type=taskItem] > div > p { margin: 0; }
         </style></head><body>$body
         <script>
+        $nativeArticleAppearanceBridgeScript
         (function() {
           function measure() {
             var height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, 48);
@@ -264,7 +268,7 @@ internal fun normalizeNativeArticleTaskLists(document: org.jsoup.nodes.Document)
 /**
  * 渲染 content/contentFormat 指定的安全正文，并按 CSS 视口尺寸设置原生阅读高度。
  * accessToken/cacheOwner 用于受保护媒体及所属账号缓存；offlineOnly 禁止缓存缺失时联网。
- * onPreviewImage/onOpenAttachment 交给原生预览及下载流程，modifier 控制外部布局。
+ * onPreviewImage/onOpenAttachment 交给原生预览及下载流程，modifier 控制外部布局；账号外观只更新根样式。
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -282,11 +286,20 @@ internal fun NativeArticleBodyWebView(
     val context = LocalContext.current
     val latestPreview = rememberUpdatedState(onPreviewImage)
     val latestAttachment = rememberUpdatedState(onOpenAttachment)
+    val appearance = nativeArticleWebAppearance()
+    val latestAppearance = rememberUpdatedState(appearance)
     var bodyHeightCssPx by remember(content, contentFormat, accessToken, cacheOwner) { mutableIntStateOf(80) }
-    val html = remember(content, contentFormat) { buildNativeArticleBodyHtml(content, contentFormat) }
+    val html = remember(content, contentFormat) { buildNativeArticleBodyHtml(content, contentFormat, appearance) }
     val pageKey = remember(html, accessToken, cacheOwner, offlineOnly) { "${html.hashCode()}:$cacheOwner:${accessToken.orEmpty().hashCode()}:$offlineOnly" }
     // width=device-width 的 CSS px 对应 dp，而非物理 px；再除密度会截断高密度屏的正文。
     val bodyHeight = bodyHeightCssPx.dp.coerceIn(48.dp, nativeArticleBodyMaxViewportHeight)
+
+    /** 给已就绪的 view 应用当前外观并记录快照，补偿页面加载期间发生的账号配置变化。 */
+    fun applyAppearance(view: WebView) {
+        // 与页面键独立，不能因切换配色重新加载媒体、重置高度或滚动位置。
+        view.applyNativeArticleAppearance(latestAppearance.value)
+        (view.tag as? NativeArticleBodyViewState)?.appearance = latestAppearance.value
+    }
 
     // 短正文完整展开，长正文保留统一上限及 WebView 内部滚动。
     AndroidView(
@@ -296,7 +309,7 @@ internal fun NativeArticleBodyWebView(
             .height(bodyHeight),
         factory = { viewContext ->
             nativeCreateWebView(viewContext).apply {
-                tag = pageKey
+                tag = NativeArticleBodyViewState(pageKey)
                 // 软件合成避开部分 Android 11 WebView 与玻璃背景叠加时的 RenderThread 崩溃。
                 setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                 settings.javaScriptEnabled = true
@@ -337,26 +350,35 @@ internal fun NativeArticleBodyWebView(
                     cacheOwner = cacheOwner,
                     offlineOnly = offlineOnly,
                     onHeight = { height -> bodyHeightCssPx = height },
+                    onReady = ::applyAppearance,
                 )
                 loadDataWithBaseURL("https://article.invalid/", html, "text/html", "UTF-8", null)
             }
         },
         update = { view ->
             // 页面键改变后重新安装媒体权限及离线策略，不沿用旧账号的读取规则。
-            if (view.tag != pageKey) {
-                view.tag = pageKey
+            val state = view.tag as? NativeArticleBodyViewState
+            if (state?.pageKey != pageKey) {
+                view.tag = NativeArticleBodyViewState(pageKey)
                 view.webViewClient = nativeArticleBodyWebViewClient(
                     context = context,
                     accessToken = accessToken,
                     cacheOwner = cacheOwner,
                     offlineOnly = offlineOnly,
                     onHeight = { height -> bodyHeightCssPx = height },
+                    onReady = ::applyAppearance,
                 )
                 view.loadDataWithBaseURL("https://article.invalid/", html, "text/html", "UTF-8", null)
+            } else if (state.appearance != appearance) {
+                // 仅主题变化时使用现有文档，保持阅读位置和已加载媒体。
+                applyAppearance(view)
             }
         },
     )
 }
+
+/** 为正文视图分别记录内容/权限页面键和样式快照，外观不能参与页面重载判断。 */
+private data class NativeArticleBodyViewState(val pageKey: String, var appearance: NativeArticleWebAppearance? = null)
 
 private class NativeArticleBodyBridge(
     private val webView: WebView,
@@ -387,16 +409,23 @@ private class NativeArticleBodyBridge(
     }
 }
 
+/** 创建正文媒体客户端；身份/离线参数限制媒体来源，onHeight 汇报高度，onReady 同步已加载文档外观。 */
 internal fun nativeArticleBodyWebViewClient(
     context: Context,
     accessToken: String?,
     cacheOwner: String,
     offlineOnly: Boolean,
     onHeight: (Int) -> Unit,
+    onReady: (WebView) -> Unit = {},
 ): WebViewClient = object : WebViewClient() {
+    /** 本地正文完成后先同步最新样式，再安装高亮并重新测量实际高度。 */
     override fun onPageFinished(view: WebView?, url: String?) {
+        // 主题桥不更改正文，仍沿用原有本地高亮和尺寸回报流程。
         val webView = view ?: return
+        onReady(webView)
+        /** 测量渲染后的 CSS 高度并交给 onHeight，解析失败时保留已有高度。 */
         fun measure() {
+            // CSS 像素到原生视口的转换由正文组件统一处理。
             webView.evaluateJavascript(
                 """
                 (function() {

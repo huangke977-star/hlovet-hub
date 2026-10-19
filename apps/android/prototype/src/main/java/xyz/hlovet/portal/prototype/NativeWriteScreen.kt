@@ -3258,7 +3258,7 @@ private fun NativeArticleVersionsDialog(
     }
 }
 
-/** 渲染 title、titleColor、summary 与 content 的只读预览，contentFormat 控制正文转换；媒体凭据只用于确认的附件。 */
+/** 渲染 title/titleColor/summary/content 的只读预览并同步账号外观；contentFormat 控制转换，媒体凭据只用于确认的附件。 */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 internal fun NativePreviewWebView(
@@ -3274,13 +3274,16 @@ internal fun NativePreviewWebView(
     // 正文转换沿用阅读规则，账号和附件采用实时值而不注入 HTML 凭据。
     val latestMediaSession = rememberUpdatedState(mediaSession)
     val latestMediaAttachments = rememberUpdatedState(mediaAttachments)
+    val appearance = nativeArticleWebAppearance()
+    val latestAppearance = rememberUpdatedState(appearance)
     val html = remember(title, titleColor, summary, content, contentFormat) {
-        buildPreviewHtml(title, titleColor, summary, content, contentFormat)
+        buildPreviewHtml(title, titleColor, summary, content, contentFormat, appearance)
     }
     AndroidView(
         modifier = modifier,
         factory = { context ->
             nativeCreateWebView(context).apply {
+                tag = NativePreviewViewState()
                 // Keep preview rendering consistent with article reading on Android 11
                 // emulators where translucent hardware WebView composition can crash.
                 setLayerType(View.LAYER_TYPE_SOFTWARE, null)
@@ -3291,26 +3294,35 @@ internal fun NativePreviewWebView(
                 // 阻断所有默认资源请求，仅由原生客户端加载当前文章已确认媒体。
                 settings.blockNetworkLoads = false
                 webViewClient = object : NativeEditorAttachmentWebViewClient(context, { latestMediaSession.value }, { latestMediaAttachments.value }) {
-                    /** 本地预览加载完成后安装只读代码高亮。 */
+                    /** 本地预览就绪后应用最新外观，再安装离线只读代码高亮。 */
                     override fun onPageFinished(view: WebView?, url: String?) {
-                        // 高亮资源来自应用资产，不请求外部脚本。
-                        view?.installNativeReadOnlySyntaxHighlight()
+                        // 页面加载期间也可能切换主题，必须使用实时快照而非初始参数。
+                        val preview = view ?: return
+                        preview.applyNativeArticleAppearance(latestAppearance.value)
+                        (preview.tag as? NativePreviewViewState)?.appearance = latestAppearance.value
+                        preview.installNativeReadOnlySyntaxHighlight()
                     }
                 }
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
             }
         },
         update = { view ->
-            view.loadDataWithBaseURL(
-                "https://preview.invalid/",
-                html,
-                "text/html",
-                "UTF-8",
-                null,
-            )
+            // 只有标题/摘要/正文实际变化才重载；单纯外观重组必须保留预览阅读位置。
+            val state = (view.tag as? NativePreviewViewState) ?: NativePreviewViewState().also { view.tag = it }
+            if (state.html != html) {
+                state.html = html
+                state.appearance = null
+                view.loadDataWithBaseURL("https://preview.invalid/", html, "text/html", "UTF-8", null)
+            } else if (state.appearance != appearance) {
+                view.applyNativeArticleAppearance(appearance)
+                state.appearance = appearance
+            }
         },
     )
 }
+
+/** 分开记录预览内容和样式，账号外观变化不能触发 HTML 重载。 */
+private data class NativePreviewViewState(var html: String? = null, var appearance: NativeArticleWebAppearance? = null)
 
 /** 桥接本地可视编辑器的编辑和文件操作，限制分块传输的大小与数量。 */
 private class NativeArticleEditorBridge(
@@ -3473,9 +3485,11 @@ private class NativeArticleEditorBridge(
 
 internal data class NativeRichEditorInsertRequest(val nonce: Int, val html: String)
 
+/** 分别记录编辑正文、插入请求和已应用外观，主题更新不替换正文或重复插入内容。 */
 private data class NativeRichEditorViewState(
     var content: String,
     var lastInsertNonce: Int = -1,
+    var appearance: NativeArticleWebAppearance? = null,
 )
 
 private suspend fun readNativeEditorContent(webView: WebView): String =
@@ -3501,7 +3515,7 @@ private suspend fun readNativeEditorContent(webView: WebView): String =
         }
     }
 
-/** 通过本地页面编辑 content；onSystemFiles 消费真实剪贴板/拖放 URI 并负责释放临时权限，媒体参数只用于受控显示。 */
+/** 通过本地页面编辑 content 并实时同步账号外观；回调处理正文/工具操作，媒体和系统文件始终由受控原生流程消费。 */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 internal fun NativeRichEditorWebView(
@@ -3532,6 +3546,8 @@ internal fun NativeRichEditorWebView(
     val latestOnVisualInsertHandled = rememberUpdatedState(onVisualInsertHandled)
     val latestMediaSession = rememberUpdatedState(mediaSession)
     val latestMediaAttachments = rememberUpdatedState(mediaAttachments)
+    val appearance = nativeArticleWebAppearance()
+    val latestAppearance = rememberUpdatedState(appearance)
     var editorWebView by remember { mutableStateOf<WebView?>(null) }
     var linkDialogVisible by remember { mutableStateOf(false) }
     var linkValue by remember { mutableStateOf("") }
@@ -3543,6 +3559,7 @@ internal fun NativeRichEditorWebView(
             initialContent,
             enableAttachments = onAttachmentRequest != null,
             enableAiAssistant = onAiRequest != null,
+            appearance = appearance,
         )
     }
     val context = LocalContext.current
@@ -3605,10 +3622,13 @@ internal fun NativeRichEditorWebView(
                     // 默认网络路径被客户端全部拦截，只有已确认的文章媒体由原生有界加载。
                     settings.blockNetworkLoads = false
                     webViewClient = object : NativeEditorAttachmentWebViewClient(context, { latestMediaSession.value }, { latestMediaAttachments.value }) {
-                        /** 当前本地编辑页加载完毕后安装代码高亮，不从外部页面加载脚本。 */
+                        /** 本地编辑页就绪后应用最新外观并安装代码高亮，不重载正文或加载外部脚本。 */
                         override fun onPageFinished(view: WebView?, url: String?) {
-                            // 本地高亮资源不参与正文序列化。
-                            view?.installNativeEditorSyntaxHighlight()
+                            // 初始加载期间账号配置也可能变化，不能把最初的主题留在页面里。
+                            val editor = view ?: return
+                            editor.applyNativeArticleAppearance(latestAppearance.value)
+                            (editor.tag as? NativeRichEditorViewState)?.appearance = latestAppearance.value
+                            editor.installNativeEditorSyntaxHighlight()
                         }
                     }
                     addJavascriptInterface(
@@ -3654,6 +3674,11 @@ internal fun NativeRichEditorWebView(
             update = { view ->
                 val state = (view.tag as? NativeRichEditorViewState)
                     ?: NativeRichEditorViewState(content).also { view.tag = it }
+                // 主题不参与页面键，也不经正文替换接口，避免清空选区和撤销分支。
+                if (state.appearance != appearance) {
+                    view.applyNativeArticleAppearance(appearance)
+                    state.appearance = appearance
+                }
                 if (state.content != content) {
                     val sanitized = sanitizeNativeArticleHtml(content)
                     state.content = sanitized
@@ -3732,11 +3757,12 @@ internal fun NativeRichEditorWebView(
     }
 }
 
-/** 根据 content 生成本地富文本编辑页；两个开关控制附件与 AI 入口，不加载外部可执行页面。 */
+/** 根据 content 和 appearance 生成本地编辑页；两个开关控制附件/AI 入口，外观不写入正文。 */
 internal fun buildNativeRichEditorHtml(
     content: String,
     enableAttachments: Boolean = true,
     enableAiAssistant: Boolean = true,
+    appearance: NativeArticleWebAppearance = nativeArticleWebAppearance(),
 ): String {
     // 正文先净化，工具栏文案随当前语言生成，附件传输始终受原生桥接限制。
     val safeContent = sanitizeNativeArticleHtml(content)
@@ -3805,19 +3831,27 @@ internal fun buildNativeRichEditorHtml(
         <!doctype html>
         <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
+        ${appearance.stylesheet()}
         * { box-sizing: border-box; }
-        html, body { margin: 0; min-height: 100%; background: transparent; color: #25323b; font: 14px/1.65 sans-serif; }
-        .toolbar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px; background: rgba(235, 245, 248, .96); border: 1px solid rgba(96, 128, 143, .24); border-radius: 10px 10px 0 0; }
-        .toolbar button, .toolbar select { min-height: 32px; border: 0; border-radius: 7px; color: #25323b; background: rgba(255, 255, 255, .78); padding: 0 9px; font: 13px sans-serif; }
+        html, body { margin: 0; min-height: 100%; background: transparent; color: var(--article-foreground); font: 14px/1.65 sans-serif; }
+        /* 模糊由外层原生玻璃宿主完成，软件 WebView 内不重复建立 backdrop 合成层。 */
+        .toolbar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px; background: var(--article-overlay); border: 1px solid var(--article-outline); border-radius: 10px 10px 0 0; }
+        .toolbar button, .toolbar select { min-height: 32px; border: 0; border-radius: 7px; color: var(--article-foreground); background: var(--article-glass); padding: 0 9px; font: 13px sans-serif; }
+        .toolbar option { color: var(--article-foreground); background: var(--article-surface); }
         .toolbar select { max-width: 118px; }
-        .toolbar button:active { background: #cde8ef; }
-        .toolbar button[aria-pressed=true] { color: #12617b; background: #cde8ef; }
-        #editor { min-height: 300px; padding: 12px; border: 1px solid rgba(96, 128, 143, .24); border-top: 0; border-radius: 0 0 10px 10px; outline: none; overflow-wrap: anywhere; word-break: break-word; background: rgba(255, 255, 255, .42); }
-        #editor:empty:before { content: '$editorPlaceholder'; color: #788891; }
+        .toolbar button:active { background: var(--article-accent-soft); }
+        .toolbar button[aria-pressed=true] { color: var(--article-accent); background: var(--article-accent-soft); }
+        #editor { min-height: 300px; padding: 12px; border: 1px solid var(--article-outline); border-top: 0; border-radius: 0 0 10px 10px; outline: none; overflow-wrap: anywhere; word-break: break-word; background-color: var(--article-glass); background-image: linear-gradient(var(--article-tint), var(--article-tint)); caret-color: var(--article-accent); }
+        #editor:empty:before { content: '$editorPlaceholder'; color: var(--article-muted); }
+        #editor a { color: var(--article-accent); }
+        #editor hr { border: 0; border-top: 1px solid var(--article-outline); }
+        /* 不依赖旧 WebView 不支持的 accent-color，任务框与阅读正文共用 12px 的主题颜色。 */
+        #editor input[type=checkbox] { -webkit-appearance: none; appearance: none; border: 1px solid var(--article-outline); border-radius: 3px; background: var(--article-glass); }
+        #editor input[type=checkbox]:checked { border-color: var(--article-accent); background: var(--article-accent); box-shadow: inset 0 0 0 3px var(--article-surface); }
         #editor h1, #editor h2, #editor h3 { line-height: 1.35; }
-        #editor blockquote { margin: 1em 0; padding: 2px 12px; border-left: 3px solid #438ba1; background: rgba(205, 232, 239, .5); }
-        #editor resource-block { display: block; margin: 1em 0; padding: 10px 12px; border: 1px solid #b8ddec; border-radius: 8px; background: rgba(238, 248, 255, .82); }
-        #editor resource-block:before { content: '$resourceLabel'; display: block; margin-bottom: 5px; color: #0284c7; font-size: 12px; font-weight: 600; }
+        #editor blockquote { margin: 1em 0; padding: 2px 12px; border-left: 3px solid var(--article-accent); background: var(--article-accent-soft); }
+        #editor resource-block { display: block; margin: 1em 0; padding: 10px 12px; border: 1px solid var(--article-outline); border-radius: 8px; background: var(--article-glass); }
+        #editor resource-block:before { content: '$resourceLabel'; display: block; margin-bottom: 5px; color: var(--article-accent); font-size: 12px; font-weight: 600; }
         #editor pre { margin: 1em 0; padding: 0; overflow: hidden; white-space: pre; border-radius: 8px; background: #17212b; color: #e6edf3; }
         .native-code-card { margin: 1em 0; overflow: hidden; border: 1px solid rgba(139, 167, 179, .36); border-radius: 8px; background: #17212b; }
         .native-code-card > pre { margin: 0; border: 0; border-radius: 0; }
@@ -3825,7 +3859,7 @@ internal fun buildNativeRichEditorHtml(
         .native-code-card-title, .native-code-card-controls { display: inline-flex; min-width: 0; align-items: center; gap: 6px; }
         .native-code-card-title { flex: 1 1 auto; color: #e6edf3; white-space: nowrap; }
         .native-code-card-language { width: 106px; min-width: 0; height: 24px; padding: 2px 5px; border: 1px solid rgba(174, 205, 216, .42); border-radius: 5px; color: #e6edf3; background: rgba(30, 45, 55, .92); font: 11px/1.1 sans-serif; }
-        .native-code-card-language option { color: #25323b; background: #f8fbfc; }
+        .native-code-card-language option { color: var(--article-foreground); background: var(--article-surface); }
         .native-code-card-format { display: inline-grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; border: 0; border-radius: 4px; color: #83d7e8; background: transparent; font: 15px/1 sans-serif; }
         .native-code-card-format:active, .native-code-card-format:focus-visible { background: rgba(131, 215, 232, .2); outline: none; }
         .native-code-card-status { color: #a8bac2; font-size: 10px; white-space: nowrap; }
@@ -3836,7 +3870,7 @@ internal fun buildNativeRichEditorHtml(
         $nativeSyntaxHighlightCss
         #editor img, #editor video { max-width: 100%; height: auto; }
         #editor table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
-        #editor th, #editor td { border: 1px solid #b9cbd3; padding: 5px 7px; }
+        #editor th, #editor td { border: 1px solid var(--article-outline); padding: 5px 7px; }
         #editor ul[data-type=taskList] { list-style: none; margin: .24em 0; padding-left: 0; }
         #editor li[data-type=taskItem] { display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 7px; align-items: start; min-width: 0; margin: .16em 0; list-style: none; }
         #editor li[data-type=taskItem] > label { display: flex; width: 12px; height: 1.65em; align-items: center; }
@@ -3877,6 +3911,7 @@ internal fun buildNativeRichEditorHtml(
         </div>
         <div id="editor" contenteditable="true" spellcheck="true">$safeContent</div>
         <script>
+        $nativeArticleAppearanceBridgeScript
         (function() {
           var editor = document.getElementById('editor');
           var timer = 0;
@@ -5160,50 +5195,55 @@ internal val previewMarkdownRenderer: HtmlRenderer by lazy {
         .build()
 }
 
-internal fun buildPreviewHtml(title: String, titleColor: String, summary: String, content: String, contentFormat: String): String {
+/** 生成标题、摘要和正文的安全预览；appearance 只用于页面默认色，保留作者指定的 titleColor。 */
+internal fun buildPreviewHtml(title: String, titleColor: String, summary: String, content: String, contentFormat: String, appearance: NativeArticleWebAppearance = nativeArticleWebAppearance()): String {
+    // 先按格式转换并净化正文，标题颜色只接受合法颜色，账号外观不能覆盖作者的显式设置。
     val renderedBody = if (contentFormat == "html") content else previewMarkdownRenderer.render(previewMarkdownParser.parse(content))
     val body = sanitizeNativeArticleHtml(renderedBody)
     val safeTitleColor = normalizeNativeTitleColor(titleColor).orEmpty()
     val resourceLabel = nativePhrase("积分资源", "Point resource")
     val fallbackTitle = nativePhrase("未命名文章", "Untitled article")
+    // 预览和版本详情共用此文档，使用编辑/阅读的同一组根样式变量。
     return """
         <!doctype html>
         <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
-        :root { color-scheme: light; }
+        ${appearance.stylesheet()}
         * { box-sizing: border-box; }
-        body { margin: 0; padding: 14px 12px 28px; color: #1f2937; background: transparent; font-family: sans-serif; font-size: 16px; line-height: 1.72; overflow-wrap: anywhere; word-break: break-word; }
+        body { margin: 0; padding: 14px 12px 28px; color: var(--article-foreground); background: transparent; font-family: sans-serif; font-size: 16px; line-height: 1.72; overflow-wrap: anywhere; word-break: break-word; }
         h1 { font-size: 24px; line-height: 1.3; margin: 0 0 10px; }
-        .summary { color: #52616f; font-size: 14px; margin: 0 0 18px; }
+        .summary { color: var(--article-muted); font-size: 14px; margin: 0 0 18px; }
         h2, h3, h4 { line-height: 1.4; margin-top: 1.3em; }
         p { margin: .7em 0; }
-        a { color: #0284c7; }
+        a { color: var(--article-accent); }
         img, video { max-width: 100%; height: auto; }
-        hr { border: 0; border-top: 1px solid #c9d8e2; margin: 1.2em 0; }
+        hr { border: 0; border-top: 1px solid var(--article-outline); margin: 1.2em 0; }
         s, del { text-decoration-thickness: 1px; }
         u { text-underline-offset: 2px; }
         pre { overflow-x: auto; padding: 12px; border-radius: 10px; background: #17212b; color: #e6edf3; white-space: pre; }
         code { font-family: monospace; font-size: .9em; }
         $nativeSyntaxHighlightCss
-        :not(pre) > code { padding: 2px 5px; border-radius: 5px; background: #eaf4fa; }
-        blockquote { margin: 1em 0; padding: 1px 14px; border-left: 3px solid #0284c7; background: #eaf4fa; }
-        resource-block { display: block; margin: 1em 0; padding: 12px 14px; border: 1px solid #b8ddec; border-radius: 10px; background: #eef8ff; }
-        resource-block::before { display: block; margin-bottom: 6px; color: #0284c7; content: '$resourceLabel'; font-size: 12px; font-weight: 600; }
+        :not(pre) > code { padding: 2px 5px; border-radius: 5px; background: var(--article-accent-soft); }
+        blockquote { margin: 1em 0; padding: 1px 14px; border-left: 3px solid var(--article-accent); background: var(--article-accent-soft); }
+        resource-block { display: block; margin: 1em 0; padding: 12px 14px; border: 1px solid var(--article-outline); border-radius: 10px; background: var(--article-glass); }
+        resource-block::before { display: block; margin-bottom: 6px; color: var(--article-accent); content: '$resourceLabel'; font-size: 12px; font-weight: 600; }
         table { width: 100%; border-collapse: collapse; display: block; overflow-x: auto; }
-        th, td { border: 1px solid #c9d8e2; padding: 6px 8px; text-align: left; }
+        th, td { border: 1px solid var(--article-outline); padding: 6px 8px; text-align: left; }
         ul[data-type=taskList] { list-style: none; margin: .24em 0 .38em; padding-left: 0; }
         li[data-type=taskItem] { display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 7px; align-items: start; width: 100%; min-width: 0; margin: .08em 0; list-style: none; }
         li[data-type=taskItem] > label { grid-column: 1; display: flex; position: relative; width: 12px; height: 1.72em; min-width: 12px; align-items: center; margin: 0; padding: 0; }
         li[data-type=taskItem] > label > input[type=checkbox] { position: absolute; inset: 50% auto auto 0; width: 12px; height: 12px; margin: 0; opacity: 0; transform: translateY(-50%); }
-        li[data-type=taskItem] > label > span { display: block; width: 12px; height: 12px; border: 1px solid #8a9aa3; border-radius: 3px; }
-        li[data-type=taskItem][data-checked=true] > label > span { border-color: #1687a7; background: #1687a7; box-shadow: inset 0 0 0 3px #fff; }
+        li[data-type=taskItem] > label > span { display: block; width: 12px; height: 12px; border: 1px solid var(--article-outline); border-radius: 3px; }
+        li[data-type=taskItem][data-checked=true] > label > span { border-color: var(--article-accent); background: var(--article-accent); box-shadow: inset 0 0 0 3px var(--article-surface); }
         li[data-type=taskItem] > div { grid-column: 2; min-width: 0; width: 100%; margin: 0; }
         li[data-type=taskItem] > div > p { margin: 0; }
         li[data-type=taskItem] > input[type=checkbox] { grid-column: 1; width: 12px; height: 12px; margin: calc((1lh - 12px) / 2) 0 0; }
+        input[type=checkbox] { accent-color: var(--article-accent); }
         </style></head><body>
         <h1${if (safeTitleColor.isBlank()) "" else " style=\"color:$safeTitleColor\""}>${htmlEscape(title.ifBlank { fallbackTitle })}</h1>
         ${if (summary.isBlank()) "" else "<p class=\"summary\">${htmlEscape(summary)}</p>"}
         $body
+        <script>$nativeArticleAppearanceBridgeScript</script>
         </body></html>
     """.trimIndent()
 }
