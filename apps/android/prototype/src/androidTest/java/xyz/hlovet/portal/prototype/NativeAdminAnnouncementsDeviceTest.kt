@@ -183,11 +183,11 @@ class NativeAdminAnnouncementsDeviceTest {
         show(); compose.onNodeWithContentDescription("新建公告").performClick()
         fill("admin-announcement-title", "保留草稿标题")
         fill("admin-announcement-body", "保留正文\n第二段内容")
-        compose.onNodeWithTag("admin-announcement-save").performClick()
+        compose.onNodeWithTag("admin-announcement-save").performNativeStableClick(compose)
         dialogText("测试草稿保存失败").assertIsDisplayed()
         compose.onNodeWithTag("admin-announcement-body").assertTextContains("保留正文\n第二段内容")
         capture("draft-save-error")
-        compose.onNodeWithTag("admin-announcement-save").performClick()
+        compose.onNodeWithTag("admin-announcement-save").performNativeStableClick(compose)
         dialogText("公告草稿已保存。").assertIsDisplayed()
         assertEquals(1, announcements.count { it.getString("title") == "保留草稿标题" })
         assertEquals("保留正文\n第二段内容", announcements.last().getString("content"))
@@ -201,11 +201,11 @@ class NativeAdminAnnouncementsDeviceTest {
         show(); compose.onNodeWithContentDescription("新建公告").performClick()
         fill("admin-announcement-title", "发布重试草稿")
         fill("admin-announcement-body", "发布正文")
-        compose.onNodeWithTag("announcement-publish").performClick()
+        compose.onNodeWithTag("announcement-publish").performNativeStableClick(compose)
         dialogText("测试发布失败").assertIsDisplayed()
         val savedId = announcements.last().getInt("id")
         assertEquals("draft", announcements.last().getString("status"))
-        compose.onNodeWithTag("announcement-publish").performClick()
+        compose.onNodeWithTag("announcement-publish").performNativeStableClick(compose)
         waitText("公告已发布。")
         assertEquals(listOf("POST /announcements/admin", "POST /announcements/admin/$savedId/publish",
             "PATCH /announcements/admin/$savedId", "POST /announcements/admin/$savedId/publish"), writes().map { "${it.method} ${path(it)}" })
@@ -339,7 +339,7 @@ class NativeAdminAnnouncementsDeviceTest {
         rowAction(3, "编辑").performClick()
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("admin-announcement-title").fetchSemanticsNodes().isNotEmpty() }
         fill("admin-announcement-title", "归档重新编辑")
-        compose.onNodeWithTag("admin-announcement-save").performClick()
+        compose.onNodeWithTag("admin-announcement-save").performNativeStableClick(compose)
         dialogText("公告草稿已保存。").assertIsDisplayed()
         compose.onNode(hasContentDescription("关闭") and hasAnyAncestor(isDialog())).performClick()
         rowAction(3, "发布").performClick()
@@ -403,10 +403,32 @@ class NativeAdminAnnouncementsDeviceTest {
     private fun dialogText(text: String): SemanticsNodeInteraction {
         // 错误必须存在于活动对话框语义子树。
         val matcher = hasText(text) and hasAnyAncestor(isDialog())
-        compose.waitUntil(15_000) { compose.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty() }
+        try {
+            compose.waitUntil(15_000) { compose.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty() }
+        } catch (error: Throwable) {
+            // 在卸载界面前保留失败现场和请求边界，不让清理阶段覆盖最初的反馈缺失。
+            recordDialogWaitFailure(text, error)
+            throw error
+        }
         val node = compose.onNode(matcher)
         if (!node.isDisplayed()) node.performScrollTo()
         return node
+    }
+
+    /** 保存 expectedText 等待失败时的 error、弹窗与请求方法路径，不记录请求头或正文。 */
+    private fun recordDialogWaitFailure(expectedText: String, error: Throwable) {
+        // 独立收集证据，截图或文件异常不能替代原来的测试失败；页面仅含设备内虚构公告。
+        val name = "dialog-wait-${System.currentTimeMillis()}"
+        runCatching { capture(name) }
+        runCatching {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val directory = File(context.filesDir, "native-admin-announcements-device-evidence").apply { mkdirs() }
+            File(directory, "$name.txt").writeText(
+                "Expected: $expectedText\nFailure: ${error.javaClass.name}: ${error.message}\n" +
+                    "Requests:\n" + calls.joinToString("\n") { "${it.method} ${path(it)}" } +
+                    "\nDialogs:\n" + compose.onAllNodes(isDialog()).printToString(),
+            )
+        }
     }
 
     /** 返回弹窗内可点击 text 按钮，等待忙碌状态的语义同步完成。 */

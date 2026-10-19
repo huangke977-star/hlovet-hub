@@ -114,8 +114,10 @@ class NativeAdminFormTest {
         assertTrue(announcement?.optString("content") == "Fixture body")
     }
 
+    /** 首次发布失败必须保留已保存 ID，第二次由真实按钮重试，不重复创建草稿。 */
     @Test
     fun announcementPublishFailureRetainsDraftIdForRetry() {
+        // 只让首次发布返回服务错误，保存阶段仍按正常接口创建草稿。
         val attempts = AtomicInteger()
         responseOverride = { request ->
             if (request.path == "/announcements/admin/11/publish" && attempts.incrementAndGet() == 1) failure("Publish unavailable") else null
@@ -124,15 +126,51 @@ class NativeAdminFormTest {
         compose.onNodeWithContentDescription("新建公告").performClick()
         fill("标题", "Fixture announcement")
         fill("正文", "Fixture body")
-        compose.onNodeWithTag("announcement-publish").assertIsDisplayed().performClick()
+        // 等输入法引起的按钮位移结束后物理点击，错误必须显示在当前弹窗中。
+        compose.onNodeWithTag("announcement-publish").performNativeStableClick(compose)
         waitText("Publish unavailable")
         dialogText("Publish unavailable").assertIsDisplayed()
         capture("announcement-publish-error")
-        compose.onNodeWithTag("announcement-publish").assertIsDisplayed().performClick()
+        // 重试只更新已有草稿；核对两阶段写入数量，不能以重复创建换取成功。
+        compose.onNodeWithTag("announcement-publish").performNativeStableClick(compose)
         waitText("公告已发布。")
         assertEquals(1, count("POST", "/announcements/admin"))
         assertEquals(1, count("PATCH", "/announcements/admin/11"))
         assertEquals(2, count("POST", "/announcements/admin/11/publish"))
+    }
+
+    /** 四轮打开表单、输入和错误重试，核对输入法重排后真实保存点击不丢失且不重复提交。 */
+    @Test
+    fun repeatedFormInputAndSubmissionRemainInteractive() {
+        // 同一页面反复创建独立虚构名称，每轮先模拟一次网络失败，实际数据库和保存会话不变。
+        val remainingFailures = AtomicInteger()
+        responseOverride = { request ->
+            if (request.method == "POST" && request.path == "/portal/admin/categories" && remainingFailures.getAndDecrement() > 0) {
+                failure("Form retry required")
+            } else null
+        }
+        show { NativeAdminPortalContentScreen(session, {}) }
+        waitText("Test category")
+        repeat(4) { round ->
+            // 空名称不发请求；合规名称输入后才允许进入一次失败和一次成功的提交。
+            remainingFailures.set(1)
+            compose.onNodeWithContentDescription("新建分类").performNativeStableClick(compose)
+            clickDialog("保存")
+            dialogText("分类名称不能为空。").assertIsDisplayed()
+            assertEquals(round * 2, count("POST", "/portal/admin/categories"))
+            val name = "Keyboard category $round"
+            fill("分类名称", name)
+            if (round == 0 || round == 3) capture("keyboard-before-submit-$round")
+            clickDialog("保存")
+            waitText("Form retry required")
+            dialogText("Form retry required").assertIsDisplayed()
+            assertEquals(round * 2 + 1, count("POST", "/portal/admin/categories"))
+            // 用户明确重试后才发第二次写请求，并等待返回列表显示该轮名称。
+            clickDialog("保存")
+            waitText("分类已创建。")
+            waitText(name)
+            assertEquals((round + 1) * 2, count("POST", "/portal/admin/categories"))
+        }
     }
 
     @Test
@@ -372,8 +410,10 @@ class NativeAdminFormTest {
             .performScrollTo().performTextReplacement(value)
     }
 
+    /** 按 text 定位当前弹窗按钮，等待输入法重排结束后进行一次真实点击。 */
     private fun clickDialog(text: String) {
-        compose.onNode(hasText(text) and hasClickAction() and hasAnyAncestor(isDialog())).assertIsDisplayed().performClick()
+        // 不直接调用语义回调或自动重试，仍由屏幕上可见按钮触发真实表单校验与写操作。
+        compose.onNode(hasText(text) and hasClickAction() and hasAnyAncestor(isDialog())).performNativeStableClick(compose)
     }
 
     private fun waitText(text: String) {
@@ -401,10 +441,12 @@ class NativeAdminFormTest {
         }
     }
 
+    /** 返回本轮证据目录，优先使用运行参数；默认私有目录可在 Android 11 和 15 均通过 run-as 导出。 */
     private fun evidenceDirectory(): File {
+        // 不依赖各系统版本不同的外部存储挂载权限，也不改变已有外部证据或账号数据。
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val path = InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")
-            ?: requireNotNull(instrumentation.targetContext.getExternalFilesDir(null)).absolutePath
+            ?: instrumentation.targetContext.filesDir.absolutePath
         return File(path, "admin-form-evidence").apply { mkdirs() }
     }
 
