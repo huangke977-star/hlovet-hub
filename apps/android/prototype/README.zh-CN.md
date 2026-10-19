@@ -167,6 +167,17 @@
   -PpreviewPortalBaseUrl=https://www.example.com
 ```
 
+原生模块默认使用隔离调试包名 `xyz.hlovet.portal.prototype`，避免覆盖现有 TWA。准备正式原生包时，可以在构建参数中显式使用已经登记的正式包名，例如：
+
+```powershell
+.\gradlew.bat :prototype:assembleRelease `
+  '-PnativeApplicationId=xyz.hlovet.portal' `
+  -PpreviewApiBaseUrl=https://5200918.xyz/api `
+  -PpreviewPortalBaseUrl=https://5200918.xyz
+```
+
+正式包仍必须使用与 `assetlinks.json` 相同的签名证书；只切换包名或使用 Debug 签名不会获得 App Links/Passkey 的生产可信关系。构建前应确认正式签名、Google/Firebase 配置和线上关联声明属于同一发布包，不要把测试包上传到生产下载入口。
+
 正式包的 Android App Links 主机名会从 `previewPortalBaseUrl` 生成，同时声明站点主机名和对应的 `www` 主机名；`asset_statements` 会分别指向两者的 `/.well-known/assetlinks.json`。部署新域名时应在两个实际使用的主机名上都发布正式包名和正式签名指纹对应的 `assetlinks.json`；如果只使用其中一个主机名，另一个声明不会影响站内访问。调试包签名不能代替正式包声明。
 
 当前调试 APK 的签名指纹为：

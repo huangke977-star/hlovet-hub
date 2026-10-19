@@ -6,6 +6,15 @@ plugins {
 
 def configuredApiBaseUrl = (project.findProperty('previewApiBaseUrl') ?: 'https://5200918.xyz/api').toString().trim().replaceAll('/+$', '')
 def configuredPortalBaseUrl = (project.findProperty('previewPortalBaseUrl') ?: configuredApiBaseUrl).toString().trim().replaceAll('/+$', '')
+// 允许正式原生包在构建时复用已登记的包名，默认值继续隔离调试包与现有 TWA。
+def configuredApplicationId = (project.findProperty('nativeApplicationId') ?: 'xyz.hlovet.portal.prototype').toString().trim()
+def applicationIdParts = configuredApplicationId.tokenize('.')
+def applicationIdValid = configuredApplicationId.count('.') == applicationIdParts.size() - 1 &&
+    applicationIdParts.size() >= 2 &&
+    applicationIdParts.every { it ==~ '[A-Za-z][A-Za-z0-9_]*' }
+if (!applicationIdValid) {
+    throw new GradleException('nativeApplicationId 必须是合法的 Android applicationId。')
+}
 def configuredPortalHost = '5200918.xyz'
 def configuredPortalAlternateHost = 'www.5200918.xyz'
 def configuredPortalOrigin = configuredPortalBaseUrl
@@ -32,7 +41,7 @@ android {
         def firebaseProjectId = (project.findProperty('firebaseProjectId') ?: '').toString().replace('\\', '\\\\').replace('"', '\\"')
         def firebaseApplicationId = (project.findProperty('firebaseApplicationId') ?: '').toString().replace('\\', '\\\\').replace('"', '\\"')
         def firebaseSenderId = (project.findProperty('firebaseSenderId') ?: '').toString().replace('\\', '\\\\').replace('"', '\\"')
-        applicationId 'xyz.hlovet.portal.prototype'
+        applicationId configuredApplicationId
         manifestPlaceholders = [
             portalHost: configuredPortalHost,
             portalAlternateHost: configuredPortalAlternateHost,
