@@ -767,4 +767,11 @@ private fun announcementTimeLabel(item: NativeAdminAnnouncementSummary): String 
     else -> nativePhrase("更新 ${nativeAdminAnnouncementTime(item.updatedAt)}", "Updated ${nativeAdminAnnouncementTime(item.updatedAt)}")
 }
 
-private fun nativeAdminAnnouncementTime(value: String): String = value.replace('T', ' ').replace(Regex("\\.\\d+Z$"), "").replace("Z", "").takeLast(16).ifBlank { nativePhrase("时间未知", "Unknown time") }
+/** 将服务端 value 转为 zoneId 的完整年月日与分钟；无效非空值保留原文，空值显示未知。 */
+internal fun nativeAdminAnnouncementTime(value: String, zoneId: ZoneId = ZoneId.systemDefault()): String {
+    // 先按时间解析再格式化，不能截取字符串尾部，否则年份和时区信息都会被破坏。
+    val normalized = value.trim()
+    if (normalized.isEmpty()) return nativePhrase("时间未知", "Unknown time")
+    return runCatching { Instant.parse(normalized).atZone(zoneId).format(nativeAnnouncementDateFormatter) }
+        .getOrDefault(normalized)
+}

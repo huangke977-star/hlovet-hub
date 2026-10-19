@@ -199,6 +199,44 @@ class NativeAdminUsersDeviceTest {
         assertTrue(writes().isEmpty())
     }
 
+    /** 在同一页面连续切换管理权限、重开密码表单并重试状态操作，不能残留旧组合或忙碌状态。 */
+    @Test fun repeatedPermissionAndDialogTransitionsRemainInteractive() {
+        // 每轮都从真实页面打开表单并执行两阶段失败/重试，不重建 Activity 来掩盖生命周期问题。
+        val current = mutableStateOf(admin)
+        val attempts = AtomicInteger()
+        intercept = { request ->
+            if (request.method == "PATCH" && path(request).endsWith("/status") && attempts.incrementAndGet() % 2 == 1)
+                failure("Fixture retry required", 503) else null
+        }
+        host.setContent { HlovetTheme { NativeAdminUsersScreen(current.value, {}) } }
+        repeat(6) { round ->
+            // 权限撤销必须销毁密码草稿；恢复权限后重新打开的是空表单。
+            waitText("@member")
+            rowAction(3, "修改密码").performClick()
+            fill("admin-users-password", "fixture-unsubmitted")
+            compose.runOnIdle { current.value = admin.copy(isSuperAdmin = false, isAdministrator = false) }
+            waitText("当前账号没有访问用户管理的权限。")
+            compose.onNodeWithTag("admin-users-password").assertDoesNotExist()
+            compose.runOnIdle { current.value = admin }
+            waitText("@member")
+            rowAction(3, "修改密码").performClick()
+            assertEquals("", compose.onNodeWithTag("admin-users-password").fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+            dialogButton("取消").performClick()
+            // 错误后两个按钮都要恢复；重试成功后重新查询服务器状态，下一轮执行相反操作。
+            rowAction(3, if (round % 2 == 0) "停用账号" else "启用账号").performClick()
+            dialogButton("确认").performClick()
+            dialogText("Fixture retry required").assertIsDisplayed()
+            dialogButton("确认").assertIsEnabled()
+            dialogButton("取消").assertIsEnabled()
+            dialogButton("确认").performClick()
+            waitText(if (round % 2 == 0) "已停用 @member。" else "已启用 @member。")
+        }
+        // 六轮只允许各一次失败和一次成功，不发送密码请求，也没有重复状态写入。
+        assertEquals(12, writes().size)
+        assertTrue(writes().all { path(it).endsWith("/status") })
+        capture("repeated-permission-and-dialog-transitions")
+    }
+
     /** 账号切换后迟到的列表和写操作结果均不得污染新账号。 */
     @Test fun accountChangeDiscardsLateMutationAndClearsOldSuccess() {
         // 阻塞旧账号写响应，切换后再释放，检查旧成功提示不会回到新页面。
@@ -290,10 +328,31 @@ class NativeAdminUsersDeviceTest {
     /** 返回当前对话框中的 text，确保错误没有落在被遮挡的页面背后。 */
     private fun dialogText(text: String): SemanticsNodeInteraction {
         // 错误节点必须属于 Dialog 语义子树。
-        compose.waitUntil(15_000) { compose.onAllNodes(hasText(text) and hasAnyAncestor(isDialog())).fetchSemanticsNodes().isNotEmpty() }
+        try {
+            compose.waitUntil(15_000) { compose.onAllNodes(hasText(text) and hasAnyAncestor(isDialog())).fetchSemanticsNodes().isNotEmpty() }
+        } catch (error: Throwable) {
+            // 在宿主销毁前保存首个失败现场，避免清理阶段异常遮盖真正的界面与请求状态。
+            recordDialogWaitFailure(text, error)
+            throw error
+        }
         val node = compose.onNode(hasText(text) and hasAnyAncestor(isDialog()))
         if (!node.isDisplayed()) node.performScrollTo()
         return node
+    }
+
+    /** 保存 expectedText 等待失败时的 error、屏幕和请求路径，不记录认证头或请求正文。 */
+    private fun recordDialogWaitFailure(expectedText: String, error: Throwable) {
+        // 证据写入测试私有目录，失败的证据收集不能取代或掩盖原异常。
+        val name = "dialog-wait-${System.currentTimeMillis()}"
+        runCatching { capture(name) }
+        runCatching {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val directory = File(context.filesDir, "native-admin-users-device-evidence").apply { mkdirs() }
+            File(directory, "$name.txt").writeText(
+                "Expected: $expectedText\nFailure: ${error.javaClass.name}: ${error.message}\n" +
+                    "Requests:\n" + calls.joinToString("\n") { "${it.method} ${path(it)}" },
+            )
+        }
     }
 
     /** 返回对话框内可点击 text 按钮，不匹配背后的页面标题。 */

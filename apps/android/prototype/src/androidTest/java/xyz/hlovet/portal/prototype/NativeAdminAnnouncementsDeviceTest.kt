@@ -2,6 +2,8 @@ package xyz.hlovet.portal.prototype
 
 import android.graphics.Bitmap
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -22,6 +24,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** 在设备内隔离公告服务中核对权限、草稿两阶段提交和错误恢复，不写真实数据库。 */
 @RunWith(AndroidJUnit4::class)
@@ -81,6 +85,33 @@ class NativeAdminAnnouncementsDeviceTest {
         compose.runOnIdle { account.value = null }
         waitText("登录后查看公告管理。")
         assertTrue(calls.isEmpty())
+    }
+
+    /** 公告列表保留完整本地日期，编辑器默认选项的真实像素使用当前账号色板。 */
+    @Test fun announcementTimeAndSelectedAudienceFollowSharedAppearance() {
+        // 实际列表包含四位年份，不能仅在格式化工具单测中正确而页面仍截断。
+        show()
+        val updated = "更新 ${nativeAdminAnnouncementTime("2026-10-16T00:00:00Z")}"
+        listNode().performScrollToNode(hasTestTag("admin-announcement-1"))
+        compose.onNode(hasText(updated, substring = true) and hasAnyAncestor(hasTestTag("admin-announcement-1")))
+            .performScrollTo().assertIsDisplayed()
+        // 时间位于组合摘要内，投放选项位于有界表单下方；分别按真实滚动容器定位，不能要求它们初始就在屏内。
+        compose.onNodeWithContentDescription("新建公告").performScrollTo().performClick()
+        val selected = compose.onNode(hasText("所有访客") and isSelected()).performScrollTo().assertIsDisplayed()
+        val dialog = compose.onNode(isDialog())
+        val dialogBounds = dialog.fetchSemanticsNode().boundsInRoot
+        val selectedBounds = selected.fetchSemanticsNode().boundsInRoot
+        val pixels = dialog.captureToImage().toPixelMap()
+        // 采样选项左侧的实际面板背景，不使用 Dialog 透明外缘，再按选中色透明度合成。
+        val y = (selectedBounds.center.y - dialogBounds.top).roundToInt()
+        val x = (selectedBounds.left - dialogBounds.left).roundToInt() + 6
+        val background = pixels[x - 12, y]
+        val expected = HlovetUi.accentSoft.compositeOver(background)
+        val actual = pixels[x, y]
+        capture("audience-selection-theme")
+        assertTrue("Selected audience must use the account accent: expected=$expected, actual=$actual, background=$background", abs(expected.red - actual.red) < .04f &&
+            abs(expected.green - actual.green) < .04f && abs(expected.blue - actual.blue) < .04f)
+        assertTrue(writes().isEmpty())
     }
 
     /** 普通管理员仅删除草稿，超级管理员可删除已发布、归档和定时公告。 */

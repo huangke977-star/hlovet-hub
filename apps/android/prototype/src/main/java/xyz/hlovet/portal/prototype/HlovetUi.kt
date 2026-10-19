@@ -291,8 +291,10 @@ private fun parseColor(value: String, fallback: Color): Color = try {
     fallback
 }
 
+/** 为 content 应用当前账号的共享色板；选中组件同样读取站点外观，不回退到 Material 默认紫色。 */
 @Composable
 internal fun HlovetTheme(content: @Composable () -> Unit) {
+    // FilterChip 等组件默认使用 secondaryContainer，必须与显式指定颜色的站内组件保持一致。
     MaterialTheme(
         colorScheme = lightColorScheme(
             primary = HlovetUi.accent,
@@ -301,6 +303,8 @@ internal fun HlovetTheme(content: @Composable () -> Unit) {
             onPrimaryContainer = HlovetUi.foreground,
             secondary = HlovetUi.secondaryAccent,
             onSecondary = HlovetUi.onAccent,
+            secondaryContainer = HlovetUi.accentSoft,
+            onSecondaryContainer = HlovetUi.foreground,
             background = HlovetUi.background,
             onBackground = HlovetUi.foreground,
             surface = HlovetUi.surface,
