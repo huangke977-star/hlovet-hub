@@ -10,6 +10,7 @@ import androidx.compose.ui.test.IdlingResource
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
+import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.toSize
@@ -34,8 +35,8 @@ internal fun createNativeComposeRule(): ComposeContentTestRule {
     return rule
 }
 
-/** 等待按钮屏幕位置连续稳定后执行一次真实触摸；compose 提供主线程同步，不自动重试提交。 */
-internal fun SemanticsNodeInteraction.performNativeStableClick(compose: ComposeContentTestRule): SemanticsNodeInteraction {
+/** 等待按钮屏幕位置稳定后真实触摸；compose 可来自独立宿主或 MainActivity，不自动重试提交。 */
+internal fun SemanticsNodeInteraction.performNativeStableClick(compose: ComposeTestRule): SemanticsNodeInteraction {
     // 输入法动画由 Android 实时时钟驱动，Compose 空闲不能保证 Dialog 的屏幕位置已经停止变化。
     var previousBounds: Rect? = null
     var stableSince = SystemClock.uptimeMillis()
