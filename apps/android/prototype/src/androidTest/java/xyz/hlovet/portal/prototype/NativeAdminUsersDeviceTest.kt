@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import okhttp3.mockwebserver.Dispatcher
@@ -26,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger
 /** 用设备内隔离服务验证用户管理异常、权限与分页，不向本地数据库或线上发送写请求。 */
 @RunWith(AndroidJUnit4::class)
 class NativeAdminUsersDeviceTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createNativeComposeRule()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private var locale = "zh-CN"

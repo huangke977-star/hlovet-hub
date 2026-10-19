@@ -92,6 +92,8 @@ dependencies {
     testImplementation 'org.json:json:20240303'
     testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
     androidTestImplementation platform('androidx.compose:compose-bom:2025.06.01')
+    // 显式使用当前已解析的协程测试版本，为真实 IO 回调提供可由主线程测试时钟推进的标准调度器。
+    androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2'
     androidTestImplementation 'androidx.compose.ui:ui-test-junit4'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test:runner:1.6.2'

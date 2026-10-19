@@ -11,7 +11,6 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.isRoot
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -46,7 +45,7 @@ import java.util.concurrent.atomic.AtomicInteger
 /** 用隔离 HTTP 服务验证真实管理表单的校验、反馈与权限，不代表真实数据库联调。 */
 @RunWith(AndroidJUnit4::class)
 class NativeAdminFormTest {
-    @get:Rule(order = 0) val compose = createComposeRule()
+    @get:Rule(order = 0) val compose = createNativeComposeRule()
     @get:Rule(order = 1) val evidence = object : TestWatcher() {
         override fun starting(description: Description) { currentTest = description.methodName }
         override fun failed(error: Throwable, description: Description) {

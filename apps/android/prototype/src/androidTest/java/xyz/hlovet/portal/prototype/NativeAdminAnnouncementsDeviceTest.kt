@@ -6,7 +6,6 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import okhttp3.mockwebserver.Dispatcher
@@ -30,7 +29,7 @@ import kotlin.math.roundToInt
 /** 在设备内隔离公告服务中核对权限、草稿两阶段提交和错误恢复，不写真实数据库。 */
 @RunWith(AndroidJUnit4::class)
 class NativeAdminAnnouncementsDeviceTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createNativeComposeRule()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private var oldLocale = "zh-CN"
@@ -158,14 +157,20 @@ class NativeAdminAnnouncementsDeviceTest {
             }
             null
         }
+        show()
+        val beforePublish = calls.size
         try {
-            show(); rowAction(1, "发布").performClick(); dialogButton("发布").performClick()
-            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            rowAction(1, "发布").performClick(); dialogButton("发布").performClick()
+            // 条件等待同时推进标准调度器，不能阻塞测试线程后期待未调度的请求自行开始。
+            compose.waitUntil(5_000) { entered.count == 0L }
             dialogButton("发布").assertIsNotEnabled().performTouchInput { click() }
             dialogButton("取消").assertIsNotEnabled()
             assertEquals(1, writes().size)
         } finally { release.countDown() }
+        // 成功提示早于列表刷新完成；等待本次权威列表响应渲染后，再操作已发布行。
         waitText("公告已发布或安排定时发布。")
+        waitQuery("page", "1", after = beforePublish)
+        waitText("共 ${announcements.size} 条公告")
         rowAction(1, "归档").assertExists()
         assertEquals(1, writes().size)
     }
@@ -245,7 +250,8 @@ class NativeAdminAnnouncementsDeviceTest {
         val account = mutableStateOf(admin)
         try {
             host.setContent { HlovetTheme { NativeAdminAnnouncementsScreen(account.value, {}) } }
-            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            // 等到旧账号请求真实发出后再切换身份，避免仅切换尚未启动的协程。
+            compose.waitUntil(5_000) { entered.count == 0L }
             compose.runOnIdle { account.value = admin.copy(userId = 9, accessToken = "fixture-announcement-new") }
             waitText("共 4 条公告")
         } finally { release.countDown() }
