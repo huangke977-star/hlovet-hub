@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -64,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,6 +78,45 @@ import kotlinx.coroutines.withContext
 
 private val nativeSettingThemes = listOf("cloud-blue", "sakura-mist", "night-purple", "custom")
 private val nativeSettingVisibilities = listOf("public", "authenticated", "role_restricted", "private")
+
+/** 保留五项站点数值的原始输入，允许中途清空；只有完整合法的草稿才能转换为服务端配置。 */
+internal data class NativeSiteNumericDraft(
+    val cardAlpha: String,
+    val glassBlur: String,
+    val glassTintAlpha: String,
+    val apkRetentionCount: String,
+    val articleImageMaxSizeMb: String,
+) {
+    /** 返回第一项非法输入的本地化原因；null 表示所有值都是各自范围内的整数。 */
+    fun validationError(): String? {
+        // 不钳位、不丢弃符号或小数，避免将用户输入悄悄改成另一个可保存的数值。
+        return when {
+            cardAlpha.toIntOrNull()?.let { it in 38..76 } != true -> nativePhrase("卡片透明度必须为 38 到 76 的整数。", "Card opacity must be an integer from 38 to 76.")
+            glassBlur.toIntOrNull()?.let { it in 0..36 } != true -> nativePhrase("模糊程度必须为 0 到 36 的整数。", "Blur must be an integer from 0 to 36.")
+            glassTintAlpha.toIntOrNull()?.let { it in 0..100 } != true -> nativePhrase("色调透明度必须为 0 到 100 的整数。", "Tint opacity must be an integer from 0 to 100.")
+            apkRetentionCount.toIntOrNull()?.let { it in 1..20 } != true -> nativePhrase("APK 保留数量必须为 1 到 20 的整数。", "APK retention count must be an integer from 1 to 20.")
+            articleImageMaxSizeMb.toIntOrNull()?.let { it in 1..30 } != true -> nativePhrase("文章图片上限必须为 1 到 30 的整数。", "Article image limit must be an integer from 1 to 30.")
+            else -> null
+        }
+    }
+
+    /** 将合法数值合并到 settings，保留其余配置；非法草稿抛出异常，不能生成可提交快照。 */
+    fun applyTo(settings: NativeAdminSiteSettings): NativeAdminSiteSettings {
+        // 转换前统一守住范围边界，调用方不能绕过校验写入截断后的值。
+        require(validationError() == null)
+        return settings.copy(
+            defaultTheme = settings.defaultTheme.copy(cardAlpha = cardAlpha.toInt(), glassBlur = glassBlur.toInt(), glassTintAlpha = glassTintAlpha.toInt()),
+            apkRetentionCount = apkRetentionCount.toInt(),
+            articleImageMaxSizeMb = articleImageMaxSizeMb.toInt(),
+        )
+    }
+}
+
+/** 从服务端 settings 生成对应输入草稿；只在读取配置、恢复默认或保存成功后重新规范化数值。 */
+private fun nativeSiteNumericDraft(settings: NativeAdminSiteSettings): NativeSiteNumericDraft {
+    // 服务端结果与输入草稿分离，网络失败不能覆盖用户尚未修正的输入。
+    return NativeSiteNumericDraft(settings.defaultTheme.cardAlpha.toString(), settings.defaultTheme.glassBlur.toString(), settings.defaultTheme.glassTintAlpha.toString(), settings.apkRetentionCount.toString(), settings.articleImageMaxSizeMb.toString())
+}
 
 /** 按账号、令牌和权限隔离站点设置，避免切换身份后复用旧管理员的草稿、弹窗或请求。 */
 @Composable
@@ -98,6 +139,7 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var settings by remember(token) { mutableStateOf<NativeAdminSiteSettings?>(null) }
+    var numericDraft by remember(token) { mutableStateOf<NativeSiteNumericDraft?>(null) }
     var assets by remember(token) { mutableStateOf<List<NativeAdminSiteAsset>>(emptyList()) }
     var backgrounds by remember(token) { mutableStateOf<List<NativeAdminBackground>>(emptyList()) }
     var roles by remember(token) { mutableStateOf<List<NativeRole>>(emptyList()) }
@@ -188,6 +230,7 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                     )
                 }
                 settings = loaded.first
+                numericDraft = nativeSiteNumericDraft(loaded.first)
                 assets = loaded.second
                 backgrounds = loaded.third
             } catch (exception: CancellationException) {
@@ -235,12 +278,20 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
         val accessToken = token ?: return
         val current = settings ?: return
         if (busy || backgroundPickerBusy || !canAccess) return
+        val numbers = numericDraft ?: return
+        error = numbers.validationError()
+        notice = null
+        if (error != null) return
+        val snapshot = numbers.applyTo(current)
         busy = true
         error = null
         notice = null
         scope.launch {
             try {
-                settings = withContext(Dispatchers.IO) { NativeAdminSettingsApi.update(accessToken, current) }
+                // 只有保存时才转换数字，成功后采用服务端确认值，失败则保留原始字段。
+                val saved = withContext(Dispatchers.IO) { NativeAdminSettingsApi.update(accessToken, snapshot) }
+                settings = saved
+                numericDraft = nativeSiteNumericDraft(saved)
                 notice = nativePhrase("站点设置已保存。", "Site settings saved.")
             } catch (exception: CancellationException) {
                 throw exception
@@ -262,6 +313,7 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
         scope.launch {
             try {
                 settings = withContext(Dispatchers.IO) { NativeAdminSettingsApi.reset(accessToken) }
+                numericDraft = settings?.let(::nativeSiteNumericDraft)
                 notice = nativePhrase("站点设置已恢复默认；资源、背景、分类和标签未删除。", "Site settings restored to defaults; assets, backgrounds, categories, and tags were kept.")
             } catch (exception: CancellationException) {
                 throw exception
@@ -418,6 +470,7 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
         else if (!canAccess) item { NativeSettingsMessage(nativePhrase("站点设置仅超级管理员可访问。", "Only super administrators can access site settings."), true, null) }
         else if (loading && settings == null) item { NativeSettingsMessage(nativePhrase("正在读取站点设置…", "Loading site settings..."), false, null) }
         else settings?.let { current ->
+            val numbers = numericDraft ?: nativeSiteNumericDraft(current)
             item {
                 NativeSettingsCard(nativePhrase("站点身份", "Site identity"), Icons.Filled.Settings) {
                     NativeSettingsField(nativePhrase("站点名称", "Site name"), current.siteName, !busy) { settings = current.copy(siteName = it) }
@@ -438,9 +491,9 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                         NativeSettingsField(nativePhrase("弱化文字色", "Muted text color"), current.defaultTheme.muted, !busy, Modifier.weight(1f)) { settings = current.copy(defaultTheme = current.defaultTheme.copy(muted = normalizeHex(it))) }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        NativeSettingsNumberField(nativePhrase("卡片透明度 38-76", "Card opacity 38-76"), current.defaultTheme.cardAlpha.toString(), !busy, Modifier.weight(1f)) { settings = current.copy(defaultTheme = current.defaultTheme.copy(cardAlpha = it.toIntOrNull()?.coerceIn(38, 76) ?: current.defaultTheme.cardAlpha)) }
-                        NativeSettingsNumberField(nativePhrase("模糊 0-36", "Blur 0-36"), current.defaultTheme.glassBlur.toString(), !busy, Modifier.weight(1f)) { settings = current.copy(defaultTheme = current.defaultTheme.copy(glassBlur = it.toIntOrNull()?.coerceIn(0, 36) ?: current.defaultTheme.glassBlur)) }
-                        NativeSettingsNumberField(nativePhrase("色调透明度", "Tint opacity"), current.defaultTheme.glassTintAlpha.toString(), !busy, Modifier.weight(1f)) { settings = current.copy(defaultTheme = current.defaultTheme.copy(glassTintAlpha = it.toIntOrNull()?.coerceIn(0, 100) ?: current.defaultTheme.glassTintAlpha)) }
+                        NativeSettingsNumberField(nativePhrase("卡片透明度 38-76", "Card opacity 38-76"), numbers.cardAlpha, !busy, Modifier.weight(1f)) { numericDraft = numbers.copy(cardAlpha = it) }
+                        NativeSettingsNumberField(nativePhrase("模糊 0-36", "Blur 0-36"), numbers.glassBlur, !busy, Modifier.weight(1f)) { numericDraft = numbers.copy(glassBlur = it) }
+                        NativeSettingsNumberField(nativePhrase("色调透明度", "Tint opacity"), numbers.glassTintAlpha, !busy, Modifier.weight(1f)) { numericDraft = numbers.copy(glassTintAlpha = it) }
                     }
                     NativeSettingsField(nativePhrase("玻璃色调", "Glass tint"), current.defaultTheme.glassTint, !busy) { settings = current.copy(defaultTheme = current.defaultTheme.copy(glassTint = normalizeHex(it))) }
                 }
@@ -458,9 +511,9 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                     NativeSettingsToggle(nativePhrase("启用安装页面", "Enable install page"), current.installPageEnabled, !busy) { settings = current.copy(installPageEnabled = it) }
                     NativeSettingsToggle(nativePhrase("保留 APK 历史版本", "Keep APK history"), current.apkHistoryEnabled, !busy) { settings = current.copy(apkHistoryEnabled = it) }
                     NativeSettingsToggle(nativePhrase("自动清理旧 APK", "Auto-clean old APKs"), current.apkAutoCleanupEnabled, !busy) { settings = current.copy(apkAutoCleanupEnabled = it) }
-                    NativeSettingsNumberField(nativePhrase("APK 保留数量 1-20", "APK retention count 1-20"), current.apkRetentionCount.toString(), !busy) { settings = current.copy(apkRetentionCount = it.toIntOrNull()?.coerceIn(1, 20) ?: current.apkRetentionCount) }
+                    NativeSettingsNumberField(nativePhrase("APK 保留数量 1-20", "APK retention count 1-20"), numbers.apkRetentionCount, !busy) { numericDraft = numbers.copy(apkRetentionCount = it) }
                     NativeSettingsMenuField(nativePhrase("默认文章可见范围", "Default article visibility"), current.defaultArticleVisibility, nativeSettingVisibilities, !busy) { settings = current.copy(defaultArticleVisibility = it) }
-                    NativeSettingsNumberField(nativePhrase("文章图片大小 1-30 MB", "Article image size 1-30 MB"), current.articleImageMaxSizeMb.toString(), !busy) { settings = current.copy(articleImageMaxSizeMb = it.toIntOrNull()?.coerceIn(1, 30) ?: current.articleImageMaxSizeMb) }
+                    NativeSettingsNumberField(nativePhrase("文章图片大小 1-30 MB", "Article image size 1-30 MB"), numbers.articleImageMaxSizeMb, !busy) { numericDraft = numbers.copy(articleImageMaxSizeMb = it) }
                     NativeSettingsToggle(nativePhrase("允许评论", "Allow comments"), current.commentsEnabled, !busy) { settings = current.copy(commentsEnabled = it) }
                     NativeSettingsToggle(nativePhrase("允许举报", "Allow reports"), current.reportsEnabled, !busy) { settings = current.copy(reportsEnabled = it) }
                 }
@@ -545,9 +598,11 @@ private fun NativeSettingsField(label: String, value: String, enabled: Boolean, 
     OutlinedTextField(value, onChange, enabled = enabled, modifier = modifier, singleLine = true, label = { Text(label, fontSize = 10.sp) }, textStyle = TextStyle(fontSize = 11.sp), colors = nativeSettingsFieldColors())
 }
 
+/** 显示 label 数字输入的原始 value；enabled 控制编辑，onChange 接收未截断文本，modifier 决定布局。 */
 @Composable
 private fun NativeSettingsNumberField(label: String, value: String, enabled: Boolean, modifier: Modifier = Modifier.fillMaxWidth(), onChange: (String) -> Unit) {
-    OutlinedTextField(value, { onChange(it.filter(Char::isDigit)) }, enabled = enabled, modifier = modifier, singleLine = true, label = { Text(label, fontSize = 9.sp) }, textStyle = TextStyle(fontSize = 11.sp), colors = nativeSettingsFieldColors())
+    // 数字键盘只改善输入体验，范围和整数校验留给保存操作，不能静默过滤错误文本。
+    OutlinedTextField(value, onChange, enabled = enabled, modifier = modifier, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), label = { Text(label, fontSize = 9.sp) }, textStyle = TextStyle(fontSize = 11.sp), colors = nativeSettingsFieldColors())
 }
 
 /** 为 label 选择 value；options 限定服务端值，optionLabel 提供显示名，onChange 仅更新父级草稿。 */
@@ -648,6 +703,7 @@ private fun NativeTaxonomyRow(item: NativeAdminTaxonomy, enabled: Boolean, onEdi
 private fun NativeTaxonomyDialog(item: NativeAdminTaxonomy, enabled: Boolean, error: String?, onDismiss: () -> Unit, onSave: (NativeAdminTaxonomy) -> Unit) {
     // 草稿在失败重组后继续保留；切换身份由外层 key 销毁，不跨管理员恢复输入。
     var draft by remember(item.id, item.kind) { mutableStateOf(item) }
+    var sortOrderText by remember(item.id, item.kind) { mutableStateOf(item.sortOrder.toString()) }
     HlovetAlertDialog(
         onDismissRequest = { if (enabled) onDismiss() },
         title = { Text(if (item.id == 0) nativePhrase("新增${if (item.kind == "tag") "标签" else "分类"}", "Add ${if (item.kind == "tag") "tag" else "category"}") else nativePhrase("编辑${if (item.kind == "tag") "标签" else "分类"}", "Edit ${if (item.kind == "tag") "tag" else "category"}")) },
@@ -656,12 +712,13 @@ private fun NativeTaxonomyDialog(item: NativeAdminTaxonomy, enabled: Boolean, er
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 NativeSettingsField(nativePhrase("名称", "Name"), draft.name, enabled) { draft = draft.copy(name = it) }
                 NativeSettingsField(nativePhrase("颜色（#RRGGBB）", "Color (#RRGGBB)"), draft.color, enabled) { draft = draft.copy(color = normalizeHex(it)) }
-                NativeSettingsNumberField(nativePhrase("排序", "Sort order"), draft.sortOrder.toString(), enabled) { draft = draft.copy(sortOrder = it.toIntOrNull() ?: draft.sortOrder) }
+                NativeSettingsNumberField(nativePhrase("排序", "Sort order"), sortOrderText, enabled) { sortOrderText = it }
                 NativeSettingsToggle(nativePhrase("启用", "Enabled"), draft.enabled, enabled) { draft = draft.copy(enabled = it) }
                 error?.let { Text(it, color = HlovetUi.secondaryAccent, fontSize = 11.sp) }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(draft) }, enabled = enabled) { Text(if (enabled) nativePhrase("保存", "Save") else nativePhrase("保存中…", "Saving…")) } },
+        // 空文本、小数及超出整数容量的输入均交给同一排序校验，不回填旧排序冒充用户输入。
+        confirmButton = { TextButton(onClick = { onSave(draft.copy(sortOrder = sortOrderText.toIntOrNull() ?: -1)) }, enabled = enabled) { Text(if (enabled) nativePhrase("保存", "Save") else nativePhrase("保存中…", "Saving…")) } },
         dismissButton = { TextButton(onClick = onDismiss, enabled = enabled) { Text(nativePhrase("取消", "Cancel")) } },
     )
 }

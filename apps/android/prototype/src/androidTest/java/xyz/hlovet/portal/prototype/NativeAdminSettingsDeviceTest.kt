@@ -2,6 +2,7 @@ package xyz.hlovet.portal.prototype
 
 import android.graphics.Bitmap
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -255,6 +256,68 @@ class NativeAdminSettingsDeviceTest {
         assertEquals(1, calls.count { it.method == "POST" })
     }
 
+    /** 整页数值允许清空并保留越界文本；保存校验失败零写入，修正后按合法整数提交。 */
+    @Test fun rawNumericSettingsValidateOnlyWhenSaving() {
+        // 清空过程中不能自动回填旧值，越界值也不能被钳位成可保存的配置。
+        show()
+        fillPage("卡片透明度 38-76", "")
+        find(hasText("保存全部设置")).performNativeStableClick(compose)
+        compose.onNodeWithTag("admin-site-settings-list").performScrollToIndex(0)
+        waitText("卡片透明度必须为 38 到 76 的整数。")
+        val opacity = find(hasSetTextAction() and hasText("卡片透明度 38-76"))
+        assertEquals("", opacity.fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        fillPage("卡片透明度 38-76", "77")
+        find(hasText("保存全部设置")).performNativeStableClick(compose)
+        assertEquals("77", find(hasSetTextAction() and hasText("卡片透明度 38-76")).fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        assertFalse(calls.any { it.method == "PATCH" })
+        // 使用各自边界提交，五项值必须共同写入，而不是仍沿用旧的配置快照。
+        val attempts = AtomicInteger()
+        intercept = { request -> if (request.method == "PATCH" && attempts.incrementAndGet() == 1) failure("Settings temporarily unavailable") else null }
+        fillPage("卡片透明度 38-76", "038")
+        fillPage("模糊 0-36", "0")
+        fillPage("色调透明度", "100")
+        fillPage("APK 保留数量 1-20", "20")
+        fillPage("文章图片大小 1-30 MB", "30")
+        find(hasText("保存全部设置")).performNativeStableClick(compose)
+        compose.onNodeWithTag("admin-site-settings-list").performScrollToIndex(0)
+        waitText("Settings temporarily unavailable")
+        assertEquals("038", find(hasSetTextAction() and hasText("卡片透明度 38-76")).fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        assertEquals(1, calls.count { it.method == "PATCH" })
+        // 网络失败保留原始草稿，仅由用户明确重试，成功之后才采用规范化服务端值。
+        find(hasText("保存全部设置")).performNativeStableClick(compose)
+        compose.onNodeWithTag("admin-site-settings-list").performScrollToIndex(0)
+        waitText("站点设置已保存。")
+        assertEquals(2, calls.count { it.method == "PATCH" })
+        val body = JSONObject(calls.last { it.method == "PATCH" }.body.clone().readUtf8())
+        assertEquals(38, body.getInt("defaultCardAlpha")); assertEquals(0, body.getInt("defaultGlassBlur"))
+        assertEquals(100, body.getInt("defaultGlassTintAlpha"))
+        assertEquals(20, body.getInt("apkRetentionCount"))
+        assertEquals(30, body.getInt("articleImageMaxSizeMb"))
+        assertEquals("Fixture site", body.getString("siteName"))
+        assertEquals("38", find(hasSetTextAction() and hasText("卡片透明度 38-76")).fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+    }
+
+    /** 分类排序清空后显示错误并保留空输入，不得借用旧排序零值保存。 */
+    @Test fun emptyTaxonomySortOrderIsRetainedUntilCorrected() {
+        // 只替换排序文本，分类名称合法，确保失败由空排序而非其它字段引起。
+        show(); find(hasText("新增分类")).performClick()
+        fill("名称", "Sort draft"); fill("排序", ""); saveDialog()
+        dialogText("排序必须在 0 到 9999 之间。").assertIsDisplayed()
+        val sort = compose.onNode(hasSetTextAction() and hasText("排序") and hasAnyAncestor(isDialog()))
+        assertEquals("", sort.fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        assertFalse(calls.any { it.method == "POST" })
+        // 修正后只创建一次，确认请求里确实使用用户重新输入的排序。
+        fill("排序", "12"); saveDialog(); waitDialogClosed()
+        val body = JSONObject(calls.single { it.method == "POST" }.body.clone().readUtf8())
+        assertEquals(12, body.getInt("sortOrder"))
+    }
+
+    /** 将页面中 label 对应字段滚动到可见位置，再通过真实编辑事件替换为 value。 */
+    private fun fillPage(label: String, value: String) {
+        // 不直接赋值页面草稿，保持数值输入和保存校验的完整调用链。
+        find(hasSetTextAction() and hasText(label)).performTextReplacement(value)
+    }
+
     /** 挂载 account 的真实设置页面，再等待名称输入框完成读取。 */
     private fun show(account: NativeSession = admin) {
         // 夹具仅替代 HTTP，仍运行实际 Compose 页面和请求解析。
@@ -321,8 +384,9 @@ class NativeAdminSettingsDeviceTest {
 
     /** 构造当前设置响应，按分类种类分组并附加共享主题与通知结构。 */
     private fun settings(): JSONObject {
-        // 每次返回独立对象，避免响应序列化与另一个请求共享可变 JSON。
-        return JSONObject(saved.toString()).put("defaultTheme", JSONObject()).put("notifications", JSONObject())
+        // 每次返回独立对象并保留已保存主题，避免夹具把合法写入值误恢复成默认配置。
+        val response = JSONObject(saved.toString())
+        return response.put("defaultTheme", response.optJSONObject("defaultTheme") ?: JSONObject()).put("notifications", response.optJSONObject("notifications") ?: JSONObject())
             .put("taxonomies", JSONObject().put("categories", JSONArray(taxonomies.filter { it.optString("kind") == "category" }))
                 .put("tags", JSONArray(taxonomies.filter { it.optString("kind") == "tag" })))
     }
@@ -342,7 +406,13 @@ class NativeAdminSettingsDeviceTest {
         val body = request.body.clone().readUtf8().takeIf { it.isNotBlank() }?.let(::JSONObject) ?: JSONObject()
         return when {
             path == "/site-settings" && request.method == "PATCH" -> {
-                saved = body
+                // 写入 DTO 是扁平字段，读取响应将外观组织到 defaultTheme；与真实接口保持一致。
+                saved = body.put("defaultTheme", JSONObject()
+                    .put("themeId", body.getString("defaultThemeId"))
+                    .put("customAccent", body.getString("defaultAccent")).put("customSurface", body.getString("defaultSurface"))
+                    .put("customForeground", body.getString("defaultForeground")).put("customMuted", body.getString("defaultMuted"))
+                    .put("cardAlpha", body.getInt("defaultCardAlpha")).put("glassBlur", body.getInt("defaultGlassBlur"))
+                    .put("glassTint", body.getString("defaultGlassTint")).put("glassTintAlpha", body.getInt("defaultGlassTintAlpha")))
                 json(settings())
             }
             path == "/site-settings/taxonomies" && request.method == "POST" -> {
