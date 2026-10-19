@@ -48,6 +48,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,6 +71,9 @@ private val CommunityAccent: Color get() = HlovetUi.accent
 private val CommunityMuted: Color get() = HlovetUi.muted
 private val CommunityCoral: Color get() = HlovetUi.secondaryAccent
 
+/** 保存本次公告打开失败的稳定目标和用户提示；只允许临时故障由用户明确重试。 */
+private data class NativeAnnouncementOpenFailure(val id: Int, val message: String, val retryable: Boolean)
+
 /** 用 session 读取公告列表与附件，initialAnnouncementId 指定首次详情，onBack 返回上级页面。 */
 @Composable
 internal fun NativeAnnouncementsScreen(
@@ -77,6 +81,15 @@ internal fun NativeAnnouncementsScreen(
     onBack: () -> Unit,
     initialAnnouncementId: Int? = null,
 ) {
+    // 身份或令牌变化时取消旧请求，避免旧账号详情、附件和阅读状态进入新页面。
+    key(session?.userId, session?.accessToken) {
+        NativeAnnouncementsContent(session, onBack, initialAnnouncementId)
+    }
+}
+
+/** 展示 session 的可见公告，initialAnnouncementId 可自动打开详情，onBack 返回上级。 */
+@Composable
+private fun NativeAnnouncementsContent(session: NativeSession?, onBack: () -> Unit, initialAnnouncementId: Int?) {
     // 附件与当前账号缓存来源绑定，列表、详情及图片预览继续保持各自状态。
     val token = session?.accessToken
     val context = LocalContext.current
@@ -89,30 +102,82 @@ internal fun NativeAnnouncementsScreen(
     var error by remember(token, page) { mutableStateOf<String?>(null) }
     var detailLoading by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
+    var openFailure by remember { mutableStateOf<NativeAnnouncementOpenFailure?>(null) }
     var previewImage by remember { mutableStateOf<NativeArticleImageTarget?>(null) }
     var downloadedAttachment by remember(token, cacheOwner) { mutableStateOf<NativeAttachmentFile?>(null) }
+    val confirmedSummaries = remember { mutableMapOf<Int, NativeAnnouncementSummary>() }
+    var listRequest by remember { mutableIntStateOf(0) }
 
+    /** 重新读取当前页，只采用最新请求；已确认阅读的公告不能被较早发出的列表响应恢复成未读。 */
     fun load() {
+        // 请求编号同时隔离刷新和翻页，不让先发后到的旧结果覆盖当前列表。
+        val request = ++listRequest
+        val requestedPage = page
         scope.launch {
             loading = true
             error = null
-            runCatching { withContext(Dispatchers.IO) { NativeCommunityApi.listAnnouncements(token, page) } }
-                .onSuccess { data = it }
-                .onFailure { error = it.message ?: nativePhrase("公告读取失败，请稍后重试。", "Announcements could not be loaded. Try again later.") }
-            loading = false
+            try {
+                val result = withContext(Dispatchers.IO) { NativeCommunityApi.listAnnouncements(token, requestedPage) }
+                if (request == listRequest && requestedPage == page) {
+                    // 仅合并服务端仍可见的行，不把已归档或撤权的公告重新插回列表。
+                    data = result.copy(items = result.items.map { item ->
+                        val confirmed = confirmedSummaries[item.id]
+                        if (confirmed == null) item else item.copy(unread = false, viewCount = maxOf(item.viewCount, confirmed.viewCount))
+                    })
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                // 身份变化销毁组合时继续传播取消，不生成旧账号的错误反馈。
+                throw cancelled
+            } catch (exception: Exception) {
+                if (request == listRequest && requestedPage == page) error = exception.message ?: nativePhrase("公告读取失败，请稍后重试。", "Announcements could not be loaded. Try again later.")
+            } finally {
+                // 只有当前请求能够结束当前加载指示。
+                if (request == listRequest && requestedPage == page) loading = false
+            }
         }
     }
 
     LaunchedEffect(token, page) { load() }
 
+    /** 应用 result 的权威详情及阅读状态，同时更新已在列表中的对应行，不额外请求或增加浏览次数。 */
+    fun applyAnnouncementDetail(result: NativeAnnouncementDetail) {
+        // 只有服务端确认过的阅读才进入防回退集合，失败和游客浏览不能伪造阅读确认。
+        detail = result
+        if (!result.summary.unread && !result.confirmedAt.isNullOrBlank()) confirmedSummaries[result.summary.id] = result.summary
+        data = data?.let { current -> current.copy(items = current.items.map { if (it.id == result.summary.id) result.summary else it }) }
+    }
+
+    /** 读取 id 的可见详情；成功自动确认阅读，失败保留列表并展示可关闭或手动重试的提示。 */
     fun openAnnouncement(id: Int) {
+        // 加载面板显示期间拒绝重复打开，不能让后续目标被较早的详情响应覆盖。
+        if (detailLoading) return
         scope.launch {
             detailLoading = true
             actionError = null
-            runCatching { withContext(Dispatchers.IO) { NativeCommunityApi.getAnnouncement(token, id) } }
-                .onSuccess { detail = it }
-                .onFailure { actionError = it.message ?: nativePhrase("公告详情读取失败。", "Announcement details could not be loaded.") }
-            detailLoading = false
+            openFailure = null
+            detail = null
+            try {
+                val result = withContext(Dispatchers.IO) { NativeCommunityApi.getAnnouncement(token, id) }
+                applyAnnouncementDetail(result)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                // 取消不转成失败提示，旧身份不能在新页面留下详情。
+                throw cancelled
+            } catch (exception: Exception) {
+                // 404 同时用于不存在和权限隐藏，不能推断或泄漏目标是否真实存在。
+                val status = (exception as? NativeCommunityHttpException)?.statusCode
+                val message = when (status) {
+                    404, 410 -> nativePhrase("公告已下线、不存在或当前账号无权查看。", "This announcement is unavailable or you do not have access.")
+                    403 -> nativePhrase("当前账号无权查看此公告。", "This account cannot view this announcement.")
+                    401 -> nativePhrase("登录状态已失效，请重新登录后重试。", "Your session expired. Sign in again to view this announcement.")
+                    else -> nativePhrase("公告详情暂时无法读取，请检查网络后重试。", "Announcement details could not be loaded. Check your connection and try again.")
+                }
+                val retryable = status !in listOf(401, 403, 404, 410)
+                openFailure = NativeAnnouncementOpenFailure(id, message, retryable)
+                // 失效目标不能触发自动重试详情；仅回读有权查看的列表，移除已下线的旧入口。
+                if (status in listOf(403, 404, 410)) load()
+            } finally {
+                detailLoading = false
+            }
         }
     }
 
@@ -224,6 +289,23 @@ internal fun NativeAnnouncementsScreen(
         error?.let { item { Text(it, color = CommunityCoral, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 22.dp)) } }
     }
 
+    // 打开失败时没有详情弹窗，错误必须独立展示；重试只由用户点击，不能循环请求或清除会话。
+    openFailure?.let { failure ->
+        HlovetAlertDialog(
+            onDismissRequest = { openFailure = null },
+            title = { Text(nativePhrase("无法打开公告", "Announcement unavailable"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            text = { Text(failure.message, fontSize = 12.sp, color = CommunityMuted) },
+            confirmButton = {
+                TextButton(onClick = { if (failure.retryable) openAnnouncement(failure.id) else openFailure = null }) {
+                    Text(if (failure.retryable) nativePhrase("重试", "Retry") else nativePhrase("关闭", "Close"), fontSize = 12.sp)
+                }
+            },
+            dismissButton = if (failure.retryable) ({
+                TextButton(onClick = { openFailure = null }) { Text(nativePhrase("关闭", "Close"), fontSize = 12.sp) }
+            }) else null,
+        )
+    }
+
     detail?.let { current ->
         HlovetAlertDialog(
             onDismissRequest = { detail = null },
@@ -249,9 +331,9 @@ internal fun NativeAnnouncementsScreen(
                         onClick = {
                             scope.launch {
                                 runCatching { withContext(Dispatchers.IO) { NativeCommunityApi.confirmAnnouncement(token, current.summary.id) } }
-                                    .onSuccess {
-                                        detail = current.copy(summary = current.summary.copy(unread = false))
-                                        data = data?.copy(items = data?.items.orEmpty().map { if (it.id == current.summary.id) it.copy(unread = false) else it })
+                                    .onSuccess { confirmedAt ->
+                                        // 显式确认与打开详情共用权威同步，迟到的列表响应也不能恢复未读。
+                                        applyAnnouncementDetail(current.copy(summary = current.summary.copy(unread = false), confirmedAt = confirmedAt))
                                     }
                                     .onFailure { actionError = it.message ?: nativePhrase("标记已读失败。", "The announcement could not be marked as read.") }
                             }

@@ -65,7 +65,8 @@ class NativeLocalAnnouncementsTest {
         check(root.first == 200 && root.second.getBoolean("isSuperAdmin") && root.second.getString("username") == "android_parity_admin")
         roleCode = fixture.getString("roleCode")
         roleName = fixture.getString("roleName")
-        marker = fixture.getString("marker")
+        // 每轮使用独立标题，失败时保留的公告不能被下一轮搜索误算为重复保存。
+        marker = fixture.getString("marker") + "_" + UUID.randomUUID().toString().take(8)
         recipient = authenticated(NativeAuthApi.login(fixture.getString("recipientUsername"), fixture.getString("recipientPassword")))
         check(requireNotNull(recipient).userId == fixture.getInt("recipientId"))
         NativeDiscoveryApi.completeOnboarding(requireNotNull(recipient).accessToken, emptyList(), emptyList())
@@ -192,6 +193,8 @@ class NativeLocalAnnouncementsTest {
         openAs(requireNotNull(recipient), "/announcements/$announcementId")
         compose.waitUntil(60_000) { compose.onAllNodes(hasText(title) and hasAnyAncestor(isDialog())).fetchSemanticsNodes().isNotEmpty() }
         dialogChoice("关闭").performNativeStableClick(compose)
+        // 列表在详情背后仍有语义节点，必须等弹窗真正消失，不能提前把背后的行断言为关闭成功。
+        compose.waitUntil(10_000) { compose.onAllNodes(isDialog()).fetchSemanticsNodes().isEmpty() }
         val row = compose.onNode(hasText(title) and hasClickAction())
         row.assertIsDisplayed()
         val text = row.fetchSemanticsNode().config[SemanticsProperties.Text].joinToString(" ") { it.text }
@@ -285,14 +288,20 @@ class NativeLocalAnnouncementsTest {
         return compose.onNode(hasContentDescription(description) and hasAnyAncestor(hasTestTag("admin-announcement-$announcementId")))
     }
 
-    /** 返回活动弹窗中 text 对应选项或操作按钮，必要时滚动表单。 */
+    /** 返回活动弹窗中 text 对应选项；先展开纵向可见区域，再定位横向选项。 */
     private fun dialogChoice(text: String): SemanticsNodeInteraction {
         // 只接受弹窗祖先，避免点到列表中的同名状态。
         val matcher = hasText(text) and hasClickAction() and hasAnyAncestor(isDialog())
         compose.waitUntil(60_000) { compose.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty() }
         awaitDialogLayout()
+        // Compose 只滚动最近的祖先；横向行必须先作为目标滚进外层纵向表单。
+        val horizontalRow = SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange) and
+            hasAnyDescendant(matcher) and hasAnyAncestor(isDialog()) and hasAnyAncestor(hasScrollAction())
+        if (compose.onAllNodes(horizontalRow).fetchSemanticsNodes().isNotEmpty()) {
+            compose.onNode(horizontalRow).performScrollTo()
+        }
         val node = compose.onNode(matcher)
-        // 键盘变化前一帧的 isDisplayed 可能仍为真；表单内选项始终滚动，固定操作栏不要求滚动祖先。
+        // 整行可见后再滚动行内选项；固定操作栏没有滚动祖先，不强行调用滚动。
         if (compose.onAllNodes(matcher and hasAnyAncestor(hasScrollAction())).fetchSemanticsNodes().isNotEmpty()) node.performScrollTo()
         return node
     }
@@ -376,14 +385,32 @@ class NativeLocalAnnouncementsTest {
         File(context.filesDir, "native-local-announcements-report.json").writeText(report.put("checks", checks).toString(2))
     }
 
-    /** 保存 name 对应的实际整屏截图，不输出输入凭据。 */
+    /** 等待实际屏幕像素稳定后保存 name 整屏截图，不把窗口关闭动画当作最终界面。 */
     private fun capture(name: String) {
-        // 密码输入保持遮罩，截图只用于页面及状态复核。
-        val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        // Compose 语义与无障碍事件可能早于系统窗口动画结束，必须复核实际合成帧。
+        compose.waitForIdle()
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        var previous: Bitmap? = null
+        var lastCapture = 0L
+        var stableSince = SystemClock.uptimeMillis()
         try {
-            File(context.filesDir, "native-local-announcements-$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            compose.waitUntil(8_000) {
+                val now = SystemClock.uptimeMillis()
+                if (now - lastCapture < 100) return@waitUntil false
+                lastCapture = now
+                val bitmap = requireNotNull(automation.takeScreenshot())
+                val unchanged = previous?.sameAs(bitmap) == true
+                previous?.recycle()
+                previous = bitmap
+                if (!unchanged) stableSince = now
+                unchanged && now - stableSince >= 250
+            }
+            // 密码保持遮罩，只有合成像素连续稳定后才输出用于页面复核的 PNG。
+            File(context.filesDir, "native-local-announcements-$name.png").outputStream().use {
+                check(requireNotNull(previous).compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
         } finally {
-            bitmap.recycle()
+            previous?.recycle()
         }
     }
 }

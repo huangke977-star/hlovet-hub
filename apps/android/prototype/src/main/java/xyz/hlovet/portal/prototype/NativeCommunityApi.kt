@@ -101,7 +101,10 @@ internal data class NativeSuggestionPage(
     val totalPages: Int,
 )
 
-/** Client for ordinary-user announcements, feedback and suggestions. */
+/** 保留社区接口的 HTTP 状态，供页面区分不可访问内容与可重试网络故障，message 用于既有错误展示。 */
+internal class NativeCommunityHttpException(val statusCode: Int, message: String) : IllegalStateException(message)
+
+/** 封装普通用户的公告、反馈和建议接口，权限继续由服务端校验。 */
 internal object NativeCommunityApi {
     private const val DEFAULT_BASE_URL = "https://5200918.xyz/api"
 
@@ -241,14 +244,17 @@ internal object NativeCommunityApi {
         return readResponse(connection, "操作失败")
     }
 
+    /** 解析 connection 的 JSON 响应；失败保留 HTTP 状态及 fallback 对应业务错误，始终关闭连接。 */
     private fun readResponse(connection: HttpURLConnection, fallback: String): JSONObject {
         return try {
+            // 错误仍保留服务端文案，但页面不能靠匹配文字判断是否已删除或无权限。
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) throw IllegalStateException(errorMessage(body, "$fallback（HTTP $status）"))
+            if (status !in 200..299) throw NativeCommunityHttpException(status, errorMessage(body, "$fallback（HTTP $status）"))
             if (body.isBlank()) JSONObject() else JSONObject(body)
         } finally {
+            // 包括错误和空响应在内，每次连接都必须释放，不影响用户之后主动重试。
             connection.disconnect()
         }
     }
