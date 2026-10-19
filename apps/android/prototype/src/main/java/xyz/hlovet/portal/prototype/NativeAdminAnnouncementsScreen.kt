@@ -6,6 +6,8 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -56,12 +58,15 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
@@ -71,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -614,8 +620,8 @@ private fun NativeAdminAnnouncementEditorDialog(
                         selected = draft.publishMode,
                         onSelected = { value -> onDraftChange(draft.copy(publishMode = value)) },
                     )
-                    NativeAnnouncementDateField(nativePhrase("发布时间", "Publish time"), draft.scheduledAt, enabled = draft.publishMode == "scheduled", onPick = { onPickDate(draft.scheduledAt) { value -> onDraftChange(draft.copy(scheduledAt = value)) } }, onClear = { onDraftChange(draft.copy(scheduledAt = "")) })
-                    NativeAnnouncementDateField(nativePhrase("自动下线时间", "Expiry time"), draft.expiresAt, enabled = true, onPick = { onPickDate(draft.expiresAt) { value -> onDraftChange(draft.copy(expiresAt = value)) } }, onClear = { onDraftChange(draft.copy(expiresAt = "")) })
+                    NativeAnnouncementDateField(nativePhrase("发布时间", "Publish time"), draft.scheduledAt, enabled = draft.publishMode == "scheduled", onPick = { onPickDate(draft.scheduledAt) { value -> onDraftChange(draft.copy(scheduledAt = value)) } }, onClear = { onDraftChange(draft.copy(scheduledAt = "")) }, modifier = Modifier.testTag("admin-announcement-scheduled-at"))
+                    NativeAnnouncementDateField(nativePhrase("自动下线时间", "Expiry time"), draft.expiresAt, enabled = true, onPick = { onPickDate(draft.expiresAt) { value -> onDraftChange(draft.copy(expiresAt = value)) } }, onClear = { onDraftChange(draft.copy(expiresAt = "")) }, modifier = Modifier.testTag("admin-announcement-expires-at"))
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                         FilterChip(selected = draft.isPinned, onClick = { onDraftChange(draft.copy(isPinned = !draft.isPinned)) }, label = { Text(nativePhrase("置顶公告", "Pin announcement"), fontSize = 10.sp) }, leadingIcon = if (draft.isPinned) { { Icon(Icons.Filled.Check, null, modifier = Modifier.size(13.dp)) } } else null, border = null)
                         FilterChip(selected = draft.pushEnabled, onClick = { onDraftChange(draft.copy(pushEnabled = !draft.pushEnabled)) }, label = { Text(nativePhrase("浏览器推送", "Browser push"), fontSize = 10.sp) }, leadingIcon = if (draft.pushEnabled) { { Icon(Icons.Filled.Check, null, modifier = Modifier.size(13.dp)) } } else null, border = null)
@@ -664,13 +670,27 @@ private fun NativeAnnouncementChoiceRow(label: String, options: List<Pair<String
     }
 }
 
+/** 展示 label/value 对应的只读时间字段；enabled 控制选择，回调修改草稿，modifier 提供布局与稳定定位。 */
 @Composable
-private fun NativeAnnouncementDateField(label: String, value: String, enabled: Boolean, onPick: () -> Unit, onClear: () -> Unit) {
+private fun NativeAnnouncementDateField(label: String, value: String, enabled: Boolean, onPick: () -> Unit, onClear: () -> Unit, modifier: Modifier = Modifier) {
+    // 只读文本框自己消费触摸，外层 clickable 只会让它获得焦点；监听自身释放事件才可靠打开选择器。
+    val interaction = remember { MutableInteractionSource() }
+    val currentOnPick by rememberUpdatedState(onPick)
+    LaunchedEffect(interaction, enabled) {
+        if (!enabled) return@LaunchedEffect
+        interaction.interactions.collect { event ->
+            if (event is PressInteraction.Release) currentOnPick()
+        }
+    }
+    // 无障碍点击复用相同行为；清除图标消费自己的触摸，不会顺带打开时间选择器。
     OutlinedTextField(
         value = value,
         onValueChange = {},
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onPick),
+        modifier = modifier.fillMaxWidth().semantics {
+            onClick(label = label) { if (enabled) { currentOnPick(); true } else false }
+        },
         enabled = enabled,
+        interactionSource = interaction,
         readOnly = true,
         singleLine = true,
         label = { Text(label) },

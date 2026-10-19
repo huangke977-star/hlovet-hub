@@ -11,9 +11,17 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.UiObject2
+import androidx.test.uiautomator.Until
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
@@ -73,6 +81,7 @@ class NativeLocalAnnouncementsTest {
         oldLocale = NativeI18n.locale
         InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale("zh-CN") }
         report.put("readerId", saved.userId).put("recipientId", recipient?.userId).put("roleCode", roleCode).put("marker", marker)
+            .put("evidencePrefix", "native-local-announcements-$marker")
     }
 
     /** 关闭业务页并恢复原读者；只撤销本次辅助管理员身份，不删除账号、公告或通知。 */
@@ -221,6 +230,195 @@ class NativeLocalAnnouncementsTest {
         assertEquals(1, NativeAdminAnnouncementsApi.list(requireNotNull(manager).accessToken, search = marker).total)
         capture("archived")
         record("archive-removes-recipient-access-but-retains-admin-record-and-delete-permissions")
+
+        // 真实后端返回归档 404 时，原生深链必须展示独立提示，而不是留在没有反馈的列表。
+        openAs(requireNotNull(recipient), "/announcements/$announcementId")
+        assertUnavailableAnnouncement()
+        record("archived-deep-link-shows-unavailable-dialog-without-opening-private-content")
+    }
+
+    /** 用真实系统时间选择器安排公告，等待服务端自然发布和到期，再核对原生页面与保留记录。 */
+    @Test fun realScheduledAnnouncementPublishesAndExpiresNaturally() {
+        // 独立普通管理员由正常注册与刷新获得会话；本场景不计作交互式管理员登录。
+        val username = "native_announce_" + UUID.randomUUID().toString().take(8)
+        manager = authenticated(NativeAuthApi.register(username, username, "$username@example.invalid", "Local!${UUID.randomUUID()}", null, null))
+        NativeDiscoveryApi.completeOnboarding(requireNotNull(manager).accessToken, emptyList(), emptyList())
+        NativeAdminUsersApi.setAdministrator(rootToken, requireNotNull(manager).userId, true)
+        manager = NativeAuthApi.refresh(requireNotNull(manager).refreshToken)
+        assertTrue(requireNotNull(manager).isAdministrator)
+        assertFalse(requireNotNull(manager).isSuperAdmin)
+        report.put("managerId", manager?.userId).put("managerUsername", username).put("ordinaryAdminInteractiveLoginTested", false)
+            .put("naturalSchedulerTested", false).put("serverClockModified", false).put("lifecycleInvokedManually", false)
+        openManager()
+        compose.onNodeWithContentDescription("新建公告").performNativeStableClick(compose)
+        waitTag("announcement-publish")
+        val title = "$marker scheduled"
+        fill("admin-announcement-title", title)
+        fill("admin-announcement-body", "通过安卓系统选择器定时发布和自动下线的保留验收正文。")
+        dialogChoice("指定角色").performNativeStableClick(compose)
+        dialogChoice(roleName).performNativeStableClick(compose)
+        dialogChoice("浏览器推送").performNativeStableClick(compose).assertIsNotSelected()
+        dialogChoice("定时发布").performNativeStableClick(compose).assertIsSelected()
+
+        // 日期选择和时间选择分别取消都不能修改草稿；不调用业务回调代替系统窗口操作。
+        openSystemDatePicker("admin-announcement-scheduled-at")
+        systemControl("button2").click()
+        compose.onNodeWithTag("admin-announcement-scheduled-at").assert(hasText("", substring = false))
+        openSystemDatePicker("admin-announcement-scheduled-at")
+        systemControl("button1").click()
+        systemControl("toggle_mode")
+        systemControl("button2").click()
+        compose.onNodeWithTag("admin-announcement-scheduled-at").assert(hasText("", substring = false))
+        record("native-date-and-time-cancellation-leave-scheduled-draft-empty")
+
+        // 预留真实交互时间，所有目标时间均在设备时区选择，再核对实际入库的 UTC。
+        val publishAt = LocalDateTime.now().plusMinutes(3).withSecond(0).withNano(0)
+        val expiresAt = publishAt.plusMinutes(1)
+        selectSystemTime("admin-announcement-scheduled-at", publishAt)
+        compose.onNode(hasContentDescription("清除时间") and hasAnyAncestor(hasTestTag("admin-announcement-scheduled-at"))).performNativeStableClick(compose)
+        compose.onNodeWithTag("admin-announcement-scheduled-at").assert(hasText("", substring = false))
+        val clearedAt = SystemClock.uptimeMillis()
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        compose.waitUntil(5_000) {
+            assertFalse("Clearing a time must not also open its picker", device.hasObject(By.res("android", "datePicker")))
+            SystemClock.uptimeMillis() - clearedAt >= 400
+        }
+        selectSystemTime("admin-announcement-scheduled-at", publishAt)
+        selectSystemTime("admin-announcement-expires-at", expiresAt)
+        compose.onNodeWithTag("announcement-publish").assertIsEnabled()
+        compose.onNodeWithTag("admin-announcement-save").performNativeStableClick(compose)
+        waitText("公告草稿已保存。")
+        val saved = NativeAdminAnnouncementsApi.list(requireNotNull(manager).accessToken, search = marker).items.single()
+        announcementId = saved.id
+        val publishInstant = publishAt.atZone(ZoneId.systemDefault()).toInstant()
+        val expiryInstant = expiresAt.atZone(ZoneId.systemDefault()).toInstant()
+        assertEquals(publishInstant, Instant.parse(saved.scheduledAt))
+        assertEquals(expiryInstant, Instant.parse(saved.expiresAt))
+        assertEquals(listOf(roleCode), saved.roleCodes)
+        assertFalse(saved.pushEnabled)
+        assertEquals("draft", saved.status)
+        report.put("announcementId", announcementId).put("scheduledAt", publishInstant.toString()).put("expiresAt", expiryInstant.toString())
+        dialogButtonDescription("关闭").performNativeStableClick(compose)
+        search(marker)
+        record("system-picker-values-persist-as-exact-utc-times-with-private-audience")
+
+        // 安排发布后、时间未到之前不能投递，也不能经读者深链提前读取。
+        assertTrue(publishInstant.isAfter(Instant.now().plusSeconds(15)))
+        rowAction("发布").performNativeStableClick(compose)
+        dialogChoice("发布").performNativeStableClick(compose)
+        waitText("公告已发布或安排定时发布。")
+        val scheduled = current()
+        assertEquals("scheduled", scheduled.summary.status)
+        assertEquals(0, scheduled.summary.recipientCount)
+        assertEquals(0, scheduled.deliveryAttempts)
+        assertNull(scheduled.summary.publishedAt)
+        openAs(requireNotNull(recipient), "/announcements/$announcementId")
+        assertUnavailableAnnouncement()
+        record("scheduled-announcement-is-not-visible-or-delivered-before-its-time")
+
+        // 只轮询管理端只读接口，等待既有 30 秒后台任务自然触发，不修改数据库或调用任务方法。
+        val published = awaitNaturalStatus("published", publishInstant.plusSeconds(50))
+        assertFalse(Instant.parse(published.summary.publishedAt).isBefore(publishInstant))
+        assertEquals(1, published.summary.recipientCount)
+        assertEquals(1, published.deliveryAttempts)
+        assertFalse(published.deliveredAt.isNullOrBlank())
+        assertEquals(404, request("/announcements/public/$announcementId", null).first)
+        assertEquals(404, request("/announcements/visible/$announcementId", requireNotNull(reader).accessToken).first)
+        report.put("publishedAt", published.summary.publishedAt).put("publishedObservedAt", Instant.now().toString())
+        record("natural-server-tick-publishes-on-time-and-delivers-only-to-fixture-role")
+
+        // 发布后的真实深链能打开正文、自动已读，列表与服务端均确认同一条公告。
+        openAs(requireNotNull(recipient), "/announcements/$announcementId")
+        compose.waitUntil(60_000) { compose.onAllNodes(hasText(title) and hasAnyAncestor(isDialog())).fetchSemanticsNodes().isNotEmpty() }
+        dialogChoice("关闭").performNativeStableClick(compose)
+        compose.waitUntil(10_000) { compose.onAllNodes(isDialog()).fetchSemanticsNodes().isEmpty() }
+        compose.onNode(hasText(title) and hasClickAction()).assert(hasText("未读").not())
+        assertEquals(1, current().summary.confirmedCount)
+        capture("recipient-read")
+        record("naturally-published-detail-opens-and-synchronizes-confirmed-reading")
+
+        // 到期后故意点击尚未刷新的旧行，真实 404 必须提示不可访问并刷新移除旧入口。
+        val expired = awaitNaturalStatus("expired", expiryInstant.plusSeconds(50))
+        assertEquals(1, expired.summary.recipientCount)
+        report.put("expiredObservedAt", Instant.now().toString())
+        compose.onNode(hasText(title) and hasClickAction()).performNativeStableClick(compose)
+        assertUnavailableAnnouncement()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText(title) and hasClickAction()).fetchSemanticsNodes().isEmpty() }
+        assertEquals(404, request("/announcements/visible/$announcementId", requireNotNull(recipient).accessToken).first)
+        record("natural-expiry-invalidates-stale-row-with-visible-feedback-and-removes-entry")
+
+        // 普通管理员仍可查看下线记录及投递统计，验收不删除公告、通知或账号。
+        openManager()
+        search(marker)
+        compose.onNode(hasText("已下线") and hasAnyAncestor(hasTestTag("admin-announcement-$announcementId"))).assertIsDisplayed()
+        assertEquals(1, NativeAdminAnnouncementsApi.list(requireNotNull(manager).accessToken, search = marker).total)
+        assertEquals("expired", current().summary.status)
+        capture("expired")
+        report.put("naturalSchedulerTested", true)
+        record("expired-admin-row-and-delivery-history-remain-available-after-refresh")
+    }
+
+    /** 等待独立不可访问弹窗并关闭；确认没有重试按钮或详情正文，随后仍可继续操作列表。 */
+    private fun assertUnavailableAnnouncement() {
+        // 真实接口可能隐藏权限原因，只断言不泄漏存在性的统一提示。
+        val message = "公告已下线、不存在或当前账号无权查看。"
+        compose.waitUntil(60_000) { compose.onAllNodes(hasText(message) and hasAnyAncestor(isDialog())).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasText(message) and hasAnyAncestor(isDialog())).assertIsDisplayed()
+        compose.onAllNodes(hasText("重试") and hasAnyAncestor(isDialog())).assertCountEquals(0)
+        capture("unavailable")
+        dialogChoice("关闭").performNativeStableClick(compose)
+        compose.waitUntil(10_000) { compose.onAllNodes(isDialog()).fetchSemanticsNodes().isEmpty() }
+    }
+
+    /** 点击 tag 字段打开真实日期选择器；失败时保留系统控件树，禁止绕过点击直接赋值。 */
+    private fun openSystemDatePicker(tag: String) {
+        // 字段必须先进入编辑器可见区域，触摸稳定后才等待系统窗口。
+        compose.onNodeWithTag(tag).performScrollTo().performNativeStableClick(compose)
+        systemControl("datePicker")
+    }
+
+    /** 返回 Android 系统 id 对应的真实控件；超时输出不含凭据的选择器层级供复核。 */
+    private fun systemControl(id: String): UiObject2 {
+        // 系统日期/时间选择器不是 Compose 语义节点，必须通过平台 UI 实际交互。
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        return device.wait(Until.findObject(By.res("android", id)), 5_000) ?: run {
+            device.dumpWindowHierarchy(File(context.filesDir, "native-local-announcements-$marker-picker-failure.xml"))
+            throw AssertionError("System picker control was not displayed: $id")
+        }
+    }
+
+    /** 通过系统日期和键盘时间选择器填写 tag 对应的 target，返回后校验可见时间文本。 */
+    private fun selectSystemTime(tag: String, target: LocalDateTime) {
+        // 本次自然定时验收只选择当前默认日期，不将其计作跨日日期选择或其它时区的交互验收。
+        check(target.toLocalDate() == LocalDateTime.now().plusHours(1).toLocalDate())
+        openSystemDatePicker(tag)
+        systemControl("button1").click()
+        systemControl("toggle_mode").click()
+        systemControl("input_hour").text = target.hour.toString()
+        systemControl("input_minute").text = target.minute.toString()
+        systemControl("button1").click()
+        // 必须读取最终表单文本，不能只相信系统选择器回调已执行。
+        val value = target.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag(tag) and hasText(value)).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag(tag).assert(hasText(value))
+    }
+
+    /** 仅轮询管理详情等待 status，deadline 是按自然时间计算的最终期限，不触发任何业务写入。 */
+    private fun awaitNaturalStatus(status: String, deadline: Instant): NativeAdminAnnouncementDetail {
+        // 每两秒最多一个只读请求，服务端仍按自身调度运行，减少本地与服务器资源占用。
+        var nextRead = 0L
+        var observed: NativeAdminAnnouncementDetail? = null
+        val timeout = (deadline.toEpochMilli() - System.currentTimeMillis()).coerceAtLeast(1)
+        compose.waitUntil(timeout) {
+            val now = SystemClock.uptimeMillis()
+            if (now >= nextRead) {
+                nextRead = now + 2_000
+                observed = current()
+            }
+            // 发布状态与投递统计可能有短暂先后，必须等这一轮投递完成，不能把中间态误判为失败。
+            observed?.summary?.status == status && (status != "published" || !observed?.deliveredAt.isNullOrBlank())
+        }
+        return requireNotNull(observed)
     }
 
     /** 校验 result 为实际登录成功，返回会话；挑战不被绕过或伪造完成。 */
@@ -406,7 +604,8 @@ class NativeLocalAnnouncementsTest {
                 unchanged && now - stableSince >= 250
             }
             // 密码保持遮罩，只有合成像素连续稳定后才输出用于页面复核的 PNG。
-            File(context.filesDir, "native-local-announcements-$name.png").outputStream().use {
+            // 每轮带唯一标题前缀，失败时不能把上轮残留截图误作本轮通过证据。
+            File(context.filesDir, "native-local-announcements-$marker-$name.png").outputStream().use {
                 check(requireNotNull(previous).compress(Bitmap.CompressFormat.PNG, 100, it))
             }
         } finally {
