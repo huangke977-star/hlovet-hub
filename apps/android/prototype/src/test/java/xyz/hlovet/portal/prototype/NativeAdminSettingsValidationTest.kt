@@ -6,7 +6,17 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** 核对站点设置的文件边界和配置路径，不依赖 Android 设备或真实服务。 */
 class NativeAdminSettingsValidationTest {
+    /** 已带 API 前缀的资源不重复添加，普通相对路径采用与 PC 相同的站点配置路径。 */
+    @Test
+    fun configuredSiteAssetPathsPreserveExistingApiPrefix() {
+        // 同一资源的三种接口相对形式必须保存为同一个配置值。
+        assertEquals("/api/site-settings/assets/7/file", nativeSettingsAssetPath("/api/site-settings/assets/7/file"))
+        assertEquals("/api/site-settings/assets/7/file", nativeSettingsAssetPath("/site-settings/assets/7/file"))
+        assertEquals("/api/site-settings/assets/7/file", nativeSettingsAssetPath("site-settings/assets/7/file"))
+    }
+
     @Test
     fun backgroundLimitMatchesServerLimit() {
         assertTrue(nativeBackgroundUploadAllowed(30L * 1024L * 1024L))
