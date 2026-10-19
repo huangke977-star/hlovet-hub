@@ -180,6 +180,14 @@
 
 正式包的 Android App Links 主机名会从 `previewPortalBaseUrl` 生成，同时声明站点主机名和对应的 `www` 主机名；`asset_statements` 会分别指向两者的 `/.well-known/assetlinks.json`。部署新域名时应在两个实际使用的主机名上都发布正式包名和正式签名指纹对应的 `assetlinks.json`；如果只使用其中一个主机名，另一个声明不会影响站内访问。调试包签名不能代替正式包声明。
 
+迁移旧 TWA 或保留多个正式客户端时，服务端可以使用 `ANDROID_APP_LINKS_JSON` 同时声明多个包名。值必须是 JSON 数组，每项使用 `packageName` 和 `fingerprints`，例如：
+
+```json
+[{"packageName":"xyz.hlovet.portal","fingerprints":["旧包正式 SHA-256 指纹"]},{"packageName":"xyz.hlovet.portal.native","fingerprints":["新包正式 SHA-256 指纹"]}]
+```
+
+部署顺序建议是：先把旧 TWA 和新原生正式包都放入声明，验证新包的 App Links/Passkey 后再单独下线旧包；不要把 Debug 指纹或未知包名写入生产。`ANDROID_APP_PACKAGE_NAME` 与 `ANDROID_APP_SHA256_CERT_FINGERPRINT` 仍作为单包兼容配置，`ANDROID_APP_LINKS_JSON` 中的重复包名和签名会自动去重。
+
 当前调试 APK 的签名指纹为：
 
 ```text

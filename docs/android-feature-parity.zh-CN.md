@@ -16,6 +16,12 @@
 
 ## 最新验收补充（2026-10-19）
 
+### App Links 多包关联配置能力
+
+- `/.well-known/assetlinks.json` 现在支持 `ANDROID_APP_LINKS_JSON`，可在 TWA 到正式原生包迁移期间同时声明多个包名和签名指纹；原有 `ANDROID_APP_PACKAGE_NAME` 与 `ANDROID_APP_SHA256_CERT_FINGERPRINT` 继续作为兼容配置，并对包名、64 位指纹做校验和去重。
+- 已用运行时环境分别验证旧单包输出、多包合并、重复项去重、无效项过滤和错误 JSON 回退；Web TypeScript、ESLint、Next 生产构建及 `git diff --check` 均通过。该改动只提供配置能力，没有修改线上环境、正式包名、证书、DNS 或 assetlinks 实际部署结果。
+- 正式闭环仍需要确定正式原生包名/签名，把旧 TWA 和新包的真实指纹配置到生产，再在主域名和实际使用的备用域名上完成系统 App Links 与 Passkey 成功回调验收。
+
 ### 公告时间选择与自然定时验收（本次推送）
 
 - 实际截图及系统控件树复现公告只读时间字段只获得焦点而不打开选择器：外层 `clickable` 不能可靠收到字段已消费的点击。改为监听字段自身 `MutableInteractionSource` 的释放事件，回调使用最新草稿状态；无障碍点击复用相同行为，清除图标保持独立。
