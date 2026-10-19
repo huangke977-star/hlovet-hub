@@ -7,6 +7,13 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## 生产只读复核与本机环境边界（2026-10-19）
+
+- 通过 SSH 对生产服务器完成只读检查：`hlovet-web`、`hlovet-api`、`hlovet-caddy`、`hlovet-mysql`、`hlovet-redis` 和 `hlovet-turn` 均在运行；公网 `/api/health/ready` 返回 `200`，主域名 HTTPS 证书有效，API 的 `PASSKEY_ORIGIN=https://5200918.xyz`、`PASSKEY_RP_ID=5200918.xyz` 与 `WEB_ORIGIN` 一致。没有修改生产配置、容器、数据库、对象存储或业务数据。
+- 线上 `https://5200918.xyz/.well-known/assetlinks.json` 仍只声明旧 TWA 包 `xyz.hlovet.portal` 及其签名指纹；当前原生调试包为 `xyz.hlovet.portal.prototype`，因此不能把这次只读检查记作原生 App Links 或系统 Passkey 关联通过。`www.5200918.xyz` 当前没有 DNS 解析，备用域名的 TLS/App Links 仍待域名与证书配置。
+- 本机尝试启动既有 Docker Desktop 以恢复 `127.0.0.1:3001` 真实 API，Docker Desktop 仍因残留 `dockerInference` socket 初始化失败而退出。已保留既有 Docker 运行目录和备份目录，没有删除 socket、执行恢复出厂、重置 WSL、重建卷或清理数据库；因此本轮没有新增本地真实数据库验收。
+- Android 全量设备回归的最终统计仍以 XML 为准：本轮三台设备均完成测试，但依赖本地 API 的 5 个场景各自失败，其余大量本地服务场景主动跳过；这不能替代真实 Google/Passkey、FCM、双设备 WebRTC、外部 AI/媒体、OSS/R2 和正式签名包验收。当前完整原生移植目标保持进行中。
+
 ## 最新验收补充（2026-10-19）
 
 ### 公告时间选择与自然定时验收（本次推送）
