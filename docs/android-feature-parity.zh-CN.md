@@ -7,7 +7,57 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
-## 独立正式包与签名校验（2026-10-20）
+## 正式关联部署与原生默认文字色（2026-10-20）
+
+### 生产公开关联
+
+- 用户授权追加独立原生包关联并部署 Web/API。已保留旧 TWA `xyz.hlovet.portal` 及原签名，追加 `xyz.hlovet.portal.native` 的长期证书；两包均包含 `handle_all_urls` 与 `get_login_creds` 关系，API 增加同证书派生的 Android WebAuthn Origin。未上传私钥、修改 sing-box 或删除业务数据。
+- 实际部署发现旧 `public/.well-known/assetlinks.json` 会遮盖动态 Route Handler。首次公网验收失败后已自动恢复原配置和应用镜像；没有把配置写入成功当作关联成功。提交 `669a10f` 删除冲突静态文件，GitHub Actions `39390001888` 的 API/Web 镜像均构建成功。
+- 第二轮先在无外部网络的独立 Web 容器检查真实 HTTP 响应，确认旧、新两包及两种关系，再切换生产。正式环境运行 `669a10f` 镜像，仅重建 Web/API；MySQL、Redis、Caddy、TURN 的容器 ID 与启动时间保持不变，卷配置未变。服务器源码目录仍保留历史 Git 基线，实际发布版本以镜像提交和本次证据为准。
+- 切换前已备份 `.env`、Compose、原镜像和数据库并通过 gzip 校验。迁移前备份为 `/opt/lingxi-portal/backups/native-links-20261020-075320`，最终部署备份为 `/opt/lingxi-portal/backups/native-links-20261020-080231`；首次只增量创建原生推送令牌表，最终核对 84 个迁移、无待执行项，不运行种子数据或重建卷。
+- 公网 P22 完整复跑 `10/10` 通过，显式核对新包名及长期指纹。首次检查 readiness 连接失败，其余含关联检查通过；随后 readiness 返回 200 且数据库/Redis 正常，完整复跑通过。原失败与最终结果均保留，不将一次瞬时网络失败抹去。
+- 公开配置、镜像 ID、自动回退、隔离镜像验证和 P22 报告保存在本机 `tmp-native-production-association-20261020/`，不含 Android 私钥或账号令牌，不提交 Git。主域名关联部署不代表尚无 DNS 的 `www` 可用，也不等于真实 Passkey/Google 登录、FCM 或通话验收通过。
+
+### 默认原生内容色
+
+- `HlovetTheme` 现在提供账号默认 `LocalContentColor`；共享 `GlassCard` 显式提供账号前景色。裸布局、卡片文字和未指定 tint 的图标随账号深浅色变化；辅助、强调、错误等显式颜色保持原有语义，不修改卡片形状、透明度或布局。
+- 新增真实组件设备专项，读取最终 `TextLayoutResult` 与图标绘制像素。修复前 Android 11 三项中两项明确失败：根内容为黑色、卡片继承外层黄色；统一弹窗原有显式颜色通过。修复后组件三项通过，包含已挂载组件的暗转浅重组和显式颜色不被覆盖。
+- Android 11 的组件三项加真实 MainActivity/API 一项合计 `4/4`、0 失败/跳过，`78.291` 秒。真实场景包含 12 个业务检查点，不是 12 项测试；用户 158 `native_appearance_48ba33c3`、私有文章 123 保留，原读者 64 会话恢复，夹具退出，主包和测试包覆盖安装恢复后哈希均与原备份一致。
+- 本轮测试先后暴露两处测试驱动问题：可点击作者行的合并语义误取头像强调色；Activity 重建后错误假设仍停留在编辑子页。现分别读取独立文字节点、经真实深链重新进入资料页，不改产品颜色语义或用直接回调替代页面操作。较早用户 156/157、文章 121/122 及失败日志保留。
+- JVM 实际重跑 `299/299`、54 套，0 失败/错误/跳过；后续只调整设备测试驱动。Android 11 本轮 8 张完整页面截图与组件截图、计算 CSS 和原包恢复结果在 `tmp-native-content-colors-results-20261020/verified11`。本地 APK/匹配测试包另存 `output/android/local-api-testing/20261020-content-colors`，不覆盖既有预览或下载入口。
+- Android 15 启动时未找到原生包或原会话，已停止原先依赖读者 63 的场景，未清空设备。通过真实 `NativeLocalMainSessionTest` 正常注册/密码登录保留读者 159 `native_restore_d41dd43c0d0e`，`1/1`、6 检查点、17.144 秒通过；不复制其它设备令牌。首轮完整外观断言虽为 `4/4`，实际截图却出现 System UI 无响应遮罩，不记为视觉验收通过；用户 160、文章 124 与被遮挡截图保留。
+- 在截图前后增加系统遮罩及前台包检查，专用 Android 15 实例内存从 1536 MB 调整为 3072 MB，构建完成后串行复跑：最终 `4/4`、0 失败/跳过，`80.352` 秒；真实 MainActivity 场景完成 12 检查点。用户 161 `native_appearance_09bc0a45`、私有文章 125 保留，读者 159 会话恢复、夹具退出，主包/测试包恢复后的哈希均与本实例原备份一致。
+- Android 15 最终 8 张完整页面截图已逐一查看，无系统遮罩，暗/浅色原生文字、编辑器、预览和阅读正文均正常；证据位于 `tmp-native-content-colors-results-20261020/verified15-screen`。这关闭的是本轮默认内容色缺口，不代表系统 ANR 根因已修复或全部页面视觉验收完成；后面的早期“默认黑字未关闭”记录由本节结果取代。
+
+### 正式包安装与系统验证
+
+- 最新生产 API 来源的正式签名包包含本轮默认内容色修复：`output/android/native-release/20261020-160930/hlovet-native-release.apk`，SHA-256 为 `B8B34350EE427C08C661F7A02ACAA9C9428631E08541E6FEBFD9DAEA17093A42`。实际包名及长期证书验签通过；已安装至本任务 Android 15，与旧 TWA、Debug 预览包三款并存，没有卸载或清空任一包的数据。未上传 APK，也未覆盖线上下载入口。
+- 首轮系统关联验证返回 `legacy_failure`，打开普通链接进入 Chrome，保留该失败和截图。Google 官方 Digital Asset Links API 随后核对 `handle_all_urls`、`get_login_creds` 均为 `linked: true`；模拟器 GMS 日志显示连接超时。仅对本任务模拟器临时使用电脑已有回环代理重试后，主域名由系统真实验证为 `verified`，未使用 `set-app-links` 或手动授予默认处理权；测试结束精确恢复原代理设置。
+- 默认解析专项使用与 Android 启动一致的 `MATCH_DEFAULT_ONLY`，真实公开文章链接解析至 `xyz.hlovet.portal.native/xyz.hlovet.portal.prototype.MainActivity`。第一次诊断的无默认过滤查询返回 ResolverActivity，不能据此判断实际默认处理者；旧证据保留。最终结果位于 `tmp-native-production-association-20261020/release-network-final`，Google 官方结果在同父目录。系统验证/默认解析已通过，验证成功后没有再执行实际点击打开流程，不将解析通过写成完整页面跳转通过。
+- `www.5200918.xyz` 仍无 DNS，系统失败如实保留；本轮只验证 Android 15 的主域名。正式包真实 Passkey/Google 登录、FCM、双设备通话、外部 AI/媒体/OSS 与其余覆盖矩阵项仍需独立验收，完整移植目标保持进行中。本任务 Android 15 已正常关闭，未操作其它项目的模拟器。
+
+## 长期证书与真实账号正文外观（2026-10-20）
+
+### 独立原生版长期证书
+
+- 用户选择新建专用长期证书。已在本机生成 `xyz.hlovet.portal.native` 专用 RSA-4096 / SHA256withRSA 签名身份，有效期至 2056-10-12；与旧 TWA `xyz.hlovet.portal` 的实际 APK 证书不同，未改动旧包。
+- 私钥、DPAPI 加密口令和本机构建入口位于 `D:\files\hlovet-android-signing`，便携恢复副本位于 `D:\files\hlovet-android-signing-backup\native-20261020`。两个目录均关闭继承，仅当前 Windows 用户和系统可访问；已核对备份哈希、口令可读取私钥以及公开证书一致。私钥、口令、本机配置不进入 Git 或聊天输出。
+- 公开 SHA-256 指纹为 `45:74:83:FE:04:2E:97:8B:99:88:10:0E:05:2D:65:71:DB:93:CD:A2:D1:C6:F9:3A:98:BD:FC:31:1D:46:CC:EC`。生成材料不等于已发布：生产 App Links、Android WebAuthn Origin、Google/Firebase 和对外下载入口均未自动更新。
+- 已通过本机入口完成生产来源 Release 构建及实际 APK 验签，包名与长期指纹均一致；独立导出至 `output/android/native-release/20261020-151144/hlovet-native-release.apk`，SHA-256 为 `FAEF79E0159A4E5520B630AF78B39E28BBBB5C88E1B2E8301A8E5BB78B97E1BC`，日志和公开关联配置在同目录。证书解析 Node 专项 `4/4` 通过。该 APK 未安装、上传或用于生产部署，不覆盖既有预览导出包；尚不能将构建/验签通过视为真实 App Links/Passkey 登录通过。
+- 备份仍在同一块硬盘，不能抵御磁盘损坏；需要另存受控离线加密介质。DPAPI 口令绑定当前 Windows 身份，迁移或重装时必须保留便携恢复材料，不能只复制 DPAPI 文件。
+
+### 真实 MainActivity 正文与账号外观
+
+- 新增真实本地 API 专项 `NativeLocalArticleAppearanceTest`：只接受 `127.0.0.1:3001/3000` 和已保留读者 63/64，不改注册、邮件或安全策略；独立注册夹具、发布私有文章，经过真实密码表单登录、实际个人资料表单保存，再重建 Activity，核对编辑器、独立预览弹窗及阅读页。
+- 回归先复现真实解析缺陷：`custom` 色板虽然颜色正确，主题标识却变为 `cloud-blue`。修复为同时保留自定义身份，避免重新登录或再次保存后回退默认方案。修复前单测的明确失败和修复后结果均保留。
+- 主包/测试包构建成功；JVM 实际重跑 `299/299`、54 套，0 失败/错误/跳过。Android 11 最终专项 `1/1`、10 个业务检查点通过，用时 `42.516` 秒；检查点不是独立测试数量。尚未在 Android 15 重跑此新增完整专项。
+- 暗色和浅色均核对实际 CSS 文字/链接颜色、`color-scheme`、12px 编辑任务复选框、正文横向边界、预览区域完整可见；六张稳定截图已人工查看。保存后核对真实 API 与加密会话，页面重建后颜色保留；文章内容没有被外观 CSS 污染。
+- 最终夹具用户 155（`native_appearance_a0101d28`）、私有文章 120 保留，另一读者真实收到当前服务端契约的 403 和阅读权限错误。最终报告确认读者 64 会话恢复、夹具退出。早期用户 153/154 和文章 118/119 也保留，没有清理测试数据。
+- 前三次设备失败依次为夹具昵称超长、测试误用 404 而非现有 403 契约、测试未滚动懒加载外观表单；修正测试准备/驱动后完整重跑，不修改后端规则，也不把部分完成记作全通过。证据、原始失败、报告、六张截图、实际 CSS 和 JVM 汇总位于 `tmp-android-main-appearance-results-20261020/`，不加入 Git。
+- 测试后已覆盖安装恢复原主包/测试包，重新读取实际 APK 并核对哈希与测试前备份一致；保留原账号数据。只正常关闭本任务 `HlovetAndroid11`，未操作其它项目的两台模拟器。
+- **当时发现的视觉缺口，已由本日最新章节关闭**：暗色自定义卡片下，部分原生标题、作者名称和摘要仍继承黑字；正文 WebView 颜色通过不代表整页所有原生文字通过。现已统一默认内容色并完成 Android 11/15 真实专项与截图核对。正式关联部署和并存安装也已有后续结果；Google/Passkey、FCM、双端通话和外部供应商仍需独立验收，全量移植目标保持进行中。
+
+## 独立正式包与签名校验（2026-10-20，先前构建检查）
 
 - 用户确认保留旧 TWA，并将正式原生版作为独立应用：默认 Release 为 `xyz.hlovet.portal.native`，旧 TWA 仍为 `xyz.hlovet.portal`。Debug 继续使用 `xyz.hlovet.portal.prototype`，不迁移或清除已保留的预览会话和离线数据；正式原生版首次安装需要自行登录。显式 `nativeApplicationId` 仍完整覆盖包名，不追加变体后缀。
 - Release 签名只从四项本机 Gradle 属性或环境变量注入；全部缺失时产物未签名，部分缺失或文件不存在立即拒绝，不能静默使用 Debug 证书。没有提交 keystore、密码、本地配置或 APK。

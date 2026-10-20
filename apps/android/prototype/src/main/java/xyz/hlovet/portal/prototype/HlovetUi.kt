@@ -14,6 +14,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Surface
@@ -23,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldColors
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -215,6 +217,7 @@ internal fun navigationGlassStyle(): HazeStyle = HazeStyle(
     fallbackTint = HazeTint(HlovetUi.glassFallback)
 )
 
+/** 以 modifier、shape 和 containerColor 绘制统一玻璃卡片；content 默认读取账号前景色，显式子组件颜色保持优先。 */
 @Composable
 internal fun GlassCard(
     modifier: Modifier = Modifier,
@@ -222,6 +225,7 @@ internal fun GlassCard(
     containerColor: Color = HlovetUi.glassFallback,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    // 玻璃合成只影响背景，不参与默认文字色推导，避免透明容器继承外层黑字或不相关状态色。
     val hazeState = LocalHlovetHaze.current
     Card(
         modifier = if (hazeState != null) {
@@ -230,9 +234,8 @@ internal fun GlassCard(
             modifier
         },
         shape = shape,
-        // Keep the configured surface alpha visible even when the device cannot
-        // render the blur layer or the Haze implementation falls back.
-        colors = CardDefaults.cardColors(containerColor = containerColor),
+        // 无论是否支持模糊，都保留账号背景透明度，并为文字和未指定 tint 的图标设置同一默认值。
+        colors = CardDefaults.cardColors(containerColor = containerColor, contentColor = HlovetUi.foreground),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         content = content
     )
@@ -320,6 +323,9 @@ internal fun HlovetTheme(content: @Composable () -> Unit) {
             large = RoundedCornerShape(20.dp),
             extraLarge = RoundedCornerShape(28.dp)
         ),
-        content = content
+        content = {
+            // MaterialTheme 色板不会自动设置根内容色；裸布局和独立弹窗同样需要账号默认值。
+            CompositionLocalProvider(LocalContentColor provides HlovetUi.foreground, content = content)
+        }
     )
 }

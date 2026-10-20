@@ -253,7 +253,9 @@ internal object PreviewApi {
         return origin + "/" + path.trimStart('/')
     }
 
+    /** 将服务端主题 JSON 解析为原生外观；自定义方案保留身份，未知主题回退默认色板。 */
     private fun JSONObject.toPreviewAppearance(): PreviewAppearance {
+        // 预置方案只读取其固定色板，自定义方案暂借默认值补齐未填写的颜色。
         val themeId = optString("themeId", "cloud-blue")
         val defaults = when (themeId) {
             "sakura-mist" -> PreviewAppearance(
@@ -290,6 +292,7 @@ internal object PreviewApi {
                 glassTintAlpha = 0,
             )
         }
+        // 毛玻璃参数由所有方案共用，不随主题色板回退而丢失。
         val configuredGlass = defaults.copy(
             cardAlpha = optInt("cardAlpha", defaults.cardAlpha),
             glassBlur = optInt("glassBlur", defaults.glassBlur),
@@ -297,7 +300,9 @@ internal object PreviewApi {
             glassTintAlpha = optInt("glassTintAlpha", defaults.glassTintAlpha),
         )
         if (themeId != "custom") return configuredGlass
+        // 保留 custom 身份，避免重新登录或保存外观时把自定义方案写回预置主题。
         return configuredGlass.copy(
+            themeId = themeId,
             accent = optString("customAccent", defaults.accent),
             foreground = optString("customForeground", defaults.foreground),
             muted = optString("customMuted", defaults.muted),
