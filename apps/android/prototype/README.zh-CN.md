@@ -1,6 +1,33 @@
 # HLOVET 原生移动端预览
 
-这是一个独立的 Android 原生客户端模块，不会替换现有的 TWA 应用；默认复用生产环境 API，也可以在构建时切换到本地或测试 API。
+这是一个独立的 Android 原生客户端模块，不会替换现有的 TWA 应用；默认复用生产环境 API，也可以在构建时切换到本地或测试 API。正式 Release 包名为 `xyz.hlovet.portal.native`，Debug 预览包保持 `xyz.hlovet.portal.prototype`，旧 TWA 包 `xyz.hlovet.portal` 继续保留。
+
+## 正式包签名与 App Links/Passkey
+
+Release 签名不保存到仓库。需要生成正式包时，在 `apps/android` 目录的当前 PowerShell 会话中注入以下四项环境变量，再执行 `:prototype:assembleRelease`：
+
+```powershell
+# 四项只在当前会话设置，下面密码文字为占位符，不是可用凭据。
+$env:ANDROID_RELEASE_STORE_FILE = "D:\secure\hlovet-release.p12"
+$env:ANDROID_RELEASE_STORE_PASSWORD = "仅在当前会话中设置"
+$env:ANDROID_RELEASE_KEY_ALIAS = "hlovet"
+$env:ANDROID_RELEASE_KEY_PASSWORD = "仅在当前会话中设置"
+.\gradlew.bat :prototype:assembleRelease
+```
+
+四项必须同时存在；未配置时 Release 仍可用于源码构建检查，但产物不会被当作正式签名包。keystore 路径和密码不会写入 Git，也不要把密码写进项目级 `gradle.properties`。
+
+正式包的 SHA-256 证书指纹必须与生产 `ANDROID_APP_LINKS_JSON` 中该包的指纹一致；同一指纹还用于 `delegate_permission/common.handle_all_urls` 和 `delegate_permission/common.get_login_creds`。生产配置完成后，再执行 P22 检查并在真实 Android 系统验证 App Links、Passkey 注册和登录。
+
+正式包与旧 TWA 可以同时安装，但拥有各自的私有数据区；正式原生版首次安装不会自动继承预览包或 TWA 的登录信息。Debug 保留旧包名，已有预览会话和离线内容不迁移、不清除。显式指定 `-PnativeApplicationId=...` 时将完整覆盖包名，不再追加 Debug/Release 后缀。
+
+`.env.example` 已以正式原生包为示例；已有部署不能仅修改默认值，需显式保留旧 TWA 声明并加入新包实际指纹。`docker-compose.prod.yml` 中的历史预览包回退值不是正式原生版的证书配置，发布时必须显式设置关联信息，不能直接照用。
+
+## 最新验收补充（2026-10-20）
+
+- 最终 Debug/Release 构建成功，实际 APK 清单分别为 `xyz.hlovet.portal.prototype` 和 `xyz.hlovet.portal.native`；JVM 实际重跑 `299/299`、0 失败/错误/跳过。证书解析四项 Node 专项通过，70 个路由、24 个后台入口和 27 个 API 模块静态审计再次通过。
+- 一次性本地证书的六个签名构建/检查点通过：未签名、缺项、缺文件和错误密码均拒绝，正确配置打包成功，实际签名/包名与独立证书读取一致。只验证签名接线，不是长期正式证书验收；测试配置不写入服务器或 Git。
+- 本轮未修改生产、安装/替换设备应用或覆盖下载入口，不清理既有数据。正式签名、实际两包并存、Google/Passkey、FCM 和外部服务仍不能由构建成功替代验收；完整边界和本地证据位置见覆盖矩阵“独立正式包与签名校验”。
 
 ## 最新验收补充（2026-10-19）
 
@@ -167,16 +194,15 @@
   -PpreviewPortalBaseUrl=https://www.example.com
 ```
 
-原生模块默认使用隔离调试包名 `xyz.hlovet.portal.prototype`，避免覆盖现有 TWA。准备正式原生包时，可以在构建参数中显式使用已经登记的正式包名，例如：
+原生模块默认 Debug 包名为 `xyz.hlovet.portal.prototype`，Release 包名为 `xyz.hlovet.portal.native`，避免覆盖现有 TWA。默认正式包构建命令（签名环境变量见文首）：
 
 ```powershell
 .\gradlew.bat :prototype:assembleRelease `
-  '-PnativeApplicationId=xyz.hlovet.portal' `
   -PpreviewApiBaseUrl=https://5200918.xyz/api `
   -PpreviewPortalBaseUrl=https://5200918.xyz
 ```
 
-正式包仍必须使用与 `assetlinks.json` 相同的签名证书；只切换包名或使用 Debug 签名不会获得 App Links/Passkey 的生产可信关系。构建前应确认正式签名、Google/Firebase 配置和线上关联声明属于同一发布包，不要把测试包上传到生产下载入口。
+独立应用的包名已确认，不复用旧 TWA 的安装身份。`-PnativeApplicationId=...` 仍可显式覆盖两个变体的完整包名，仅用于明确指定的独立测试或后续迁移。正式包必须使用与 `assetlinks.json` 对应的签名证书；只切换包名或使用 Debug 签名不会获得 App Links/Passkey 的生产可信关系。构建前应确认正式签名、Google/Firebase 配置和线上关联声明属于同一发布包，不要把测试包上传到生产下载入口。
 
 正式包的 Android App Links 主机名会从 `previewPortalBaseUrl` 生成，同时声明站点主机名和对应的 `www` 主机名；`asset_statements` 会分别指向两者的 `/.well-known/assetlinks.json`。部署新域名时应在两个实际使用的主机名上都发布正式包名和正式签名指纹对应的 `assetlinks.json`；如果只使用其中一个主机名，另一个声明不会影响站内访问。调试包签名不能代替正式包声明。
 
@@ -188,13 +214,16 @@
 
 部署顺序建议是：先把旧 TWA 和新原生正式包都放入声明，验证新包的 App Links/Passkey 后再单独下线旧包；不要把 Debug 指纹或未知包名写入生产。`ANDROID_APP_PACKAGE_NAME` 与 `ANDROID_APP_SHA256_CERT_FINGERPRINT` 仍作为单包兼容配置，`ANDROID_APP_LINKS_JSON` 中的重复包名和签名会自动去重。
 
-当前调试 APK 的签名指纹为：
+从仓库根目录执行以下只读检查，可读取实际发布 APK 的包名和证书。需要先设置 `JAVA_HOME` 为 JDK 17、`ANDROID_HOME` 为 Android SDK 目录：
 
-```text
-C2:F8:64:5B:63:DC:DF:A6:25:11:BE:3B:92:5A:93:ED:AC:4D:57:75:CA:66:34:61:DC:0B:A6:97:22:D9:06:45
+```powershell
+# 先验签，未签名或签名已损坏的 APK 会拒绝输出关联配置。
+node apps/android/tools/inspect-apk-links.mjs apps/android/prototype/build/outputs/apk/release/prototype-release.apk
 ```
 
-生产环境需要将它配置到 `ANDROID_APP_SHA256_CERT_FINGERPRINT` 和 `PASSKEY_ANDROID_ORIGINS`；正式签名 APK 发布后，应替换为正式签名证书指纹。
+输出的 `ANDROID_APP_LINKS_JSON` 使用冒号分隔的 SHA-256 **证书指纹**；`PASSKEY_ANDROID_ORIGINS` 使用 `android:apk-key-hash:` 加摘要原始字节的无填充 Base64URL 编码。两者不可互换。脚本不读取私钥或密码，也不会修改服务器；部署时应把新包配置合并进既有声明，不覆盖仍在使用的旧包/其他 Android Origin。Play App Signing 场景应使用实际分发给用户的应用签名证书，而不是上传证书。
+
+Debug 或临时测试证书只用于隔离环境，不要写入生产可信列表。正式签名及线上关联尚未完成时，不能把构建成功或此命令输出记作 App Links/Passkey 真实验收通过。
 
 ## 构建
 

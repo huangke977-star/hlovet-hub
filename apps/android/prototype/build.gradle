@@ -1,3 +1,4 @@
+// 原生客户端构建入口：隔离开发与正式安装身份，按需从本机注入发布签名。
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
@@ -6,8 +7,9 @@ plugins {
 
 def configuredApiBaseUrl = (project.findProperty('previewApiBaseUrl') ?: 'https://5200918.xyz/api').toString().trim().replaceAll('/+$', '')
 def configuredPortalBaseUrl = (project.findProperty('previewPortalBaseUrl') ?: configuredApiBaseUrl).toString().trim().replaceAll('/+$', '')
-// 允许正式原生包在构建时复用已登记的包名，默认值继续隔离调试包与现有 TWA。
-def configuredApplicationId = (project.findProperty('nativeApplicationId') ?: 'xyz.hlovet.portal.prototype').toString().trim()
+// 默认以变体后缀区分正式原生包和既有预览包；显式 applicationId 保持完整覆盖语义。
+def nativeApplicationId = project.findProperty('nativeApplicationId')
+def configuredApplicationId = (nativeApplicationId == null ? 'xyz.hlovet.portal' : nativeApplicationId.toString()).trim()
 def applicationIdParts = configuredApplicationId.tokenize('.')
 def applicationIdValid = configuredApplicationId.count('.') == applicationIdParts.size() - 1 &&
     applicationIdParts.size() >= 2 &&
@@ -30,6 +32,22 @@ try {
 } catch (ignored) {
     // Keep the production host when a preview property is malformed; the API
     // URL itself is still visible in the generated BuildConfig for diagnostics.
+}
+
+// Release 签名只能从本机 Gradle 属性或环境变量注入，避免把私钥和密码写入仓库。
+def releaseSigningValues = [
+    storeFile: (project.findProperty('releaseStoreFile') ?: System.getenv('ANDROID_RELEASE_STORE_FILE') ?: '').toString().trim(),
+    storePassword: (project.findProperty('releaseStorePassword') ?: System.getenv('ANDROID_RELEASE_STORE_PASSWORD') ?: '').toString(),
+    keyAlias: (project.findProperty('releaseKeyAlias') ?: System.getenv('ANDROID_RELEASE_KEY_ALIAS') ?: '').toString().trim(),
+    keyPassword: (project.findProperty('releaseKeyPassword') ?: System.getenv('ANDROID_RELEASE_KEY_PASSWORD') ?: '').toString(),
+]
+def configuredReleaseSigningCount = releaseSigningValues.values().count { it }
+def hasReleaseSigning = configuredReleaseSigningCount == releaseSigningValues.size()
+if (configuredReleaseSigningCount > 0 && !hasReleaseSigning) {
+    throw new GradleException('Release 签名需要同时配置 releaseStoreFile、releaseStorePassword、releaseKeyAlias 和 releaseKeyPassword。')
+}
+if (hasReleaseSigning && !file(releaseSigningValues.storeFile).isFile()) {
+    throw new GradleException("Release 签名文件不存在: ${releaseSigningValues.storeFile}")
 }
 
 android {
@@ -72,6 +90,36 @@ android {
     kotlinOptions {
         jvmTarget = '17'
         languageVersion = '1.9'
+    }
+
+    // 未注入正式签名时保持可构建但不冒充正式包；四项完整时才绑定 Release 签名。
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseSigningValues.storeFile)
+                storePassword releaseSigningValues.storePassword
+                keyAlias releaseSigningValues.keyAlias
+                keyPassword releaseSigningValues.keyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            // 开发包继续使用原有身份，覆盖安装不会清空已保留的本地会话和离线数据。
+            if (nativeApplicationId == null) {
+                applicationIdSuffix '.prototype'
+            }
+        }
+        release {
+            // 用户选择与旧 TWA 并存，默认正式包不能占用旧 TWA 的安装身份。
+            if (nativeApplicationId == null) {
+                applicationIdSuffix '.native'
+            }
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
     }
 }
 

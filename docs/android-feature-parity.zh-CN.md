@@ -7,6 +7,17 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## 独立正式包与签名校验（2026-10-20）
+
+- 用户确认保留旧 TWA，并将正式原生版作为独立应用：默认 Release 为 `xyz.hlovet.portal.native`，旧 TWA 仍为 `xyz.hlovet.portal`。Debug 继续使用 `xyz.hlovet.portal.prototype`，不迁移或清除已保留的预览会话和离线数据；正式原生版首次安装需要自行登录。显式 `nativeApplicationId` 仍完整覆盖包名，不追加变体后缀。
+- Release 签名只从四项本机 Gradle 属性或环境变量注入；全部缺失时产物未签名，部分缺失或文件不存在立即拒绝，不能静默使用 Debug 证书。没有提交 keystore、密码、本地配置或 APK。
+- 新增只读 `apps/android/tools/inspect-apk-links.mjs`：先使用 SDK 对实际 APK 验签，再读取清单包名和当前签名证书。App Links 返回冒号分隔的 SHA-256 指纹；WebAuthn Origin 返回摘要原始字节的 Base64URL，两者不能混用。只输出供人工合并的公开配置，不覆盖既有包或线上 Origin。
+- 最终 Debug/Release 构建成功，实际 APK 清单分别为 `.prototype`、`.native`。JVM 本轮实际重跑为 `299/299`，54 套，0 失败/错误/跳过；构建日志 `tmp-native-signing-final-20261020.txt`。独立 Node 专项 `4/4`、0 跳过通过；静态路由/后台入口 `70/24`、API 模块 `27/27` 再次通过，不代替真实业务验收。
+- 使用一次性本地证书完成六个签名构建/检查点：未签名包拒绝输出配置、部分配置拒绝、不存在的证书文件拒绝、错误密码签名失败、正确配置打包成功、实际已签名 APK 的 `.native` 包名和 SHA-256 与独立 `keytool` 读取一致。失败是预期边界，未算作成功构建。证据在 `tmp-native-signing-results-20261020/results.json` 和对应日志，测试密码仅在进程环境生成并在结束时恢复；该证书不用于生产、不加入可信列表。
+- 验证后不带签名环境重新执行 `assembleRelease` 成功，默认输出目录仅保留 `prototype-release-unsigned.apk`，避免把一次性签名包误用于发布。恢复日志为 `tmp-native-signing-restore-unsigned-20261020.txt`；测试包仅在本地证据目录保留。本次只提交/推送六个源码、测试和文档文件，不提交临时证据、私钥或构建产物。
+- `.env.example` 已切换为正式原生版示例。生产 Compose 的历史预览回退值没有改动，正式发布必须显式配置真实包和证书，并将旧 TWA 与新包同时合并进 `ANDROID_APP_LINKS_JSON`。已有生产只读结果仍以前一节日期为准，没有因本轮构建自动更新。
+- 本轮没有安装或替换模拟器应用、更新对外下载、修改生产配置、部署或删除测试数据。正式长期证书、两包并存安装、App Links/Passkey/Google 成功回调、FCM、双设备通话和外部 AI/媒体/OSS 仍需独立验收，完整原生移植目标保持进行中。
+
 ## 生产只读复核与本机环境边界（2026-10-19）
 
 - 通过 SSH 对生产服务器完成只读检查：`hlovet-web`、`hlovet-api`、`hlovet-caddy`、`hlovet-mysql`、`hlovet-redis` 和 `hlovet-turn` 均在运行；公网 `/api/health/ready` 返回 `200`，主域名 HTTPS 证书有效，API 的 `PASSKEY_ORIGIN=https://5200918.xyz`、`PASSKEY_RP_ID=5200918.xyz` 与 `WEB_ORIGIN` 一致。没有修改生产配置、容器、数据库、对象存储或业务数据。
