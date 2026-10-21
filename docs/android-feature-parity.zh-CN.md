@@ -21,6 +21,13 @@
 - 选择原生包作为专用模拟器临时的用户域名处理者后，按真实浏览器类别启动 `https://5200918.xyz/articles/gfjsfdhsdf-04e5f6fd`，系统返回 `Activity: xyz.hlovet.portal.native/xyz.hlovet.portal.prototype.MainActivity`，冷启动耗时约 1 秒；页面 XML 显示文章标题和正文区域。随后恢复了模拟器原有用户选择，未改变设备持久偏好。
 - 这关闭的是主域名链接分流和实际文章页面打开缺口；尚无 DNS 的 `www.5200918.xyz`、真实 Passkey 成功注册/登录以及 Google OAuth 成功回调仍未验收。
 
+## Android 11 App Links 再验证（2026-10-21）
+
+- 在 Android 11 专用模拟器 `emulator-5556` 上重新覆盖安装同一正式签名 APK，临时借用本机已有回环代理触发 GMS 域名校验，测试结束后精确恢复原代理配置。
+- GMS 日志为 `Verification 0 complete. Success:true. Failed hosts:.`；`dumpsys package domain-preferred-apps` 显示 `5200918.xyz` 状态为 `always`，使用 `DEFAULT+BROWSABLE` 规则解析公开文章链接时进入 `xyz.hlovet.portal.native/xyz.hlovet.portal.prototype.MainActivity`。
+- 本次没有手动授予默认链接状态、清除应用数据或修改生产配置。此前 Android 11 的超时失败记录继续保留，结论以本次成功复验为准；`www.5200918.xyz` 仍未配置 DNS，因此不纳入本次结论。
+- 原始证据保存在 `tmp-native-legacy-links-results-20261020/android11-retest-20261021.txt`，不提交 Git。
+
 ## 规范域名与旧版 Android 关联（2026-10-20）
 
 - 实际发现并复现旧系统缺口：先前 APK 自动声明主域名及尚无 DNS 的 `www`。Android 11 的 GMS 明确记录主域名关联为真、www 为假，最终整包 `Success:false`，普通文章链接不能默认解析到原生应用；Android 15 单个主域名通过不能证明旧系统兼容。
