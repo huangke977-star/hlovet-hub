@@ -29,8 +29,13 @@ $env:ANDROID_RELEASE_KEY_PASSWORD = "仅在当前会话中设置"
 
 - Credential Manager 面板关闭或按返回后，原生登录页保持打开并显示失败提示；Android 15 模拟器两种退出方式均已真实复测。这个结果不代表 Passkey 成功登录已验收。
 - 新增可单测的返回保护状态及快速重试版本校验，`:prototype:testDebugUnitTest :prototype:assembleDebug` 成功，JVM `301/301`；70 个 PC 路由、24 个后台入口和 27/27 PC API 模块静态审计通过。
-- 生产关联声明和 API 健康状态已只读复核；Android 15 的正式包域名状态为 `verified`，但实际默认链接解析仍为 `ResolverActivity`，所以真实 HTTPS 点击跳入原生页面仍未通过。本轮没有更改模拟器默认应用选择、重部署服务器或上传 APK。
+- 生产关联声明和 API 健康状态已只读复核；Android 15 正式包域名状态为 `verified`。使用 `DEFAULT+BROWSABLE` 类别冷启动真实公开文章链接后，前台 Activity 为 `xyz.hlovet.portal.native/.MainActivity`，文章标题和正文页面均已读取，主域名 HTTPS 链接打开通过。本轮没有重部署服务器或上传 APK。
 - 相关提交已推送：`edfe428`、`06a0062`。完整移植目标保持进行中。
+
+### 主域名 App Links 实际打开
+
+- Android 15 专用模拟器实际打开 `https://5200918.xyz/articles/gfjsfdhsdf-04e5f6fd`，系统冷启动正式原生包并进入文章详情；验证后恢复模拟器原有域名用户选择。
+- `www.5200918.xyz` 尚无 DNS；Passkey 成功注册/登录和 Google OAuth 成功回调仍需单独验收。
 
 ## 最新验收补充（2026-10-20）
 

@@ -12,8 +12,14 @@
 - 修复 Android Credential Manager 系统面板关闭后，同一次返回可能继续传给宿主并关闭登录页的问题。通行密钥登录与 Google 关联验证共享短暂返回保护；版本号使快速重试时旧延迟释放不能解除新请求的保护。
 - 状态转换抽为 `NativeCredentialReturnState` 并增加两项 JVM 回归，覆盖凭据面板打开/结束时拦截宿主返回，以及旧请求延迟释放不得清除新请求状态。`:prototype:testDebugUnitTest :prototype:assembleDebug` 成功，JVM `301/301`、0 失败/错误；路由 `70/70`、后台入口 `24/24`、PC API 模块 `27/27` 静态审计通过。
 - Android 15 `emulator-5558` 覆盖安装 Debug APK 后真实打开 Credential Manager，按系统返回键和关闭按钮均回到登录页并显示验证失败提示，没有退出到首页。这里验证的是取消/关闭路径，不是 Passkey 注册或成功登录。
-- 生产 `assetlinks.json` 实时声明旧 TWA 与原生包，API 健康检查为 `ok`；Android 15 正式包域名状态为 `verified`。但系统默认解析仍显示 `ResolverActivity`，当前没有选定处理该域名的默认应用，因此没有把实际 HTTPS 点击打开原生页面记为通过。本轮未修改模拟器默认链接偏好、重部署服务器或上传 APK。
-- 本轮代码已推送：`edfe428` 修复返回行为，`06a0062` 抽取状态并加入回归测试。完整 PC/Android 移植仍未完成；真实 Passkey 成功注册/登录、实际 HTTPS 默认打开和矩阵中其它账号/外部服务验收继续保持未完成。
+- 生产 `assetlinks.json` 实时声明旧 TWA 与原生包，API 健康检查为 `ok`；Android 15 正式包域名状态为 `verified`。使用真实浏览器链接的 `DEFAULT+BROWSABLE` 类别从冷启动发起公开文章 URL 后，前台 Activity 为 `xyz.hlovet.portal.native/.MainActivity`，页面层级读取到文章标题、作者和正文 WebView，主域名 App Links 实际打开通过。此前省略 Intent 类别的 ResolverActivity 查询不作为结论。本轮未修改模拟器默认链接偏好、重部署服务器或上传 APK。
+- 本轮代码已推送：`edfe428` 修复返回行为，`06a0062` 抽取状态并加入回归测试。完整 PC/Android 移植仍未完成；真实 Passkey 成功注册/登录和矩阵中其它账号/外部服务验收继续保持未完成。
+
+## 主域名 App Links 实际打开（2026-10-21）
+
+- 正式包 `xyz.hlovet.portal.native` 与旧 TWA 均安装在 Android 15 专用模拟器；生产主域名 `5200918.xyz` 的 Digital Asset Links、包签名和系统 `verified` 状态均已核对。
+- 选择原生包作为专用模拟器临时的用户域名处理者后，按真实浏览器类别启动 `https://5200918.xyz/articles/gfjsfdhsdf-04e5f6fd`，系统返回 `Activity: xyz.hlovet.portal.native/xyz.hlovet.portal.prototype.MainActivity`，冷启动耗时约 1 秒；页面 XML 显示文章标题和正文区域。随后恢复了模拟器原有用户选择，未改变设备持久偏好。
+- 这关闭的是主域名链接分流和实际文章页面打开缺口；尚无 DNS 的 `www.5200918.xyz`、真实 Passkey 成功注册/登录以及 Google OAuth 成功回调仍未验收。
 
 ## 规范域名与旧版 Android 关联（2026-10-20）
 
