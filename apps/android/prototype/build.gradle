@@ -18,14 +18,11 @@ if (!applicationIdValid) {
     throw new GradleException('nativeApplicationId 必须是合法的 Android applicationId。')
 }
 def configuredPortalHost = '5200918.xyz'
-def configuredPortalAlternateHost = 'www.5200918.xyz'
 def configuredPortalOrigin = configuredPortalBaseUrl
 try {
     def portalUri = java.net.URI.create(configuredPortalBaseUrl)
+    // 只声明实际站点主机；自动添加未部署的 www 会使 Android 11 及更早版本整包验证失败。
     configuredPortalHost = portalUri.host ?: configuredPortalHost
-    configuredPortalAlternateHost = configuredPortalHost.startsWith('www.')
-        ? configuredPortalHost.substring(4)
-        : "www.${configuredPortalHost}"
     if (portalUri.scheme && portalUri.rawAuthority) {
         configuredPortalOrigin = "${portalUri.scheme}://${portalUri.rawAuthority}"
     }
@@ -62,7 +59,6 @@ android {
         applicationId configuredApplicationId
         manifestPlaceholders = [
             portalHost: configuredPortalHost,
-            portalAlternateHost: configuredPortalAlternateHost,
         ]
         minSdk 24
         targetSdk 35

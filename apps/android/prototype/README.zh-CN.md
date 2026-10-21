@@ -25,6 +25,12 @@ $env:ANDROID_RELEASE_KEY_PASSWORD = "仅在当前会话中设置"
 
 ## 最新验收补充（2026-10-20）
 
+### 规范域名与 Android 11 兼容
+
+- 修复自动声明未部署 www 导致 Android 11 整包验证失败：清单、登录凭据关联和运行时回调白名单仅使用实际配置的站点主机。旧包失败日志保留，新版在 Android 11/15 均由系统真实验证并默认解析到原生 MainActivity，没有手动授予默认打开状态；未执行验证成功后的实际页面点击，不视作真实 Passkey/Google 登录成功。
+- 最新正式 APK 为 `output/android/native-release/20261020-165020/hlovet-native-release.apk`，SHA-256 为 `64D063501BA5931208B24447D8F72F6410E39D2BB9196A97379B82D0BAA4B185`，包名和长期证书不变；两端覆盖安装通过，Android 15 回读实际 APK 哈希一致。构建和验签通过，JVM 实际重跑 `299/299`，原始失败与系统验证证据见覆盖矩阵本日最新章节。
+- 本轮不部署服务器、上传 APK、覆盖公开下载或删除数据；临时模拟器代理已恢复，两个专用实例正常关闭。此前各阶段的 APK 路径与验收记录按当时状态保留，当前应使用本节的新版正式包，外部认证/推送/通话等仍继续独立验收。
+
 ### 正式公开关联与默认内容色
 
 - 已获授权并部署独立原生版的公开关联，保留旧 TWA。两包均发布 App Links/登录凭据关系，新原生包的 Android Origin 已进入 API；移除遮盖动态配置的旧静态关联文件后，先做隔离 Web 镜像真实 HTTP 检查，再部署 `669a10f`。公网 P22 最终 `10/10` 通过；原连接失败、自动回退和备份记录详见覆盖矩阵。
@@ -221,7 +227,7 @@ $env:ANDROID_RELEASE_KEY_PASSWORD = "仅在当前会话中设置"
 
 独立应用的包名已确认，不复用旧 TWA 的安装身份。`-PnativeApplicationId=...` 仍可显式覆盖两个变体的完整包名，仅用于明确指定的独立测试或后续迁移。正式包必须使用与 `assetlinks.json` 对应的签名证书；只切换包名或使用 Debug 签名不会获得 App Links/Passkey 的生产可信关系。构建前应确认正式签名、Google/Firebase 配置和线上关联声明属于同一发布包，不要把测试包上传到生产下载入口。
 
-正式包的 Android App Links 主机名会从 `previewPortalBaseUrl` 生成，同时声明站点主机名和对应的 `www` 主机名；`asset_statements` 会分别指向两者的 `/.well-known/assetlinks.json`。部署新域名时应在两个实际使用的主机名上都发布正式包名和正式签名指纹对应的 `assetlinks.json`；如果只使用其中一个主机名，另一个声明不会影响站内访问。调试包签名不能代替正式包声明。
+正式包的 Android App Links 和认证回调白名单仅使用 `previewPortalBaseUrl` 中实际配置的站点主机，不自动添加或移除 `www` 前缀。`asset_statements` 只指向该主机的 `/.well-known/assetlinks.json`；这个地址必须可通过有效 HTTPS 直接访问，并包含实际包名和证书。未配置 DNS/HTTPS 的别名会导致 Android 11 及更早版本整包验证失败，不能用 Android 15 单域名通过推导旧系统通过。其它网站别名应在真实部署后由网页重定向到规范地址；调试签名不能代替正式包声明。
 
 迁移旧 TWA 或保留多个正式客户端时，服务端可以使用 `ANDROID_APP_LINKS_JSON` 同时声明多个包名。值必须是 JSON 数组，每项使用 `packageName` 和 `fingerprints`，例如：
 

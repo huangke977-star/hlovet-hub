@@ -8,9 +8,10 @@
         android:label="HLOVET Mobile"
         android:supportsRtl="true"
         android:theme="@style/Theme.HlovetPreview">
+        <!-- 只包含实际部署的站点，避免未配置别名使旧版 Android 的整包关联验证失败。 -->
         <meta-data
             android:name="asset_statements"
-            android:value='[{"include":"https://${portalHost}/.well-known/assetlinks.json"},{"include":"https://${portalAlternateHost}/.well-known/assetlinks.json"}]' />
+            android:value='[{"include":"https://${portalHost}/.well-known/assetlinks.json"}]' />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -49,21 +50,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="hlovet-native" android:host="unsubscribe" />
             </intent-filter>
+            <!-- HTTPS 入口与运行时回调白名单使用同一个配置主机，不隐式扩展 www 域名。 -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:host="${portalHost}"
-                    android:pathPrefix="/native-auth/google"
-                    android:scheme="https" />
-            </intent-filter>
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:host="${portalAlternateHost}"
                     android:pathPrefix="/native-auth/google"
                     android:scheme="https" />
             </intent-filter>
@@ -81,25 +74,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:host="${portalAlternateHost}"
-                    android:pathPrefix="/"
-                    android:scheme="https" />
-            </intent-filter>
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data
                     android:host="${portalHost}"
-                    android:pathPrefix="/unsubscribe"
-                    android:scheme="https" />
-            </intent-filter>
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:host="${portalAlternateHost}"
                     android:pathPrefix="/unsubscribe"
                     android:scheme="https" />
             </intent-filter>

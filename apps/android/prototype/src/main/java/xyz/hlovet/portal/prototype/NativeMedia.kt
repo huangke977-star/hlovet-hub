@@ -1,3 +1,4 @@
+/** 提供原生上传读取、站点来源与媒体展示；认证域名以实际构建配置为唯一来源。 */
 package xyz.hlovet.portal.prototype
 
 import android.content.Context
@@ -113,15 +114,13 @@ internal fun nativePortalBaseUrl(): String {
     return origin.ifBlank { DEFAULT_NATIVE_PORTAL_BASE_URL }
 }
 
+/** 返回实际配置的唯一站点主机，用于站内路由与认证回调；不隐式信任未部署的域名别名。 */
 internal fun nativePortalHostnames(): Set<String> {
+    // 与构建清单使用同一来源，避免系统只认证主域名而应用额外接收未认证别名的回调。
     val host = runCatching { Uri.parse(nativePortalBaseUrl()).host?.lowercase() }.getOrNull()
         ?.takeIf(String::isNotBlank)
-        ?: return setOf("5200918.xyz", "www.5200918.xyz")
-    return if (host.startsWith("www.")) {
-        setOf(host, host.removePrefix("www."))
-    } else {
-        setOf(host, "www.$host")
-    }
+        ?: "5200918.xyz"
+    return setOf(host)
 }
 
 @Composable

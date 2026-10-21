@@ -4,13 +4,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
+/** 核对认证回调的协议、配置主机和令牌边界，不将语法可解析视为系统域名认证。 */
 class NativeAuthenticationLinkTest {
+    /** 自定义协议与实际配置的 HTTPS 主机均保留 Google 回调契约及大小写归一化。 */
     @Test
     fun googleCallbacksSupportNativeAndVerifiedPortalLinks() {
+        // 英文页面和大小写变化不改变主机身份，未配置的 www 不在此成功范围。
         val expected = NativeAuthenticationLink.Google("oauth_token")
         assertEquals(expected, parseNativeAuthenticationLink("hlovet-native://auth/google?result=oauth_token"))
         assertEquals(expected, parseNativeAuthenticationLink("https://5200918.xyz/native-auth/google?result=oauth_token"))
-        assertEquals(expected, parseNativeAuthenticationLink("https://WWW.5200918.XYZ/en/native-auth/google/?result=oauth_token"))
+        assertEquals(expected, parseNativeAuthenticationLink("https://5200918.XYZ/en/native-auth/google/?result=oauth_token"))
     }
 
     @Test
@@ -63,10 +66,13 @@ class NativeAuthenticationLinkTest {
         )
     }
 
+    /** 拒绝未配置别名、相似域名、明文来源和带凭据或非标准端口的认证回调。 */
     @Test
     fun nonPortalAndLookalikeOriginsCannotSupplyAuthenticationTokens() {
+        // 这些地址不能因为名称相近或自动添加 www 而取得传入认证令牌的资格。
         listOf(
             "http://5200918.xyz/native-auth/google?result=token",
+            "https://www.5200918.xyz/native-auth/google?result=token",
             "https://5200918.xyz.example.com/native-auth/google?result=token",
             "https://example.com/native-auth/google?result=token",
             "https://example.com@5200918.xyz/native-auth/google?result=token",
@@ -84,11 +90,11 @@ class NativeAuthenticationLinkTest {
         assertNull(parseNativeAuthenticationLink("https://5200918.xyz/native-auth/google?result=%ZZ"))
     }
 
+    /** 主机白名单只包含构建配置的实际站点，正常路径可用而相似域名仍拒绝。 */
     @Test
     fun configuredPortalHostStillUsesTheSameAuthenticationPathContract() {
-        // The default debug build points at 5200918.xyz. This assertion protects
-        // the shared host allow-list from regressing to a substring match.
-        assertEquals(setOf("5200918.xyz", "www.5200918.xyz"), nativePortalHostnames())
+        // 默认测试构建使用主域名；别名不应被自动声明或扩大认证回调范围。
+        assertEquals(setOf("5200918.xyz"), nativePortalHostnames())
         assertEquals(
             NativeAuthenticationLink.Google("oauth_token"),
             parseNativeAuthenticationLink("https://5200918.xyz/native-auth/google?result=oauth_token"),
