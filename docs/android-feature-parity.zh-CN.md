@@ -7,6 +7,14 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## Passkey 取消返回回归（2026-10-21）
+
+- 修复 Android Credential Manager 系统面板关闭后，同一次返回可能继续传给宿主并关闭登录页的问题。通行密钥登录与 Google 关联验证共享短暂返回保护；版本号使快速重试时旧延迟释放不能解除新请求的保护。
+- 状态转换抽为 `NativeCredentialReturnState` 并增加两项 JVM 回归，覆盖凭据面板打开/结束时拦截宿主返回，以及旧请求延迟释放不得清除新请求状态。`:prototype:testDebugUnitTest :prototype:assembleDebug` 成功，JVM `301/301`、0 失败/错误；路由 `70/70`、后台入口 `24/24`、PC API 模块 `27/27` 静态审计通过。
+- Android 15 `emulator-5558` 覆盖安装 Debug APK 后真实打开 Credential Manager，按系统返回键和关闭按钮均回到登录页并显示验证失败提示，没有退出到首页。这里验证的是取消/关闭路径，不是 Passkey 注册或成功登录。
+- 生产 `assetlinks.json` 实时声明旧 TWA 与原生包，API 健康检查为 `ok`；Android 15 正式包域名状态为 `verified`。但系统默认解析仍显示 `ResolverActivity`，当前没有选定处理该域名的默认应用，因此没有把实际 HTTPS 点击打开原生页面记为通过。本轮未修改模拟器默认链接偏好、重部署服务器或上传 APK。
+- 本轮代码已推送：`edfe428` 修复返回行为，`06a0062` 抽取状态并加入回归测试。完整 PC/Android 移植仍未完成；真实 Passkey 成功注册/登录、实际 HTTPS 默认打开和矩阵中其它账号/外部服务验收继续保持未完成。
+
 ## 规范域名与旧版 Android 关联（2026-10-20）
 
 - 实际发现并复现旧系统缺口：先前 APK 自动声明主域名及尚无 DNS 的 `www`。Android 11 的 GMS 明确记录主域名关联为真、www 为假，最终整包 `Success:false`，普通文章链接不能默认解析到原生应用；Android 15 单个主域名通过不能证明旧系统兼容。

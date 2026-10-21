@@ -23,6 +23,15 @@ $env:ANDROID_RELEASE_KEY_PASSWORD = "仅在当前会话中设置"
 
 `.env.example` 已以正式原生包为示例；已有部署不能仅修改默认值，需显式保留旧 TWA 声明并加入新包实际指纹。`docker-compose.prod.yml` 中的历史预览包回退值不是正式原生版的证书配置，发布时必须显式设置关联信息，不能直接照用。
 
+## 最新验收补充（2026-10-21）
+
+### Passkey 系统面板取消与返回
+
+- Credential Manager 面板关闭或按返回后，原生登录页保持打开并显示失败提示；Android 15 模拟器两种退出方式均已真实复测。这个结果不代表 Passkey 成功登录已验收。
+- 新增可单测的返回保护状态及快速重试版本校验，`:prototype:testDebugUnitTest :prototype:assembleDebug` 成功，JVM `301/301`；70 个 PC 路由、24 个后台入口和 27/27 PC API 模块静态审计通过。
+- 生产关联声明和 API 健康状态已只读复核；Android 15 的正式包域名状态为 `verified`，但实际默认链接解析仍为 `ResolverActivity`，所以真实 HTTPS 点击跳入原生页面仍未通过。本轮没有更改模拟器默认应用选择、重部署服务器或上传 APK。
+- 相关提交已推送：`edfe428`、`06a0062`。完整移植目标保持进行中。
+
 ## 最新验收补充（2026-10-20）
 
 ### 规范域名与 Android 11 兼容
