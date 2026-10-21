@@ -655,6 +655,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** 承载原生首页、登录门槛、深链页面和业务子页面的统一移动端宿主。 */
 @Composable
 private fun HlovetMobilePreview(
     oauthResultToken: String? = null,
@@ -720,6 +721,9 @@ private fun HlovetMobilePreview(
     var reputationLoading by remember { mutableStateOf(false) }
     var reputationError by remember { mutableStateOf<String?>(null) }
     var loginVisible by remember { mutableStateOf(false) }
+    var credentialPromptActive by remember { mutableStateOf(false) }
+    var credentialReturnBackGuard by remember { mutableStateOf(false) }
+    var credentialReturnGuardVersion by remember { mutableIntStateOf(0) }
     var loginInitialStep by remember { mutableStateOf<NativeLoginStep>(NativeLoginStep.Credentials) }
     var onboardingState by remember { mutableStateOf<NativeOnboardingState?>(null) }
     var onboardingVisible by remember { mutableStateOf(false) }
@@ -1779,6 +1783,7 @@ private fun HlovetMobilePreview(
         ) {
             when {
                 onboardingVisible -> Unit
+                credentialPromptActive || credentialReturnBackGuard -> Unit
                 loginVisible -> {
                     loginVisible = false
                     pendingWriteTarget = null
@@ -1818,6 +1823,25 @@ private fun HlovetMobilePreview(
                     passwordResetToken = passwordResetToken,
                     onOAuthResultConsumed = onOAuthResultConsumed,
                     onPasswordResetTokenConsumed = onPasswordResetTokenConsumed,
+                    onCredentialPromptStateChanged = { active ->
+                        // 系统凭据页返回时，Android 可能把同一次返回事件继续交给宿主页面。
+                        if (active) {
+                            credentialReturnGuardVersion += 1
+                            credentialPromptActive = true
+                            credentialReturnBackGuard = false
+                        } else if (credentialPromptActive) {
+                            credentialPromptActive = false
+                            credentialReturnGuardVersion += 1
+                            val guardVersion = credentialReturnGuardVersion
+                            credentialReturnBackGuard = true
+                            scope.launch {
+                                delay(600)
+                                if (credentialReturnGuardVersion == guardVersion) {
+                                    credentialReturnBackGuard = false
+                                }
+                            }
+                        }
+                    },
                     onAuthenticated = { authenticated ->
                         val previous = session
                         offlineLegacyOwner = previous
@@ -2691,6 +2715,7 @@ private fun HlovetMobilePreview(
     }
 }
 
+/** 展示原生登录、注册、找回密码和二次认证流程，并协调系统凭据页返回状态。 */
 @Composable
 private fun NativeLoginScreen(
     initialStep: NativeLoginStep = NativeLoginStep.Credentials,
@@ -2699,6 +2724,7 @@ private fun NativeLoginScreen(
     passwordResetToken: String?,
     onOAuthResultConsumed: () -> Unit,
     onPasswordResetTokenConsumed: () -> Unit,
+    onCredentialPromptStateChanged: (Boolean) -> Unit,
     onAuthenticated: (NativeSession) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -3064,6 +3090,7 @@ private fun NativeLoginScreen(
         onPasswordResetTokenConsumed()
     }
 
+    /** 启动通行密钥登录，并把系统凭据页生命周期交给宿主处理返回事件。 */
     fun submitPasskey() {
         if (loading) return
         loading = true
@@ -3071,6 +3098,8 @@ private fun NativeLoginScreen(
         scope.launch {
             try {
                 val options = withContext(Dispatchers.IO) { NativeAuthApi.passkeyLoginOptions() }
+                // 系统凭据页接管返回键，避免返回后同一事件关闭登录页面。
+                onCredentialPromptStateChanged(true)
                 val credentialResult = withTimeout(20_000L) {
                     credentialManager.getCredential(
                         context = context,
@@ -3105,6 +3134,8 @@ private fun NativeLoginScreen(
             } catch (exception: Exception) {
                 error = exception.message ?: nativePhrase("通行密钥登录失败，请稍后重试。", "Passkey sign-in failed. Try again later.")
             } finally {
+                // 凭据页结束后保留极短返回保护，等待系统完成 Activity 切换。
+                onCredentialPromptStateChanged(false)
                 loading = false
             }
         }
@@ -3138,6 +3169,7 @@ private fun NativeLoginScreen(
         recoveryTurnstileToken = ""
     }
 
+    /** 启动 Google 账号关联的通行密钥验证，并保护登录页返回状态。 */
     fun submitGoogleLinkPasskey(current: NativeLoginStep.GoogleLink) {
         if (loading) return
         loading = true
@@ -3145,6 +3177,8 @@ private fun NativeLoginScreen(
         scope.launch {
             try {
                 val options = withContext(Dispatchers.IO) { NativeAuthApi.googleLinkPasskeyOptions(current.pendingToken) }
+                // Google 关联验证同样通过系统凭据页完成，沿用登录页的返回保护。
+                onCredentialPromptStateChanged(true)
                 val credentialResult = withTimeout(20_000L) {
                     credentialManager.getCredential(
                         context = context,
@@ -3179,6 +3213,8 @@ private fun NativeLoginScreen(
             } catch (exception: Exception) {
                 error = exception.message ?: nativePhrase("Google 关联验证失败，请稍后重试。", "Google linking verification failed. Try again later.")
             } finally {
+                // 系统凭据页关闭后再释放宿主返回保护。
+                onCredentialPromptStateChanged(false)
                 loading = false
             }
         }
