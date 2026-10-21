@@ -721,9 +721,7 @@ private fun HlovetMobilePreview(
     var reputationLoading by remember { mutableStateOf(false) }
     var reputationError by remember { mutableStateOf<String?>(null) }
     var loginVisible by remember { mutableStateOf(false) }
-    var credentialPromptActive by remember { mutableStateOf(false) }
-    var credentialReturnBackGuard by remember { mutableStateOf(false) }
-    var credentialReturnGuardVersion by remember { mutableIntStateOf(0) }
+    var credentialReturnState by remember { mutableStateOf(NativeCredentialReturnState()) }
     var loginInitialStep by remember { mutableStateOf<NativeLoginStep>(NativeLoginStep.Credentials) }
     var onboardingState by remember { mutableStateOf<NativeOnboardingState?>(null) }
     var onboardingVisible by remember { mutableStateOf(false) }
@@ -1783,7 +1781,7 @@ private fun HlovetMobilePreview(
         ) {
             when {
                 onboardingVisible -> Unit
-                credentialPromptActive || credentialReturnBackGuard -> Unit
+                credentialReturnState.blocksHostBack() -> Unit
                 loginVisible -> {
                     loginVisible = false
                     pendingWriteTarget = null
@@ -1826,19 +1824,13 @@ private fun HlovetMobilePreview(
                     onCredentialPromptStateChanged = { active ->
                         // 系统凭据页返回时，Android 可能把同一次返回事件继续交给宿主页面。
                         if (active) {
-                            credentialReturnGuardVersion += 1
-                            credentialPromptActive = true
-                            credentialReturnBackGuard = false
-                        } else if (credentialPromptActive) {
-                            credentialPromptActive = false
-                            credentialReturnGuardVersion += 1
-                            val guardVersion = credentialReturnGuardVersion
-                            credentialReturnBackGuard = true
+                            credentialReturnState = credentialReturnState.promptStarted()
+                        } else if (credentialReturnState.promptActive) {
+                            credentialReturnState = credentialReturnState.promptFinished()
+                            val guardVersion = credentialReturnState.version
                             scope.launch {
                                 delay(600)
-                                if (credentialReturnGuardVersion == guardVersion) {
-                                    credentialReturnBackGuard = false
-                                }
+                                credentialReturnState = credentialReturnState.releaseReturnGuard(guardVersion)
                             }
                         }
                     },
