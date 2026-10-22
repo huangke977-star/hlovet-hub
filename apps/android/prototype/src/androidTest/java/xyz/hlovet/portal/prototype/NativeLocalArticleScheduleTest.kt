@@ -47,14 +47,18 @@ class NativeLocalArticleScheduleTest {
     @Before fun prepare() {
         // 来源检查早于任何写入，生产或设备内隔离来源不允许执行真实专项。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:3001" && BuildConfig.PORTAL_BASE_URL == "http://127.0.0.1:3000")
-        val saved = requireNotNull(NativeSessionStore.load(context))
-        check(saved.userId in listOf(63, 64))
-        session = NativeAuthApi.refresh(saved.refreshToken)
-        check(requireNotNull(session).userId == saved.userId && NativeSessionStore.save(context, requireNotNull(session)))
+        val saved = NativeSessionStore.load(context)
+        // 没有本地会话的设备只跳过真实写入，避免把环境前置条件误报为定时发布失败。
+        assumeTrue("Requires a retained local test session", saved != null)
+        val current = requireNotNull(saved)
+        // 只使用本地真实注册的普通读者，不能复制其它设备会话或使用固定历史用户编号。
+        check(current.username.startsWith("native_restore_"))
+        session = NativeAuthApi.refresh(current.refreshToken)
+        check(requireNotNull(session).userId == current.userId && NativeSessionStore.save(context, requireNotNull(session)))
         check(!requireNotNull(session).isAdministrator && !requireNotNull(session).isSuperAdmin)
         oldLocale = NativeI18n.locale
         InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale("zh-CN") }
-        report.put("readerId", saved.userId).put("serverClockModified", false).put("lifecycleInvokedManually", false)
+        report.put("readerId", current.userId).put("serverClockModified", false).put("lifecycleInvokedManually", false)
     }
 
     /** 即使失败也保存现场和部分检查点，恢复原读者，不清理文章、通知或本地证据。 */
@@ -75,6 +79,9 @@ class NativeLocalArticleScheduleTest {
 
     /** 真实时间框完成取消/错误/重开/清除，最后由服务端自身任务自然发布并下线同一篇私有文章。 */
     @Test fun realSchedulePersistsCancelsPublishesAndUnpublishesNaturally() {
+        // 系统选择器本轮只输入同一日期的小时和分钟，临近 UTC 日界时跳过以免把跨日误报为业务失败。
+        val testNow = LocalDateTime.now()
+        assumeTrue("Requires a same-day picker window", testNow.plusMinutes(12).toLocalDate() == testNow.toLocalDate())
         // 独立私有草稿不会广播到公开发现页，不覆盖既有文章或修改作者权限。
         val reader = requireNotNull(session)
         val category = NativeSiteSettingsApi.loadWriterSettings().categories.firstOrNull()?.name ?: "随笔"
@@ -96,7 +103,7 @@ class NativeLocalArticleScheduleTest {
         record("private-draft-and-physical-time-field-open-with-cancel-preserving-empty-value")
 
         // 草稿仅有下线时间时应显示服务端错误、保留输入且不持久化非法计划。
-        val future = LocalDateTime.now().plusHours(2).withSecond(0).withNano(0)
+        val future = LocalDateTime.now().plusMinutes(10).withSecond(0).withNano(0)
         selectTime("article-schedule-unpublish-at", future.plusMinutes(1))
         confirmSchedule()
         waitText("草稿需要同时设置未来的发布时间和下线时间。")
@@ -179,6 +186,8 @@ class NativeLocalArticleScheduleTest {
 
     /** 打开当前 articleId 的真实编辑页面，等待服务端加载和保存操作可用。 */
     private fun openEditor() {
+        // 每次冷启动前从加密会话存储读取最新 refresh token，避免前一次冷启动轮换令牌后测试继续使用旧令牌。
+        refreshReaderSession()
         // 每次完全关闭旧页面，不能以内存中的时间状态替代重新读取服务端。
         activity?.close()
         activity = ActivityScenario.launch(Intent(context, MainActivity::class.java).setAction(Intent.ACTION_VIEW)
@@ -188,6 +197,19 @@ class NativeLocalArticleScheduleTest {
             !node.config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled)
         } }
         compose.onNodeWithContentDescription("发布计划").assertIsEnabled()
+    }
+
+    /** 从设备私有存储刷新当前普通读者会话，保存旋转后的令牌并保持同一用户身份。 */
+    private fun refreshReaderSession() {
+        // 使用主应用最近一次启动保存的 refresh token，避免使用已被服务端轮换的旧内存值。
+        val saved = requireNotNull(NativeSessionStore.load(context))
+        check(saved.userId == requireNotNull(session).userId)
+        // 通过真实认证接口刷新会话，不伪造访问令牌或绕过服务端鉴权。
+        val refreshed = requireNotNull(NativeAuthApi.refresh(saved.refreshToken))
+        check(refreshed.userId == saved.userId)
+        // 将新令牌写回应用私有存储，供随后冷启动的 MainActivity 使用。
+        session = refreshed
+        check(NativeSessionStore.save(context, refreshed))
     }
 
     /** 由工具栏按钮打开计划弹窗，不注入替代组合。 */
@@ -212,10 +234,10 @@ class NativeLocalArticleScheduleTest {
         assertFalse(UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).hasObject(By.res("android", "datePicker")))
     }
 
-    /** 用真实系统选择器设置 tag 对应的 target，仅覆盖当前默认日期的时间选择。 */
+    /** 用真实系统选择器设置 tag 对应的 target；日期由业务前置限制为当前日期。 */
     private fun selectTime(tag: String, target: LocalDateTime) {
         // 不将默认日期的小时/分钟输入当作跨日、多时区的系统日期交互验收。
-        check(target.toLocalDate() == LocalDateTime.now().plusHours(1).toLocalDate())
+        check(target.toLocalDate() == LocalDateTime.now().toLocalDate())
         compose.onNodeWithTag(tag).performNativeStableClick(compose)
         systemControl("datePicker")
         systemControl("button1").click()
