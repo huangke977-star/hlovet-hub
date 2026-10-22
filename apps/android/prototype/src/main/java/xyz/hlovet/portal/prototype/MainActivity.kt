@@ -7525,9 +7525,11 @@ private fun NativeGlobalCallHost(
     var pendingPermissionConversationId by remember(sessionKey) { mutableStateOf<Int?>(null) }
     var pendingPermissionCallType by remember(sessionKey) { mutableStateOf<String?>(null) }
     var pendingPermissionAccept by remember(sessionKey) { mutableStateOf(false) }
+    var terminatedCallId by remember(sessionKey) { mutableIntStateOf(0) }
 
+    /** 先清空界面状态，再在后台释放 WebRTC 资源，避免底层释放阻塞 Compose 重组。 */
     fun clearCall() {
-        callClient?.close()
+        val client = callClient
         callClient = null
         localVideoTrack = null
         remoteVideoTrack = null
@@ -7536,6 +7538,7 @@ private fun NativeGlobalCallHost(
         callPreparing = false
         callMuted = false
         callCameraEnabled = true
+        if (client != null) scope.launch(Dispatchers.IO) { client.close() }
     }
 
     val latestSocket = rememberUpdatedState(chatSocket)
@@ -7595,6 +7598,7 @@ private fun NativeGlobalCallHost(
             onNotice(nativePhrase("通话连接尚未建立，请稍后重试。", "The call connection is not ready. Try again shortly."))
             return
         }
+        terminatedCallId = 0
         scope.launch {
             callPreparing = true
             try {
@@ -7631,6 +7635,7 @@ private fun NativeGlobalCallHost(
         val incoming = callSession ?: return
         val socket = chatSocket ?: return
         if (callPreparing) return
+        terminatedCallId = 0
         scope.launch {
             callPreparing = true
             try {
@@ -7740,15 +7745,18 @@ private fun NativeGlobalCallHost(
                 onConnectionChanged = { value -> scope.launch { connected = value } },
                 onCallIncoming = { incoming ->
                     scope.launch {
-                        if (latestCallSession.value == null && !latestCallPreparing.value) {
+                        if (incoming.id != terminatedCallId && latestCallSession.value == null && !latestCallPreparing.value) {
                             callSession = incoming
                             callPhase = "incoming"
                         }
                     }
                 },
                 onCallAccepted = { accepted ->
-                    if (accepted.id == latestCallSession.value?.id) {
+                    if (accepted.id != terminatedCallId && accepted.id == latestCallSession.value?.id) {
                         scope.launch {
+                            if (accepted.id == terminatedCallId) {
+                                return@launch
+                            }
                             callSession = accepted
                             callPhase = "connecting"
                             latestCallClient.value?.createOffer()
@@ -7756,8 +7764,11 @@ private fun NativeGlobalCallHost(
                     }
                 },
                 onCallClaimed = { claimed ->
-                    if (claimed.id == latestCallSession.value?.id) {
+                    if (claimed.id != terminatedCallId && claimed.id == latestCallSession.value?.id) {
                         scope.launch {
+                            if (claimed.id == terminatedCallId) {
+                                return@launch
+                            }
                             if (latestCallClient.value == null) {
                                 latestClearCall.value()
                         latestNotice.value(nativePhrase("这通电话已在其他设备接听。", "This call was answered on another device."))
@@ -7774,17 +7785,27 @@ private fun NativeGlobalCallHost(
                     }
                 },
                 onCallActive = { active ->
-                    if (active.id == latestCallSession.value?.id) {
+                    if (active.id != terminatedCallId && active.id == latestCallSession.value?.id) {
                         scope.launch {
+                            if (active.id == terminatedCallId) {
+                                return@launch
+                            }
                             callSession = active
                             callPhase = "active"
                         }
                     }
                 },
                 onCallEnded = { ended ->
-                    if (ended.id == latestCallSession.value?.id) {
+                    val active = latestCallSession.value
+                    // 正常情况只按通话编号匹配；仅当响应缺少有效编号时才以同一私聊会话兜底。
+                    val matchesActiveCall = active != null && (
+                        ended.id == active.id ||
+                            (ended.id <= 0 && ended.conversationId == active.conversationId)
+                        )
+                    if (matchesActiveCall) {
+                        // 先同步标记结束 ID，缺少编号时回落到当前通话编号，阻止旧回调恢复面板。
+                        terminatedCallId = ended.id.takeIf { it > 0 } ?: active?.id ?: 0
                         scope.launch {
-                            latestClearCall.value()
                             latestNotice.value(
                                 when (ended.status) {
                             "declined" -> nativePhrase("对方已拒绝通话。", "The call was declined.")
@@ -7808,6 +7829,13 @@ private fun NativeGlobalCallHost(
                 clearCall()
             }
         }
+    }
+
+    LaunchedEffect(terminatedCallId) {
+        val endedId = terminatedCallId
+        if (endedId <= 0 || callSession?.id != endedId) return@LaunchedEffect
+        // 结束事件只更新状态；在当前组合中清理，避免 Socket 回调持有旧的清理闭包。
+        clearCall()
     }
 
     LaunchedEffect(accessToken) {

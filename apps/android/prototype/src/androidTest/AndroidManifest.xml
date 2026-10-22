@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application>
+    <!-- 测试进程需要访问设备内 MockWebServer，正式应用不依赖这项权限配置。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:usesCleartextTraffic="true">
         <!-- 仅测试 APK 使用的独立 UID 查看器，验证临时 URI 读取授权，不进入正式 APK。 -->
         <activity
             android:name="xyz.hlovet.portal.prototype.NativeAttachmentReceiverActivity"

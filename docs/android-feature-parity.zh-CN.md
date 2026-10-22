@@ -2532,3 +2532,32 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 最终源码构建及 JVM `287/287` 通过，包含新增的 4 项公告时间和状态测试。Android 15 公告首轮隔离设备测试 `14/14` 通过；证据位于本地 `tmp-android-announcement-results-20261016/initial/android15`。
 - 最终源码的 Android 15 联合 30 项设备回归未完成：执行 `NativeAdminUsersDeviceTest.passwordErrorsStayInDialogAndDuplicateSubmissionIsBlocked` 时，Activity 销毁中的 Compose `SlotWriter.moveSlotGapTo` 抛出 `ArrayIndexOutOfBoundsException`，测试进程崩溃。完整日志为 `tmp-admin-announcements-android15-final-20261016.txt`；根因尚未确认，不记为通过。
 - Android 11 本轮公告设备回归、真实公告数据库写操作及联合崩溃复核仍待执行。本次按用户要求归档并推送累计源码、测试和文档，不代表全量移植完成；不包含 APK、日志、临时授权、测试证据或生产部署，不清理测试数据。
+
+## 原生双设备通话挂断清理与 TURN relay 验收（2026-10-22）
+
+### 本轮修复
+
+- 修复原生通话结束后被叫端界面残留的问题。结束事件现在只更新当前通话的结束状态，由当前 Compose 组合执行清理；先移除通话界面状态，再在后台释放 WebRTC 资源，并忽略已经排队的过期通话状态回调。
+- `NativeWebRtcCall` 不再重复释放已由 Unified Plan 管理的 `MediaStream` 音轨，避免挂断或 Activity 销毁时触发 `MediaStreamTrack has been disposed`。
+- 原生认证 API 请求增加 `Connection: close`，避免 Android 模拟器经 ADB reverse 复用半关闭连接导致认证响应出现 EOF。双设备通话测试在读取启动后刷新过的本机加密会话后再请求测试配置，避免两端同时轮换 refresh token。
+
+### 真实结果和边界
+
+- 使用本地 Docker API、两台真实 Android 模拟器和强制 `forceRelay=true` 完成语音通话验收。Host 和 Peer 均报告 `completed=true`、`turnConfigured=true`、`forceRelay=true`、`sessionPreserved=true`；Host 覆盖发起、WebRTC 活跃、静音切换和挂断，Peer 覆盖来电、接听、WebRTC 活跃、同步结束并关闭界面。
+- 最终设备报告已从两台模拟器的应用私有目录取回，分别位于 `tmp-real-dual-call-20261022-final/emulator-5554-host.json` 和 `tmp-real-dual-call-20261022-final/emulator-5556-peer.json`。两份报告各包含 5 个通过检查点；早期 `tmp-real-dual-call-20261022a` 至 `20261022d` 失败日志继续保留，不能改写为通过。
+- 本次只使用本地测试 API 和保留的测试账号，未测试生产通话、Google/Passkey、FCM、外部媒体服务或 OSS/R2；测试账号、通话记录、数据库卷和既有 `tmp-*` 证据均保留。
+- 双设备真实通话覆盖服务端提供有效通话 ID 的正常结束流程；无效/缺失 ID 的会话兜底分支已纳入最终源码编译，但没有在真实服务中人为注入该异常事件。
+- 当前公开主域名 `https://5200918.xyz/.well-known/assetlinks.json` 返回 HTTP 200，并同时声明旧 TWA 包 `xyz.hlovet.portal` 和正式原生包 `xyz.hlovet.portal.native` 及其指纹；本轮不重复修改线上 App Links/Passkey 关联配置。`www` 域名仍不纳入本轮验收。
+- 追加复核时，Android 15 模拟器已安装正式原生包，系统报告其签名指纹与公开声明一致，`5200918.xyz` 域名状态为 `verified`；Android 11 设备也已安装该包，但其 Package Manager 不提供 `get-app-links` 查询命令，因此只记录安装状态，不虚报该系统上的验证结果。
+
+### 构建与环境收尾
+
+- 使用 JDK 17 执行 `:prototype:testDebugUnitTest :prototype:assembleDebug :prototype:assembleDebugAndroidTest --rerun-tasks`，Gradle `BUILD SUCCESSFUL`；JVM 测试 `301/301` 通过，Debug APK 与 AndroidTest APK 重新编译成功。本轮没有运行 Android 仪器测试，不将编译结果表述为全功能移植完成。
+- 通话验收后的临时 `3002` ADB reverse 已移除；临时容器 `hlovet-api-turn-20261022c` 和 `hlovet-local-turn-20261022b` 已停止并删除，未使用 `-v`，因此不影响业务数据库、Redis、模拟器数据或匿名卷。正式 `3000/3001` reverse 与 `hlovet-api`、`hlovet-web`、MySQL、Redis 保持运行。
+
+## 离线媒体回归与测试网络边界复核（2026-10-22）
+
+- 修正 AndroidTest 夹具：测试 APK 显式声明 `INTERNET`，只在 debug 目标包合并 localhost 明文许可；媒体测试服务固定绑定 IPv4 回环，并在用例期间临时使用直连 `ProxySelector`。正式 release 源集不包含这段测试网络配置。
+- Android 15 `emulator-5554` 使用本地 API 构建参数 `http://127.0.0.1:3001` 重新安装目标 Debug/AndroidTest APK 后，离线正文、图片/附件缓存、WebView 媒体切换、跨账号与跨服务器来源隔离、共享 32 MB 媒体预算、来源迁移、旧缓存保护和加密会话共 `37/37` 通过。
+- 首轮 5 项媒体失败的真实原因是 BlueStacks 的 Java 网络代理将测试回环 HTTP 请求转成设备侧 `502`，MockWebServer 请求数为 `0`；不是生产媒体缓存逻辑失败。补充测试夹具后同一批用例全通过，未修改生产下载实现。
+- JDK 17 下 `:prototype:assembleDebugAndroidTest`、`:prototype:processReleaseManifest` 构建检查通过；release 合并清单未包含 debug-only 的 `usesCleartextTraffic`。测试 APK、账号会话、业务数据和既有 `tmp-*` 证据均保留，未清理或重置。

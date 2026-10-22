@@ -16,7 +16,6 @@ import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
-import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpTransceiver
@@ -77,7 +76,6 @@ internal class NativeWebRtcCall(
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
     private var cameraCapturer: CameraVideoCapturer? = null
     private var localAudioTrack: AudioTrack? = null
-    private var localStream: org.webrtc.MediaStream? = null
     @Volatile
     private var closed = false
 
@@ -89,6 +87,7 @@ internal class NativeWebRtcCall(
     val eglContext: EglBase.Context?
         get() = eglBase?.eglBaseContext
 
+    /** 初始化 WebRTC 工厂、音频轨道与对等连接；轨道通过 Unified Plan 直接加入 PeerConnection。 */
     fun start() {
         if (closed || peer != null) return
         try {
@@ -110,8 +109,6 @@ internal class NativeWebRtcCall(
             val currentFactory = factory ?: throw IllegalStateException("WebRTC 工厂初始化失败。")
             audioSource = currentFactory.createAudioSource(MediaConstraints())
             localAudioTrack = currentFactory.createAudioTrack("hlovet-audio", audioSource)
-            localStream = currentFactory.createLocalMediaStream("hlovet-stream")
-            localAudioTrack?.let { localStream?.addTrack(it) }
             if (type == "video") prepareCamera(currentFactory, currentEglContext)
 
             val configuration = PeerConnection.RTCConfiguration(peerIceServers).apply {
@@ -190,7 +187,7 @@ internal class NativeWebRtcCall(
         })
     }
 
-    /** 释放通话媒体资源，先销毁包含轨道的 MediaStream，再释放各个轨道，避免重复访问底层对象。 */
+    /** 释放通话媒体资源；Unified Plan 轨道只由 PeerConnection 与本类持有，避免重复释放。 */
     fun close() {
         if (closed) return
         closed = true
@@ -201,12 +198,8 @@ internal class NativeWebRtcCall(
         surfaceTextureHelper?.dispose()
         surfaceTextureHelper = null
 
-        // MediaStream.dispose() 会调用 removeTrack，必须在 AudioTrack/VideoTrack.dispose() 之前执行。
-        val currentStream = localStream
-        localStream = null
-        runCatching { currentStream?.dispose() }
-
-        // 关闭 PeerConnection 后再释放轨道和远端画面，确保信令不会继续使用媒体对象。
+        // Unified Plan 的 addTrack(streamIds) 已建立媒体归属，不额外构造 MediaStream 管理同一音轨。
+        // 先关闭 PeerConnection，再由本类释放轨道，避免 stream.dispose() 再次 removeTrack 已失效轨道。
         peer?.close()
         peer?.dispose()
         peer = null

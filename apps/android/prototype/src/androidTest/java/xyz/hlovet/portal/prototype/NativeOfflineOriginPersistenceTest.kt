@@ -16,6 +16,10 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
+import java.net.Proxy
+import java.net.ProxySelector
+import java.net.SocketAddress
+import java.net.URI
 import java.security.MessageDigest
 import java.util.UUID
 import okhttp3.mockwebserver.MockResponse
@@ -39,6 +43,7 @@ class NativeOfflineOriginPersistenceTest {
     private lateinit var root: File
     private lateinit var context: Context
     private lateinit var server: MockWebServer
+    private var originalProxySelector: ProxySelector? = null
     private var oldLocale = "zh-CN"
     private val sourceA = "https://alpha.example/api"
     private val sourceB = "https://beta.example/api"
@@ -51,6 +56,9 @@ class NativeOfflineOriginPersistenceTest {
         app = InstrumentationRegistry.getInstrumentation().targetContext
         root = File(app.cacheDir, "offline-origin-test-${UUID.randomUUID()}").apply { mkdirs() }
         context = isolatedContext()
+        // BlueStacks 会把本地 HTTP 交给设备代理，测试夹具必须直连设备回环地址。
+        originalProxySelector = ProxySelector.getDefault()
+        ProxySelector.setDefault(directProxySelector())
         server = MockWebServer().apply { start() }
         oldLocale = NativeI18n.locale
         InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale("zh-CN") }
@@ -64,6 +72,7 @@ class NativeOfflineOriginPersistenceTest {
         finally {
             try { server.shutdown() }
             finally {
+                originalProxySelector?.let(ProxySelector::setDefault)
                 context.getSharedPreferences("native-article-drafts", Context.MODE_PRIVATE).edit().clear().commit()
                 check(requireNotNull(root.parentFile).canonicalPath == app.cacheDir.canonicalPath)
                 root.deleteRecursively()
@@ -150,7 +159,7 @@ class NativeOfflineOriginPersistenceTest {
     @Test
     fun usernameMigrationNeverMovesAnotherServersContentOrMedia() {
         // 相同媒体 URL 和旧用户名分别写入两站来源，防止依靠 URL 差异伪造隔离。
-        val url = server.url("/same.png").toString()
+        val url = serverUrl("/same.png")
         for ((origin, marker) in listOf(sourceA to "Alpha", sourceB to "Beta")) {
             NativeOfflineContentStore.saveArticle(context, "old-name", article(marker).copy(images = listOf(url)), origin)
             NativeOfflineCache.savePreview(context, preview(marker), "old-name", origin)
@@ -174,7 +183,7 @@ class NativeOfflineOriginPersistenceTest {
     @Test
     fun mediaCachesSeparateTheSameUrlAcrossServersAndAccounts() {
         // 先保存 A 站，同 URL 在 B 站和公共所有者下都应未命中。
-        val url = server.url("/same.pdf").toString()
+        val url = serverUrl("/same.pdf")
         server.enqueue(MockResponse().setBody("Alpha attachment"))
         assertNotNull(download(url, owner, sourceA))
         assertNull(NativeOfflineCache.loadCachedMediaFile(context, url, owner, sourceB))
@@ -298,7 +307,7 @@ class NativeOfflineOriginPersistenceTest {
         NativeOfflineContentStore.saveArticle(context, owner, article("Beta"), sourceB)
         for (index in 1..5) {
             server.enqueue(MockResponse().setBody(Buffer().write(ByteArray(7 * 1024 * 1024) { 1 })))
-            assertNotNull(download(server.url("/large-$index.bin").toString(), owner, if (index % 2 == 0) sourceA else sourceB))
+            assertNotNull(download(serverUrl("/large-$index.bin"), owner, if (index % 2 == 0) sourceA else sourceB))
         }
         // 所有新来源共享固定预算，不为每个来源增加 32 MB 配额。
         val usage = NativeOfflineCache.mediaCacheSummary(context)
@@ -357,6 +366,18 @@ class NativeOfflineOriginPersistenceTest {
     private fun download(url: String, cacheOwner: String, origin: String): File? {
         // 测试使用 MockWebServer 文件，不向外部供应商下载或发送真实令牌。
         return NativeOfflineCache.loadMediaFile(context, url, "fixture-token", cacheOwner, "media.bin", "application/octet-stream", apiBaseUrl = origin)
+    }
+
+    /** 将 MockWebServer 的 localhost 地址固定为 IPv4 回环地址，绕过模拟器代理解析。 */
+    private fun serverUrl(path: String): String = server.url(path).toString().replace("://localhost:", "://127.0.0.1:")
+
+    /** 创建仅供本测试夹具使用的直连代理选择器。 */
+    private fun directProxySelector(): ProxySelector = object : ProxySelector() {
+        /** 为 MockWebServer 地址返回直连策略。 */
+        override fun select(uri: URI): List<Proxy> = listOf(Proxy.NO_PROXY)
+
+        /** 直连策略没有可移除的代理故障记录。 */
+        override fun connectFailed(uri: URI, address: SocketAddress, failure: java.io.IOException) = Unit
     }
 
     /** 创建 marker 正文的文章，固定 ID 和 slug 以检验来源而非业务 ID 差异。 */

@@ -375,6 +375,7 @@ internal object NativeAuthApi {
         )
     }
 
+    /** 发送已认证的会话操作请求；关闭连接复用以避免本地代理半关闭响应造成 EOF。 */
     private fun authorizedRequest(path: String, method: String, accessToken: String): JSONObject {
         val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
@@ -382,6 +383,8 @@ internal object NativeAuthApi {
             readTimeout = 12_000
             doOutput = method == "POST"
             setRequestProperty("Accept", "application/json")
+            // Android 模拟器经由 ADB reverse 的本地代理偶发复用半关闭连接，认证操作必须读取完整响应。
+            setRequestProperty("Connection", "close")
             setRequestProperty("User-Agent", USER_AGENT)
             setRequestProperty("Authorization", "Bearer $accessToken")
             if (doOutput) setRequestProperty("Content-Type", "application/json")
@@ -405,6 +408,7 @@ internal object NativeAuthApi {
         }
     }
 
+    /** 发送认证相关 JSON 请求；请求结束后立即断开连接，避免下一个认证步骤继承损坏连接。 */
     private fun request(path: String, body: JSONObject): JSONObject {
         val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -412,6 +416,8 @@ internal object NativeAuthApi {
             readTimeout = 12_000
             doOutput = true
             setRequestProperty("Accept", "application/json")
+            // 登录/注册/登出都经过本地 ADB reverse，关闭 keep-alive 只影响认证请求的连接复用。
+            setRequestProperty("Connection", "close")
             setRequestProperty("User-Agent", USER_AGENT)
             setRequestProperty("Content-Type", "application/json")
         }

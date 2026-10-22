@@ -16,6 +16,11 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.net.InetAddress
+import java.net.Proxy
+import java.net.ProxySelector
+import java.net.SocketAddress
+import java.net.URI
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -35,6 +40,7 @@ class NativeArticleOfflineWebViewTest {
     val compose = createAndroidComposeRule<ComponentActivity>()
 
     @Test
+    /** 将附件服务固定在设备 IPv4 回环地址，确保 WebView 与缓存使用同一监听端点。 */
     fun existingWebViewUpdatesItsMediaReaderWhenOwnerAndOfflineModeChange() {
         val root = File(compose.activity.cacheDir, "offline-webview-test-${UUID.randomUUID()}").apply { mkdirs() }
         val context = object : ContextWrapper(compose.activity) {
@@ -43,7 +49,9 @@ class NativeArticleOfflineWebViewTest {
         }
         val owner = mutableStateOf("user:11")
         val offline = mutableStateOf(true)
-        val server = MockWebServer().apply { start() }
+        val originalProxySelector = ProxySelector.getDefault()
+        ProxySelector.setDefault(directProxySelector())
+        val server = MockWebServer().apply { start(InetAddress.getByName("127.0.0.1"), 0) }
         try {
             val png = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).let { bitmap ->
                 ByteArrayOutputStream().use { output ->
@@ -52,7 +60,7 @@ class NativeArticleOfflineWebViewTest {
                     output.toByteArray()
                 }
             }
-            val url = server.url("/image.png").toString()
+            val url = serverUrl(server, "/image.png")
             server.enqueue(MockResponse().setBody(Buffer().write(png)))
             assertNotNull(NativeOfflineCache.loadMediaFile(context, url, null, owner.value, "image.png", "image/png"))
             compose.setContent {
@@ -86,6 +94,7 @@ class NativeArticleOfflineWebViewTest {
             compose.runOnIdle { webView.destroy() }
         } finally {
             server.shutdown()
+            ProxySelector.setDefault(originalProxySelector)
             root.deleteRecursively()
         }
     }
@@ -102,5 +111,18 @@ class NativeArticleOfflineWebViewTest {
         if (view is WebView) return view
         if (view is ViewGroup) for (index in 0 until view.childCount) findWebView(view.getChildAt(index))?.let { return it }
         return null
+    }
+
+    /** 将 MockWebServer 的 localhost 地址固定为 IPv4 回环地址，绕过模拟器代理解析。 */
+    private fun serverUrl(server: MockWebServer, path: String): String =
+        server.url(path).toString().replace("://localhost:", "://127.0.0.1:")
+
+    /** 创建仅供本测试夹具使用的直连代理选择器。 */
+    private fun directProxySelector(): ProxySelector = object : ProxySelector() {
+        /** 为 MockWebServer 地址返回直连策略。 */
+        override fun select(uri: URI): List<Proxy> = listOf(Proxy.NO_PROXY)
+
+        /** 直连策略没有可移除的代理故障记录。 */
+        override fun connectFailed(uri: URI, address: SocketAddress, failure: java.io.IOException) = Unit
     }
 }

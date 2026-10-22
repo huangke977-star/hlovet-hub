@@ -51,6 +51,9 @@ class NativeLocalDualDeviceTest {
         marker = "dual_$run"
         // 复用设备现有的本地会话；此专项不需要轮换 refresh token，避免网络响应丢失后令旧令牌失效。
         session = requireNotNull(NativeSessionStore.load(context)) { "本地测试会话缺失，停止测试且不自动登录。" }
+        // 本地长时间保留的 access token 可能已过期，先用本设备 refresh token 更新加密会话再查找对端。
+        session = NativeAuthApi.refresh(session.refreshToken)
+        check(NativeSessionStore.save(context, session)) { "本地测试会话刷新后未能安全保存。" }
         val username = requireNotNull(args.getString("dualPeerUsername"))
         peer = NativeFriendsApi.searchUsers(session.accessToken, username).single { it.user.username == username }.user
         check(peer.id != session.userId)

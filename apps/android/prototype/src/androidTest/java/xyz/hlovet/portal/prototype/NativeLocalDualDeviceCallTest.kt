@@ -31,6 +31,7 @@ class NativeLocalDualDeviceCallTest {
     private lateinit var conversationId: String
     private var activity: ActivityScenario<MainActivity>? = null
     private var oldLocale: String? = null
+    private var storedRefreshTokenBeforeTest: String = ""
     private val checks = JSONArray()
     private val report = JSONObject().put("completed", false).put("productionTested", false).put("testDataRemoved", false)
 
@@ -46,24 +47,11 @@ class NativeLocalDualDeviceCallTest {
         conversationId = requireNotNull(args.getString("dualConversationId"))
         check(conversationId.toIntOrNull() != null)
         session = requireNotNull(NativeSessionStore.load(context)) { "本地测试会话缺失，停止测试且不自动登录。" }
-        // 从只配置临时 TURN 的本地 API 获取短效凭据，生产服务和正式配置不参与此测试。
-        val iceServers = loadTestIceServers(turnApiBaseUrl, session.accessToken)
-        val hasTurnServer = iceServers.any { server -> server.urls.any { url -> url.startsWith("turn:") || url.startsWith("turns:") } }
-        report.put("iceServerCount", iceServers.size).put("turnConfigured", hasTurnServer).put("forceRelay", true)
-        saveReport()
-        // 必须取得可用的本地 TURN 服务，强制 relay 后通话成功才构成中继链路证据。
-        check(iceServers.isNotEmpty() && hasTurnServer) { "本地测试 API 未提供 TURN 服务，停止本次中继验收。" }
-        val peerUsername = requireNotNull(args.getString("dualPeerUsername"))
-        peer = NativeFriendsApi.searchUsers(session.accessToken, peerUsername).single { it.user.username == peerUsername }.user
-        check(peer.id != session.userId)
-        val conversation = NativeFriendsApi.getOrCreateConversation(session.accessToken, peer.id)
-        assertEquals(conversationId.toInt(), conversation.id)
+        storedRefreshTokenBeforeTest = session.refreshToken
         oldLocale = NativeI18n.locale
         InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale("zh-CN") }
-        // 将短效凭据只写入 Debug 应用私有偏好，并强制 relay 以排除点对点候选的误通过。
-        NativeCallIceServerTestOverride.installForDebug(context, iceServers, forceRelay = true)
         report.put("role", role).put("userId", session.userId).put("username", session.username)
-            .put("peerId", peer.id).put("conversationId", conversation.id)
+            .put("conversationId", conversationId.toInt())
         saveReport()
     }
 
@@ -83,6 +71,27 @@ class NativeLocalDualDeviceCallTest {
     @Test fun pairedNativeVoiceCallConnectsAndEnds() {
         // 两端都先进入同一个私聊页面，确保来电监听已经建立后再由 host 发起。
         openConversation()
+        // 以应用启动流程刷新后的本机加密会话为准，避免测试与 MainActivity 并发轮换刷新令牌。
+        session = requireNotNull(NativeSessionStore.load(context)) { "聊天连接建立后未保存会话。" }
+        check(session.userId > 0)
+        report.put("sessionRefreshed", session.refreshToken != storedRefreshTokenBeforeTest)
+        // 认证和会话确认后查询 peer、复用现有私聊并读取临时 TURN 配置，不触碰生产服务。
+        val args = InstrumentationRegistry.getArguments()
+        val peerUsername = requireNotNull(args.getString("dualPeerUsername"))
+        peer = NativeFriendsApi.searchUsers(session.accessToken, peerUsername).single { it.user.username == peerUsername }.user
+        check(peer.id != session.userId)
+        val conversation = NativeFriendsApi.getOrCreateConversation(session.accessToken, peer.id)
+        assertEquals(conversationId.toInt(), conversation.id)
+        val turnApiBaseUrl = requireNotNull(args.getString("dualTurnApiBaseUrl"))
+        val iceServers = loadTestIceServers(turnApiBaseUrl, session.accessToken)
+        val hasTurnServer = iceServers.any { server -> server.urls.any { url -> url.startsWith("turn:") || url.startsWith("turns:") } }
+        report.put("iceServerCount", iceServers.size).put("turnConfigured", hasTurnServer).put("forceRelay", true)
+        // 必须取得可用的本地 TURN 服务，强制 relay 后通话成功才构成中继链路证据。
+        check(iceServers.isNotEmpty() && hasTurnServer) { "本地测试 API 未提供 TURN 服务，停止本次中继验收。" }
+        // 将短效凭据只写入 Debug 应用私有偏好，并强制 relay 以排除点对点候选的误通过。
+        NativeCallIceServerTestOverride.installForDebug(context, iceServers, forceRelay = true)
+        report.put("peerId", peer.id)
+        saveReport()
         record("chat-socket-ready-before-call")
         // 主端从真实聊天控件发起，并等待对端通过 UI 返回的活跃状态。
         if (role == "host") {
