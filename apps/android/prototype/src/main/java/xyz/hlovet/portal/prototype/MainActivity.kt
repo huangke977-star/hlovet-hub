@@ -769,12 +769,11 @@ private fun HlovetMobilePreview(
         socketRefreshInProgress = true
         scope.launch {
             val refreshed = runCatching {
-                withContext(Dispatchers.IO) { NativeAuthApi.refresh(current.refreshToken) }
+                NativeSessionCoordinator.refresh(context, current)
             }.getOrNull()
             if (refreshed != null) {
                 HlovetUi.applyAppearance(refreshed.appearance)
                 session = refreshed
-                withContext(Dispatchers.IO) { NativeSessionStore.save(context, refreshed) }
             }
             val waiters = socketRefreshWaiters.toList()
             socketRefreshWaiters.clear()
@@ -1505,7 +1504,7 @@ private fun HlovetMobilePreview(
                     saved
                 } else {
                     try {
-                        withContext(Dispatchers.IO) { NativeAuthApi.refresh(saved.refreshToken) }
+                        NativeSessionCoordinator.refresh(context, saved)
                     } catch (error: NativeAuthHttpException) {
                         if (error.statusCode == HttpURLConnection.HTTP_UNAUTHORIZED) {
                             unregisterNativePush(saved)
@@ -1557,10 +1556,9 @@ private fun HlovetMobilePreview(
             val current = session ?: return@LaunchedEffect
             if (current.refreshToken != initial.refreshToken) return@LaunchedEffect
             try {
-                val refreshed = withContext(Dispatchers.IO) { NativeAuthApi.refresh(current.refreshToken) }
+                val refreshed = NativeSessionCoordinator.refresh(context, current)
                 HlovetUi.applyAppearance(refreshed.appearance)
                 session = refreshed
-                withContext(Dispatchers.IO) { NativeSessionStore.save(context, refreshed) }
             } catch (error: NativeAuthHttpException) {
                 if (error.statusCode == HttpURLConnection.HTTP_UNAUTHORIZED) {
                     unregisterNativePush(current)
