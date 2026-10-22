@@ -61,14 +61,21 @@ class NativeLocalArticleAppearanceTest {
     @Before fun prepare() {
         // 真实写入不能落到生产或隔离假服务，也不临时关闭验证和邮件策略。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:3001" && BuildConfig.PORTAL_BASE_URL == "http://127.0.0.1:3000")
-        val stored = requireNotNull(NativeSessionStore.load(context))
-        // 新安装实例只接受真实 MainActivity 登录专项保留的读者，不注入或复制其它设备的会话。
+        val stored = NativeSessionStore.load(context)
+        // 没有本地会话的设备只跳过真实数据库写入，不能把缺少前置条件当作产品失败。
+        assumeTrue("Requires a retained local test session", stored != null)
+        val current = requireNotNull(stored)
+        // 新安装实例只接受真实 MainActivity 或其它本地专项保留的读者，不注入或复制其它设备的会话。
         val retained = runCatching { JSONObject(File(context.filesDir, "native-main-session-evidence.json").readText()) }.getOrNull()
         val verifiedReader = retained != null && retained.optString("apiOrigin") == BuildConfig.API_BASE_URL &&
-            retained.optInt("fixtureId") == stored.userId && retained.optString("fixtureUsername") == stored.username &&
-            retained.optBoolean("retainedForColdLaunch") && stored.username.startsWith("native_restore_")
-        check(stored.userId in listOf(63, 64) || verifiedReader)
-        reader = NativeAuthApi.refresh(stored.refreshToken)
+            retained.optInt("fixtureId") == current.userId && retained.optString("fixtureUsername") == current.username &&
+            retained.optBoolean("retainedForColdLaunch") && current.username.startsWith("native_restore_")
+        // 允许由最近真实本地专项保留的同一读者继续验收，但不接受没有专项报告或非本地来源的会话。
+        val preservedByLocalSocial = readPreservedLocalReader("native-local-social-report.json", current)
+        val preservedByLocalIntegrations = readPreservedLocalReader("native-local-integrations-report.json", current)
+        // 本地注册夹具统一使用 native_restore_ 前缀；报告可能来自上一个合法专项的不同读者，因此不把编号绑定为固定值。
+        check(current.username.startsWith("native_restore_") || verifiedReader || preservedByLocalSocial || preservedByLocalIntegrations)
+        reader = NativeAuthApi.refresh(current.refreshToken)
         check(NativeSessionStore.save(context, requireNotNull(reader)))
         val policy = NativeAuthApi.registrationPolicy()
         check(policy.registrationOpen && !policy.emailVerificationEnabled && !policy.turnstileEnabled && !policy.loginTurnstileEnabled)
@@ -76,7 +83,15 @@ class NativeLocalArticleAppearanceTest {
         check(!security.optBoolean("mailServiceEnabled") && !security.optBoolean("untrustedDeviceEmailVerificationEnabled"))
         previousLocale = NativeI18n.locale
         instrumentation.runOnMainSync { NativeI18n.applyLocale("zh-CN") }
-        report.put("readerId", stored.userId)
+        report.put("readerId", current.userId)
+    }
+
+    /** 读取本地真实专项的会话保留证明，避免测试依赖已经过期的固定账号编号。 */
+    private fun readPreservedLocalReader(fileName: String, stored: NativeSession): Boolean {
+        // 只信任应用私有目录中的报告，并同时核对本地来源、用户 ID 和保留标记。
+        val report = runCatching { JSONObject(File(context.filesDir, fileName).readText()) }.getOrNull() ?: return false
+        return (report.optString("apiOrigin").ifBlank { report.optString("apiBaseUrl") }) == BuildConfig.API_BASE_URL &&
+            report.optInt("readerId") == stored.userId && report.optBoolean("readerSessionPreserved")
     }
 
     /** 恢复原读者与语言，注销测试会话但不删除账号、文章或外观记录。 */

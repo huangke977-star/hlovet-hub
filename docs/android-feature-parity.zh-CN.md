@@ -2561,3 +2561,12 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - Android 15 `emulator-5554` 使用本地 API 构建参数 `http://127.0.0.1:3001` 重新安装目标 Debug/AndroidTest APK 后，离线正文、图片/附件缓存、WebView 媒体切换、跨账号与跨服务器来源隔离、共享 32 MB 媒体预算、来源迁移、旧缓存保护和加密会话共 `37/37` 通过。
 - 首轮 5 项媒体失败的真实原因是 BlueStacks 的 Java 网络代理将测试回环 HTTP 请求转成设备侧 `502`，MockWebServer 请求数为 `0`；不是生产媒体缓存逻辑失败。补充测试夹具后同一批用例全通过，未修改生产下载实现。
 - JDK 17 下 `:prototype:assembleDebugAndroidTest`、`:prototype:processReleaseManifest` 构建检查通过；release 合并清单未包含 debug-only 的 `usesCleartextTraffic`。测试 APK、账号会话、业务数据和既有 `tmp-*` 证据均保留，未清理或重置。
+
+## Android 真实本地回归与测试前置条件收口（2026-10-22）
+
+- 本轮确认本地 Docker 的 API、MySQL 和 Redis 均健康，`http://127.0.0.1:3001/health/ready` 返回 `200`；使用 JDK 17、Android 15 标准模拟器和当前本地构建参数完成真实设备回归。
+- `NativeLocalSocialTest` 为 `1/1`、0 跳过、0 失败，覆盖好友申请与通知已读、MainActivity 私聊发送、Socket 收消息、服务端持久化、搜索定位和非成员/屏蔽边界。
+- `NativeLocalIntegrationsTest` 为 `2/2`、0 跳过、0 失败，覆盖七类文章可见性、只读 scope、令牌最近使用时间、缺少 scope 拒绝和撤销后的 `401`；`NativeLocalPrivacyDeviceTest` 为 `2/2`、0 跳过、0 失败，覆盖邮箱/密码修改、错误密码反馈、TOTP 六格自动提交、成功提示和解绑。
+- `NativeLocalArticleAppearanceTest` 在 Android 15 为 `1/1`、0 失败，覆盖账号外观保存、编辑器/预览/阅读同步和 Activity 重建；没有本地会话的 Android 11 实例按前置条件安全跳过，不把缺少测试账号当作产品失败。
+- 修正该外观专项的旧测试夹具：不再绑定过期的固定用户编号，改为只接受本地 `native_restore_*` 会话或同一应用私有目录中的本地专项保留报告，并兼容 `apiOrigin`/`apiBaseUrl` 两种报告字段；不会放宽到生产来源或任意账号。
+- 本轮 `:prototype:testDebugUnitTest :prototype:compileDebugKotlin :prototype:assembleDebug` 成功，JVM `301/301`；路由 `70/70`、后台入口 `24/24`、API `27/27` 审计和 `git diff --check` 均通过。测试创建的本地账号、文章、消息和审计记录按约定保留，未触碰生产数据、未清理历史 `tmp-*` 证据。
