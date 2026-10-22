@@ -7553,11 +7553,18 @@ private fun NativeGlobalCallHost(
 
     val latestHandleCallError = rememberUpdatedState(::handleCallError)
 
+    /** 从服务端读取通话 ICE 配置，并应用仅对 Debug 生效的短时本机测试覆盖。 */
     suspend fun buildCallClient(type: String, token: String): NativeWebRtcCall {
+        // 配置请求放在 IO 线程；会话和业务数据仍由当前来源对应的服务端返回。
+        val configuredIceServers = withContext(Dispatchers.IO) { NativeSocialApi.getCallIceServers(token) }
+        val iceConfiguration = NativeCallIceServerTestOverride.resolve(context, configuredIceServers)
+
+        // 测试覆盖仅供验证 TURN 媒体通路，Release 构建由 resolver 固定回退到服务端配置。
         val client = NativeWebRtcCall(
             context = context,
             type = type,
-            iceServers = withContext(Dispatchers.IO) { NativeSocialApi.getCallIceServers(token) },
+            iceServers = iceConfiguration.servers,
+            forceRelay = iceConfiguration.forceRelay,
             onSignal = { signal ->
                 latestCallSession.value?.id?.let { callId ->
                     latestSocket.value?.sendCallSignal(callId, signal)
@@ -8143,9 +8150,11 @@ private fun ConversationScreen(
                         scope.launch {
                             // 追加前记录是否停在最新消息；追加后再判断会把原本在底部的用户误判为阅读历史。
                             val wasAtLatest = messages.isEmpty() || !listState.canScrollForward
+                            // 本人刚发送消息后可能仍在执行底部滚动，下一条消息到达时继续保持跟随，避免键盘或动画造成误判。
+                            val isFollowingLatest = pendingFollowMessageId != null
                             val ownMessage = message.senderUsername.isNotBlank() && message.senderUsername == session?.username
                             messages = (messages + message).distinctBy { it.id }.sortedBy { it.id }
-                            if (ownMessage || (wasAtLatest && highlightedMessageId == null)) pendingFollowMessageId = message.id
+                            if (ownMessage || ((wasAtLatest || isFollowingLatest) && highlightedMessageId == null)) pendingFollowMessageId = message.id
                             withContext(Dispatchers.IO) { runCatching { NativeSocialApi.markConversationRead(token, conversationId) } }
                         }
                     }

@@ -49,8 +49,8 @@ class NativeLocalDualDeviceTest {
         val run = requireNotNull(args.getString("dualRunId"))
         check(run.matches(Regex("[A-Za-z0-9_]{1,24}")))
         marker = "dual_$run"
-        session = NativeAuthApi.refresh(requireNotNull(NativeSessionStore.load(context)).refreshToken)
-        check(NativeSessionStore.save(context, session))
+        // 复用设备现有的本地会话；此专项不需要轮换 refresh token，避免网络响应丢失后令旧令牌失效。
+        session = requireNotNull(NativeSessionStore.load(context)) { "本地测试会话缺失，停止测试且不自动登录。" }
         val username = requireNotNull(args.getString("dualPeerUsername"))
         peer = NativeFriendsApi.searchUsers(session.accessToken, username).single { it.user.username == username }.user
         check(peer.id != session.userId)
@@ -277,8 +277,13 @@ class NativeLocalDualDeviceTest {
     private fun waitMessage(body: String) {
         // 两台设备速度不同，使用界面内容作为同步信号而非固定等待。
         val message = hasText(body) and hasSetTextAction().not()
-        compose.waitUntil(90_000) { compose.onAllNodes(message).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
-        compose.onNode(message).assertIsDisplayed()
+        // 气泡行合并了头像、时间与正文语义；用未合并树锁定正文 Text，避免父行语义导致漏检。
+        compose.waitUntil(90_000) {
+            compose.onAllNodes(message, useUnmergedTree = true)
+                .fetchSemanticsNodes(atLeastOneRootRequired = false)
+                .isNotEmpty()
+        }
+        compose.onNode(message, useUnmergedTree = true).assertIsDisplayed()
     }
 
     /** 核对 message 行的定位状态、可见性与两秒后清除，保存 name 对应的前后截图。 */

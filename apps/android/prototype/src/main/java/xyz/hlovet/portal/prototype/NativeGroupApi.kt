@@ -3,6 +3,7 @@ package xyz.hlovet.portal.prototype
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.net.URL
@@ -510,6 +511,7 @@ internal object NativeGroupApi {
         )
     }
 
+    /** 发送群聊 API 请求；GET 的瞬时传输失败可重试，写操作维持单次提交。 */
     private fun request(
         path: String,
         method: String,
@@ -517,31 +519,43 @@ internal object NativeGroupApi {
         payload: JSONObject? = null,
     ): JSONObject {
         val hasBody = payload != null && method != "GET"
-        val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
-            requestMethod = method
-            connectTimeout = 12_000
-            readTimeout = 18_000
-            doOutput = hasBody
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Authorization", "Bearer $accessToken")
-            setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
-            if (hasBody) setRequestProperty("Content-Type", "application/json")
-        }
-        return try {
-            if (hasBody) connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) {
-                val message = runCatching { JSONObject(body).optString("message") }
-                    .getOrNull()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "群聊操作失败（HTTP $status）"
-                throw IllegalStateException(message)
+        // 群聊轮询会在移动网络/本地代理复用连接时偶发 EOF；仅重试无副作用的 GET。
+        val attempts = if (method == "GET") 3 else 1
+        var lastNetworkError: IOException? = null
+        for (attempt in 0 until attempts) {
+            val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 12_000
+                readTimeout = 18_000
+                doOutput = hasBody
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Authorization", "Bearer $accessToken")
+                setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
+                if (hasBody) setRequestProperty("Content-Type", "application/json")
             }
-            if (body.isBlank()) JSONObject() else JSONObject(body)
-        } finally {
-            connection.disconnect()
+            try {
+                // 保留服务端业务错误；只有响应读取中的传输异常才会进入下一次 GET。
+                if (hasBody) connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+                val status = connection.responseCode
+                val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (status !in 200..299) {
+                    val message = runCatching { JSONObject(body).optString("message") }
+                        .getOrNull()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "群聊操作失败（HTTP $status）"
+                    throw IllegalStateException(message)
+                }
+                return if (body.isBlank()) JSONObject() else JSONObject(body)
+            } catch (error: IOException) {
+                // 退避时间有上限，避免持续断网时阻塞页面太久。
+                lastNetworkError = error
+                if (attempt + 1 < attempts) Thread.sleep(250L * (attempt + 1))
+            } finally {
+                // 每次请求尝试都关闭连接，避免半开响应积累。
+                connection.disconnect()
+            }
         }
+        throw requireNotNull(lastNetworkError)
     }
 }

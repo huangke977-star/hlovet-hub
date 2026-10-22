@@ -2,6 +2,7 @@ package xyz.hlovet.portal.prototype
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -156,38 +157,51 @@ internal object NativeFriendsApi {
         requestJson("/social/users/$userId/block", "POST", accessToken)
     }
 
+    /** 发送好友接口请求；path 为接口路径，method 为 HTTP 方法，异常保留服务端状态及瞬时网络失败。 */
     private fun requestJson(
         path: String,
         method: String,
         accessToken: String,
         body: JSONObject? = null,
     ): JSONObject {
-        val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
-            requestMethod = method
-            connectTimeout = 12_000
-            readTimeout = 20_000
-            doOutput = body != null
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Authorization", "Bearer $accessToken")
-            setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
-            if (body != null) setRequestProperty("Content-Type", "application/json")
-        }
-        return try {
-            body?.let { payload -> connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) } }
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val responseBody = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) {
-                val message = runCatching { JSONObject(responseBody).optString("message") }
-                    .getOrNull()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "好友和消息请求操作失败（HTTP $status）"
-                throw IllegalStateException(message)
+        // 只有幂等 GET 允许重建连接，写操作必须保持一次请求，避免网络重试造成重复关系变更。
+        val attempts = if (method == "GET") 3 else 1
+        var lastNetworkError: IOException? = null
+        for (attempt in 0 until attempts) {
+            val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 12_000
+                readTimeout = 20_000
+                doOutput = body != null
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Authorization", "Bearer $accessToken")
+                setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
+                if (body != null) setRequestProperty("Content-Type", "application/json")
             }
-            if (responseBody.isBlank()) JSONObject() else JSONObject(responseBody)
-        } finally {
-            connection.disconnect()
+            try {
+                // 读取状态后再解析响应，保留权限、鉴权和业务错误，不将其误判为瞬时网络失败。
+                body?.let { payload -> connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) } }
+                val status = connection.responseCode
+                val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                val responseBody = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (status !in 200..299) {
+                    val message = runCatching { JSONObject(responseBody).optString("message") }
+                        .getOrNull()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "好友和消息请求操作失败（HTTP $status）"
+                    throw IllegalStateException(message)
+                }
+                return if (responseBody.isBlank()) JSONObject() else JSONObject(responseBody)
+            } catch (error: IOException) {
+                // 仅对传输层 EOF、超时等可重试错误短暂退避，业务 HTTP 错误直接返回调用方。
+                lastNetworkError = error
+                if (attempt + 1 < attempts) Thread.sleep(250L * (attempt + 1))
+            } finally {
+                // 每次尝试都释放连接，避免半关闭响应继续占用移动端连接池。
+                connection.disconnect()
+            }
         }
+        throw requireNotNull(lastNetworkError)
     }
 
     private fun JSONArray?.toFriendships(): List<NativeFriendship> = buildList {

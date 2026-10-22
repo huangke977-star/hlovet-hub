@@ -1,9 +1,11 @@
 package xyz.hlovet.portal.prototype
 
+import android.content.Context
 import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -182,6 +184,93 @@ internal data class NativeIceServer(
     val username: String?,
     val credential: String?,
 )
+
+/** 表示本次通话实际使用的 ICE 配置及是否强制使用中继候选。 */
+internal data class NativeCallIceConfiguration(
+    val servers: List<NativeIceServer>,
+    val forceRelay: Boolean,
+)
+
+/** 仅供 Debug 仪器测试短期覆盖 ICE 服务；正式 Release 不读取这些本机测试设置。 */
+internal object NativeCallIceServerTestOverride {
+    const val PREFERENCES_NAME = "native-call-test-ice"
+    const val SERVERS_KEY = "servers"
+    const val FORCE_RELAY_KEY = "force-relay"
+    private const val EXPIRES_AT_KEY = "expires-at"
+    private const val OVERRIDE_TTL_MS = 5 * 60 * 1000L
+
+    /** 在 Debug 应用私有偏好中保存不超过五分钟的测试 ICE 配置，不持久化到账号或服务端。 */
+    fun installForDebug(context: Context, servers: List<NativeIceServer>, forceRelay: Boolean) {
+        // 测试覆盖只允许本地 Debug APK 写入，避免把测试路径带入正式安装包。
+        check(BuildConfig.DEBUG) { "通话 ICE 覆盖仅允许在 Debug 构建中使用。" }
+        require(servers.isNotEmpty()) { "测试 ICE 服务列表不能为空。" }
+
+        // 只序列化 WebRTC 建连所需字段，凭据留在应用私有偏好且设置短时过期。
+        val payload = JSONArray().apply {
+            servers.forEach { server ->
+                put(JSONObject().put("urls", JSONArray(server.urls)).apply {
+                    server.username?.let { put("username", it) }
+                    server.credential?.let { put("credential", it) }
+                })
+            }
+        }
+        val saved = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit()
+            .putString(SERVERS_KEY, payload.toString())
+            .putBoolean(FORCE_RELAY_KEY, forceRelay)
+            .putLong(EXPIRES_AT_KEY, System.currentTimeMillis() + OVERRIDE_TTL_MS)
+            .commit()
+        check(saved) { "无法保存临时 ICE 测试配置。" }
+    }
+
+    /** 返回当前有效的 Debug 覆盖；正式版、过期配置或无效 JSON 均回退到服务端配置。 */
+    fun resolve(context: Context, configuredServers: List<NativeIceServer>): NativeCallIceConfiguration {
+        // Release 构建始终使用 API 配置，不能因为设备偏好而改变生产通话路由。
+        if (!BuildConfig.DEBUG) return NativeCallIceConfiguration(configuredServers, false)
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        val raw = preferences.getString(SERVERS_KEY, null)
+        val expiresAt = preferences.getLong(EXPIRES_AT_KEY, 0L)
+
+        // 过期测试凭据立即清除，避免后续普通 Debug 调试继续走临时 TURN 服务。
+        if (raw.isNullOrBlank() || expiresAt <= System.currentTimeMillis()) {
+            preferences.edit().clear().apply()
+            return NativeCallIceConfiguration(configuredServers, false)
+        }
+
+        // 校验每条服务至少有一个 URL；解析失败时不采用半成品覆盖配置。
+        val testServers = runCatching {
+            val values = JSONArray(raw)
+            buildList {
+                for (index in 0 until values.length()) {
+                    val value = values.optJSONObject(index) ?: continue
+                    val urls = when (val rawUrls = value.opt("urls")) {
+                        is JSONArray -> buildList {
+                            for (urlIndex in 0 until rawUrls.length()) add(rawUrls.optString(urlIndex))
+                        }
+                        else -> listOf(value.optString("urls"))
+                    }.filter(String::isNotBlank)
+                    if (urls.isNotEmpty()) {
+                        add(NativeIceServer(
+                            urls = urls,
+                            username = value.optString("username").takeIf(String::isNotBlank),
+                            credential = value.optString("credential").takeIf(String::isNotBlank),
+                        ))
+                    }
+                }
+            }
+        }.getOrDefault(emptyList())
+        if (testServers.isEmpty()) {
+            preferences.edit().clear().apply()
+            return NativeCallIceConfiguration(configuredServers, false)
+        }
+        return NativeCallIceConfiguration(testServers, preferences.getBoolean(FORCE_RELAY_KEY, false))
+    }
+
+    /** 清除本机测试 ICE 覆盖，结束后恢复 Debug 应用原有的 API 配置行为。 */
+    fun clear(context: Context) {
+        // 只清理由本测试专用的偏好文件，不触碰会话、聊天记录或其它应用设置。
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+    }
+}
 
 /** 负责原生端消息、通知和推送接口读取，统一解析服务端权限范围内的上下文。 */
 internal object NativeSocialApi {
@@ -503,31 +592,39 @@ internal object NativeSocialApi {
 
     /** 使用 accessToken 读取 path，失败时保留 HTTP 状态，连接始终释放。 */
     private fun requestGet(path: String, accessToken: String): JSONObject {
-        // 所有社交读取共用当前服务器来源和认证请求头，不能把网络失败当作消息删除。
-        val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 12_000
-            readTimeout = 15_000
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Authorization", "Bearer $accessToken")
-            setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
-        }
-        return try {
-            // 先读取状态再解析响应，明确区分 403/404 与鉴权、限流及服务故障。
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) {
-                val message = runCatching { JSONObject(body).optString("message") }.getOrNull()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "消息加载失败（HTTP $status）"
-                throw NativeSocialHttpException(status, message)
+        // 社交读取可能在服务端连接复用或移动网络切换时遇到一次性 EOF，不能把这类瞬时失败当作消息删除。
+        var lastNetworkError: IOException? = null
+        for (attempt in 0 until 3) {
+            val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 12_000
+                readTimeout = 15_000
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Authorization", "Bearer $accessToken")
+                setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
             }
-            JSONObject(body)
-        } finally {
-            // 无论解析还是请求失败，都及时释放此连接。
-            connection.disconnect()
+            try {
+                // 先读取状态再解析响应，明确区分 403/404 与鉴权、限流及服务故障。
+                val status = connection.responseCode
+                val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (status !in 200..299) {
+                    val message = runCatching { JSONObject(body).optString("message") }.getOrNull()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "消息加载失败（HTTP $status）"
+                    throw NativeSocialHttpException(status, message)
+                }
+                return JSONObject(body)
+            } catch (error: IOException) {
+                // 仅对幂等读取的传输层失败重建连接，业务 HTTP 错误不会进入重试分支。
+                lastNetworkError = error
+                if (attempt < 2) Thread.sleep(250L * (attempt + 1))
+            } finally {
+                // 每次尝试都及时释放连接，避免半关闭响应占用移动端连接池。
+                connection.disconnect()
+            }
         }
+        throw requireNotNull(lastNetworkError)
     }
 
     private fun requestPost(path: String, accessToken: String): JSONObject {
