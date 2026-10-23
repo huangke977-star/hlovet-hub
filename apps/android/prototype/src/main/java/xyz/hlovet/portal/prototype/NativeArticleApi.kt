@@ -2,10 +2,17 @@ package xyz.hlovet.portal.prototype
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.io.BufferedOutputStream
+import java.util.concurrent.TimeUnit
+import okhttp3.ConnectionPool
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 
 internal data class NativeArticleList(
     val items: List<RemoteArticle>,
@@ -243,6 +250,18 @@ internal fun normalizeNativeArticleReportDetail(value: String): String? =
 
 internal object NativeArticleApi {
     private const val DEFAULT_BASE_URL = "https://5200918.xyz/api"
+    private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+
+    // 文章 JSON 请求使用独立短连接池，避免本地 ADB reverse 复用半关闭连接。
+    private val jsonClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.SECONDS)
+            .connectionPool(ConnectionPool(0, 1, TimeUnit.MILLISECONDS))
+            .retryOnConnectionFailure(true)
+            .build()
+    }
 
     private val baseUrl: String
         get() = BuildConfig.API_BASE_URL.trimEnd('/').ifBlank { DEFAULT_BASE_URL }
@@ -350,6 +369,12 @@ internal object NativeArticleApi {
 
     fun getMyArticle(accessToken: String, id: Int): NativeDraftArticle {
         return requestGet("/articles/mine/$id", accessToken).toDraftArticle()
+    }
+
+    /** 返回本人文章的原始 JSON，供需要核对服务端 nullable 计划字段的本地验收使用。 */
+    internal fun getMyArticleRaw(accessToken: String, id: Int): JSONObject {
+        // 复用正式文章读取通道，避免验收代码另行创建不稳定的 HTTP 连接。
+        return requestGet("/articles/mine/$id", accessToken)
     }
 
     fun getAdminArticle(accessToken: String, id: Int): RemoteArticle {
@@ -507,6 +532,7 @@ internal object NativeArticleApi {
             setRequestProperty("Accept", "application/json")
             setRequestProperty("Authorization", "Bearer $accessToken")
             setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
+            setRequestProperty("Connection", "close")
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         }
         return try {
@@ -749,6 +775,7 @@ internal object NativeArticleApi {
             setRequestProperty("Accept", "application/json")
             setRequestProperty("Authorization", "Bearer $accessToken")
             setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
+            setRequestProperty("Connection", "close")
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         }
         return try {
@@ -828,29 +855,16 @@ internal object NativeArticleApi {
         )
     }
 
+    /** 读取文章 JSON，统一处理本地代理异常、HTTP 错误和响应体关闭。 */
     private fun requestGet(path: String, accessToken: String?): JSONObject {
-        val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 12_000
-            readTimeout = 15_000
-            setRequestProperty("Accept", "application/json")
-            if (!accessToken.isNullOrBlank()) setRequestProperty("Authorization", "Bearer $accessToken")
-            setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
-        }
-        return try {
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) {
-                val message = runCatching { JSONObject(body).optString("message") }.getOrNull()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "文章加载失败（HTTP $status）"
-                throw IllegalStateException(message)
-            }
-            JSONObject(body)
-        } finally {
-            connection.disconnect()
-        }
+        // 使用 OkHttp 独立短连接池读取完整响应，避免 HttpURLConnection 复用半关闭流。
+        val request = Request.Builder()
+            .url(baseUrl + path)
+            .header("Accept", "application/json")
+            .header("User-Agent", NativeAuthApi.USER_AGENT)
+            .apply { if (!accessToken.isNullOrBlank()) header("Authorization", "Bearer $accessToken") }
+            .build()
+        return executeJson(request, "文章加载失败")
     }
 
     internal fun parseNativeArticleCenterSummary(response: JSONObject): NativeArticleCenterSummary = NativeArticleCenterSummary(
@@ -864,37 +878,58 @@ internal object NativeArticleApi {
         manage = response.optInt("manage"),
     )
 
+    /** 发送文章 JSON 写入请求，避免本地反向代理截断请求或响应流。 */
     private fun requestMutation(
         path: String,
         method: String,
         accessToken: String,
         body: JSONObject? = null,
     ): JSONObject {
-        val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
-            requestMethod = method
-            connectTimeout = 12_000
-            readTimeout = 15_000
-            doOutput = method != "DELETE" || body != null
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Authorization", "Bearer $accessToken")
-            setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
-            if (body != null) setRequestProperty("Content-Type", "application/json")
-        }
-        return try {
-            if (body != null) connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val responseBody = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) {
-                val message = runCatching { JSONObject(responseBody).optString("message") }.getOrNull()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "文章操作失败（HTTP $status）"
-                throw IllegalStateException(message)
+        // 非空正文显式采用 JSON，空正文为 POST 等方法提供合法的零长度请求体。
+        val requestBody = body?.toString()?.toRequestBody(jsonMediaType)
+            ?: if (method in setOf("POST", "PUT", "PATCH")) ByteArray(0).toRequestBody(jsonMediaType) else null
+        val request = Request.Builder()
+            .url(baseUrl + path)
+            .method(method, requestBody)
+            .header("Accept", "application/json")
+            .header("Authorization", "Bearer $accessToken")
+            .header("User-Agent", NativeAuthApi.USER_AGENT)
+            .build()
+        return executeJson(request, "文章操作失败")
+    }
+
+    /** 执行文章 JSON 请求并在返回前关闭响应体，HTTP 错误只暴露业务消息。 */
+    private fun executeJson(request: Request, fallback: String): JSONObject {
+        // GET 只读且可安全重放；仅针对响应体 EOF 建立有限的新连接，不重放文章写入。
+        val attempts = if (request.method == "GET") 3 else 1
+        var lastIoError: IOException? = null
+        repeat(attempts) { index ->
+            try {
+                // 关闭响应体释放短连接；短连接池和重试共同规避本地代理半关闭流。
+                jsonClient.newCall(request).execute().use { response ->
+                    val responseBody = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        val message = runCatching { JSONObject(responseBody).optString("message") }.getOrNull()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: "$fallback（HTTP ${response.code}）"
+                        throw IllegalStateException(message)
+                    }
+                    return if (responseBody.isBlank()) JSONObject() else JSONObject(responseBody)
+                }
+            } catch (error: IOException) {
+                // 最后一轮保留原始网络异常；中间轮次短暂退让，让代理完成旧连接清理。
+                lastIoError = error
+                if (index + 1 < attempts) {
+                    try {
+                        Thread.sleep(120L * (index + 1))
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw error
+                    }
+                }
             }
-            if (responseBody.isBlank()) JSONObject() else JSONObject(responseBody)
-        } finally {
-            connection.disconnect()
         }
+        throw requireNotNull(lastIoError)
     }
 
     private fun JSONArray?.toArticles(): List<RemoteArticle> = buildList {

@@ -14,13 +14,12 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.*
@@ -53,7 +52,8 @@ class NativeLocalArticleScheduleTest {
         val current = requireNotNull(saved)
         // 只使用本地真实注册的普通读者，不能复制其它设备会话或使用固定历史用户编号。
         check(current.username.startsWith("native_restore_"))
-        session = NativeAuthApi.refresh(current.refreshToken)
+        // 复用应用内刷新协调器，避免专项准备阶段消费后又覆盖应用正在使用的轮换令牌。
+        session = runBlocking { NativeSessionCoordinator.refresh(context, current) }
         check(requireNotNull(session).userId == current.userId && NativeSessionStore.save(context, requireNotNull(session)))
         check(!requireNotNull(session).isAdministrator && !requireNotNull(session).isSuperAdmin)
         oldLocale = NativeI18n.locale
@@ -70,8 +70,11 @@ class NativeLocalArticleScheduleTest {
         } finally {
             activity?.close()
             activity = null
-            check(NativeSessionStore.save(context, requireNotNull(session)))
-            report.put("readerSessionRestored", NativeSessionStore.load(context)?.userId == session?.userId)
+            // 应用启动或重建可能已经轮换了 refresh token，结束时优先保留加密存储中的最新会话。
+            val latest = NativeSessionStore.load(context) ?: requireNotNull(session)
+            session = latest
+            check(NativeSessionStore.save(context, latest))
+            report.put("readerSessionRestored", NativeSessionStore.load(context)?.userId == latest.userId)
             oldLocale?.let { value -> InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale(value) } }
             writeReport()
         }
@@ -205,7 +208,8 @@ class NativeLocalArticleScheduleTest {
         val saved = requireNotNull(NativeSessionStore.load(context))
         check(saved.userId == requireNotNull(session).userId)
         // 通过真实认证接口刷新会话，不伪造访问令牌或绕过服务端鉴权。
-        val refreshed = requireNotNull(NativeAuthApi.refresh(saved.refreshToken))
+        // 冷启动前也通过同一协调器刷新，确保测试使用服务端最新的一次性 refresh token。
+        val refreshed = runBlocking { NativeSessionCoordinator.refresh(context, saved) }
         check(refreshed.userId == saved.userId)
         // 将新令牌写回应用私有存储，供随后冷启动的 MainActivity 使用。
         session = refreshed
@@ -260,9 +264,16 @@ class NativeLocalArticleScheduleTest {
 
     /** 断言 tag 字段真实显示 value；空值时检查可编辑文本，避免误匹配标签中的空字符串。 */
     private fun assertField(tag: String, value: String) {
-        // 只读输入仍提供 EditableText，使用精确值而非子串包含判断。
-        compose.waitUntil(10_000) { compose.onAllNodes(hasTestTag(tag) and hasText(value, substring = false)).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag(tag).assert(hasText(value, substring = false))
+        // 只读输入的合并语义可能同时包含 label 和 value，非空值按字段文本匹配，空值仍要求精确为空。
+        val matcher = if (value.isBlank()) {
+            hasTestTag(tag) and hasText(value, substring = false)
+        } else {
+            hasTestTag(tag) and hasText(value, substring = true)
+        }
+        compose.waitUntil(10_000) { compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag(tag, useUnmergedTree = true).assert(
+            if (value.isBlank()) hasText(value, substring = false) else hasText(value, substring = true),
+        )
     }
 
     /** 返回 value 的设备本地分钟文本，与真实输入组件格式一致。 */
@@ -287,17 +298,8 @@ class NativeLocalArticleScheduleTest {
 
     /** 只读返回当前文章的原始服务端 JSON，不记录认证头或密钥。 */
     private fun rawArticle(): JSONObject {
-        // 仅本人详情接口，异常不输出包含配置或凭据的网络正文。
-        val connection = URL("${BuildConfig.API_BASE_URL}/articles/mine/$articleId").openConnection() as HttpURLConnection
-        try {
-            connection.connectTimeout = 8_000
-            connection.readTimeout = 8_000
-            connection.setRequestProperty("Authorization", "Bearer ${requireNotNull(session).accessToken}")
-            assertEquals(200, connection.responseCode)
-            return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-        } finally {
-            connection.disconnect()
-        }
+        // 只读本人详情并复用产品通道，异常不输出包含配置或凭据的网络正文。
+        return NativeArticleApi.getMyArticleRaw(requireNotNull(session).accessToken, articleId)
     }
 
     /** 等待 status 直到自然 deadline，每两秒只读一次，不触发生命周期写操作。 */
