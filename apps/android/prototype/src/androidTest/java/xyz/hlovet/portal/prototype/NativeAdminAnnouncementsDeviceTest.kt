@@ -19,6 +19,7 @@ import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.runner.RunWith
 import java.io.File
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -29,7 +30,8 @@ import kotlin.math.roundToInt
 /** 在设备内隔离公告服务中核对权限、草稿两阶段提交和错误恢复，不写真实数据库。 */
 @RunWith(AndroidJUnit4::class)
 class NativeAdminAnnouncementsDeviceTest {
-    @get:Rule val compose = createNativeComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createNativeComposeRule()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private var oldLocale = "zh-CN"
@@ -42,7 +44,7 @@ class NativeAdminAnnouncementsDeviceTest {
         PreviewAppearance("sky-blue", "#0284C7", "#1F2937", "#52616F", "#FFFFFF", 50, 18, "#FFFFFF", 46),
         isSuperAdmin = true, isAdministrator = true)
 
-    /** 仅允许精确隔离地址构建，准备不同状态公告和角色，不触碰保存的登录态。 */
+    /** 仅允许精确隔离地址构建，将公告夹具绑定到 IPv4 回环，不触碰保存的登录态。 */
     @Before fun start() {
         // 地址保护先于启动服务，误用本地/正式包只跳过，不误发写请求。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:39871")
@@ -59,7 +61,7 @@ class NativeAdminAnnouncementsDeviceTest {
                 return intercept(request) ?: respond(request)
             }
         }
-        server.start(39871)
+        server.start(InetAddress.getByName("127.0.0.1"), 39871)
     }
 
     /** 先销毁组合，关闭服务并恢复原语言；不修改设备真实会话或业务数据。 */

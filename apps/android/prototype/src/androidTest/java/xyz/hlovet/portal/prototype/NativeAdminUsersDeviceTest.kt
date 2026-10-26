@@ -17,6 +17,7 @@ import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.runner.RunWith
 import java.io.File
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -25,7 +26,8 @@ import java.util.concurrent.atomic.AtomicInteger
 /** 用设备内隔离服务验证用户管理异常、权限与分页，不向本地数据库或线上发送写请求。 */
 @RunWith(AndroidJUnit4::class)
 class NativeAdminUsersDeviceTest {
-    @get:Rule val compose = createNativeComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createNativeComposeRule()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private var locale = "zh-CN"
@@ -36,7 +38,7 @@ class NativeAdminUsersDeviceTest {
         PreviewAppearance("sky-blue", "#0284C7", "#1F2937", "#52616F", "#FFFFFF", 50, 18, "#FFFFFF", 46),
         isSuperAdmin = true, isAdministrator = true)
 
-    /** 仅在精确隔离构建运行，准备三种管理层级和一个待注销用户。 */
+    /** 仅在精确隔离构建运行，准备管理层级与待注销用户，并将夹具绑定到 IPv4 回环。 */
     @Before fun start() {
         // 测试保护先于启动服务，避免请求误发到真实数据库。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:39871")
@@ -53,7 +55,7 @@ class NativeAdminUsersDeviceTest {
                 return intercept(request) ?: respond(request)
             }
         }
-        server.start(39871)
+        server.start(InetAddress.getByName("127.0.0.1"), 39871)
     }
 
     /** 先销毁组合再关闭服务并恢复语言，不修改设备保存的真实账号。 */
@@ -289,7 +291,36 @@ class NativeAdminUsersDeviceTest {
     private fun show(account: NativeSession = admin, wait: Boolean = true) {
         // 独立 Compose 宿主避免测试间残留旧页面。
         host.setContent { HlovetTheme { NativeAdminUsersScreen(account, {}) } }
-        if (wait) waitText("@member")
+        if (wait) {
+            // 列表加载失败时保存请求路径和当前语义树，避免网络夹具问题被单纯的超时掩盖。
+            runCatching { waitText("@member") }.onFailure { error ->
+                recordListWaitFailure(error)
+                throw error
+            }
+        }
+    }
+
+    /** 保存 error 对应的列表等待失败诊断，不写入认证头、密码或请求正文。 */
+    private fun recordListWaitFailure(error: Throwable) {
+        // 诊断只写测试私有目录，供本地设备回归取证，不改变业务数据。
+        runCatching {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val directory = File(context.filesDir, "native-admin-users-device-evidence").apply { mkdirs() }
+            val visibleTexts = compose.onAllNodes(hasText("", substring = true), useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .mapNotNull { node ->
+                    if (node.config.contains(SemanticsProperties.Text)) node.config[SemanticsProperties.Text].joinToString("") else null
+                }
+                .distinct()
+                .take(40)
+            File(directory, "list-wait-failure.txt").writeText(
+                "API: ${BuildConfig.API_BASE_URL}\n" +
+                    "Failure: ${error.javaClass.name}: ${error.message}\n" +
+                    "Requests:\n" + calls.joinToString("\n") { "${it.method} ${path(it)}" } +
+                    "\nVisibleTexts:\n" + visibleTexts.joinToString("\n"),
+            )
+            capture("list-wait-failure")
+        }
     }
 
     /** 返回用户列表，供懒加载滚动定位使用。 */
