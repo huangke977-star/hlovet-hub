@@ -39,14 +39,16 @@ import org.junit.rules.TestWatcher
 import org.junit.runner.Description
 import org.junit.runner.RunWith
 import java.io.File
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 /** 用隔离 HTTP 服务验证真实管理表单的校验、反馈与权限，不代表真实数据库联调。 */
 @RunWith(AndroidJUnit4::class)
 class NativeAdminFormTest {
-    @get:Rule(order = 0) val compose = createNativeComposeRule()
-    @get:Rule(order = 1) val evidence = object : TestWatcher() {
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createNativeComposeRule()
+    @get:Rule(order = 2) val evidence = object : TestWatcher() {
         override fun starting(description: Description) { currentTest = description.methodName }
         override fun failed(error: Throwable, description: Description) {
             runCatching { capture("failed-${description.methodName}") }
@@ -73,20 +75,24 @@ class NativeAdminFormTest {
         appearance = PreviewAppearance("sky-blue", "#0284C7", "#1F2937", "#52616F", "#FFFFFF", 50, 18, "#FFFFFF", 46),
     )
 
+    /** 仅在指定隔离构建启动 IPv4 回环服务，准备表单响应而不修改真实服务器。 */
     @Before
     fun startFixture() {
-        // Opt in using a preview build. Never send fixture credentials to a real server.
+        // 精确限定测试来源，避免虚构凭据或写操作发送到真实服务。
         assumeTrue("Run with -PpreviewApiBaseUrl=http://127.0.0.1:39871", BuildConfig.API_BASE_URL == "http://127.0.0.1:39871")
         oldLocale = NativeI18n.locale
         InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale("zh-CN") }
         server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
+            /** 将 request 的方法和路径记入证据，再委派当前故障夹具或默认响应。 */
             override fun dispatch(request: RecordedRequest): MockResponse {
+                // 不记录请求正文或认证头，失败诊断只需核对接口及调用次数。
                 calls.add(request.method.orEmpty() to request.path.orEmpty().substringBefore('?'))
                 return responseOverride(request) ?: defaultResponse(request)
             }
         }
-        server.start(39871)
+        // 显式匹配客户端使用的 IPv4 地址，防止设备的默认地址族改变服务可达性。
+        server.start(InetAddress.getByName("127.0.0.1"), 39871)
     }
 
     @After

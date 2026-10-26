@@ -303,23 +303,32 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
         }
     }
 
-    /** 经确认恢复设置值；保留已上传资源、背景与分类标签。 */
+    /** 经确认按 PC 顺序取消活动背景并恢复设置值；保留所有上传资源与分类标签。 */
     fun reset() {
         // 同一身份的写操作串行执行，不在上传期间重置配置。
         val accessToken = token ?: return
         if (busy || backgroundPickerBusy || !canAccess) return
         confirmReset = false
         busy = true
+        error = null
+        notice = null
         scope.launch {
             try {
+                // 先取消全站背景的启用状态；失败时不继续重置，两个接口都不自动重试。
+                withContext(Dispatchers.IO) { NativeAdminSettingsApi.clearActiveBackground(accessToken) }
+                backgrounds = backgrounds.map { it.copy(isActive = false) }
+                // 两次写入不是一个事务；第二步失败仍保留已清除标记及用户尚未保存的设置草稿。
                 settings = withContext(Dispatchers.IO) { NativeAdminSettingsApi.reset(accessToken) }
                 numericDraft = settings?.let(::nativeSiteNumericDraft)
                 notice = nativePhrase("站点设置已恢复默认；资源、背景、分类和标签未删除。", "Site settings restored to defaults; assets, backgrounds, categories, and tags were kept.")
             } catch (exception: CancellationException) {
+                // 身份切换或页面销毁仍传播取消，不将已完成的写入伪装成回滚。
                 throw exception
             } catch (exception: Exception) {
+                // 显示当前失败阶段的反馈，保留草稿和已经由服务端确认的活动状态。
                 error = exception.message ?: nativePhrase("恢复默认设置失败。", "Could not restore default settings.")
             } finally {
+                // 释放当前页面的提交锁，让用户可以明确重试而不自动重复写入。
                 busy = false
             }
         }
@@ -481,7 +490,7 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
             }
             item {
                 NativeSettingsCard(nativePhrase("外观与毛玻璃", "Appearance and glass"), Icons.Filled.Palette) {
-                    NativeSettingsMenuField(nativePhrase("默认主题", "Default theme"), current.defaultTheme.themeId, nativeSettingThemes, !busy) { settings = current.copy(defaultTheme = current.defaultTheme.copy(themeId = it)) }
+                    NativeSettingsMenuField(nativePhrase("默认主题", "Default theme"), current.defaultTheme.themeId, nativeSettingThemes, !busy, Modifier.testTag("site-default-theme"), ::nativeSettingsOptionLabel) { settings = current.copy(defaultTheme = current.defaultTheme.copy(themeId = it)) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         NativeSettingsField(nativePhrase("强调色", "Accent color"), current.defaultTheme.accent, !busy, Modifier.weight(1f)) { settings = current.copy(defaultTheme = current.defaultTheme.copy(accent = normalizeHex(it))) }
                         NativeSettingsField(nativePhrase("表面色", "Surface color"), current.defaultTheme.surface, !busy, Modifier.weight(1f)) { settings = current.copy(defaultTheme = current.defaultTheme.copy(surface = normalizeHex(it))) }
@@ -512,7 +521,7 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                     NativeSettingsToggle(nativePhrase("保留 APK 历史版本", "Keep APK history"), current.apkHistoryEnabled, !busy) { settings = current.copy(apkHistoryEnabled = it) }
                     NativeSettingsToggle(nativePhrase("自动清理旧 APK", "Auto-clean old APKs"), current.apkAutoCleanupEnabled, !busy) { settings = current.copy(apkAutoCleanupEnabled = it) }
                     NativeSettingsNumberField(nativePhrase("APK 保留数量 1-20", "APK retention count 1-20"), numbers.apkRetentionCount, !busy) { numericDraft = numbers.copy(apkRetentionCount = it) }
-                    NativeSettingsMenuField(nativePhrase("默认文章可见范围", "Default article visibility"), current.defaultArticleVisibility, nativeSettingVisibilities, !busy) { settings = current.copy(defaultArticleVisibility = it) }
+                    NativeSettingsMenuField(nativePhrase("默认文章可见范围", "Default article visibility"), current.defaultArticleVisibility, nativeSettingVisibilities, !busy, Modifier.testTag("site-default-visibility"), ::nativeSettingsOptionLabel) { settings = current.copy(defaultArticleVisibility = it) }
                     NativeSettingsNumberField(nativePhrase("文章图片大小 1-30 MB", "Article image size 1-30 MB"), numbers.articleImageMaxSizeMb, !busy) { numericDraft = numbers.copy(articleImageMaxSizeMb = it) }
                     NativeSettingsToggle(nativePhrase("允许评论", "Allow comments"), current.commentsEnabled, !busy) { settings = current.copy(commentsEnabled = it) }
                     NativeSettingsToggle(nativePhrase("允许举报", "Allow reports"), current.reportsEnabled, !busy) { settings = current.copy(reportsEnabled = it) }
@@ -603,6 +612,22 @@ private fun NativeSettingsField(label: String, value: String, enabled: Boolean, 
 private fun NativeSettingsNumberField(label: String, value: String, enabled: Boolean, modifier: Modifier = Modifier.fillMaxWidth(), onChange: (String) -> Unit) {
     // 数字键盘只改善输入体验，范围和整数校验留给保存操作，不能静默过滤错误文本。
     OutlinedTextField(value, onChange, enabled = enabled, modifier = modifier, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), label = { Text(label, fontSize = 9.sp) }, textStyle = TextStyle(fontSize = 11.sp), colors = nativeSettingsFieldColors())
+}
+
+/** 返回主题或可见范围 value 的中英文名称；未知服务端值原样展示，不改变保存使用的稳定代码。 */
+private fun nativeSettingsOptionLabel(value: String): String {
+    // 显示名与接口代码分离，语言切换只能改变界面文案，不能改写站点配置。
+    return when (value) {
+        "cloud-blue" -> nativePhrase("浅云蓝白", "Cloud blue")
+        "sakura-mist" -> nativePhrase("浅樱暖雾", "Sakura mist")
+        "night-purple" -> nativePhrase("夜紫灰蓝", "Night purple")
+        "custom" -> nativePhrase("自定义", "Custom")
+        "public" -> nativePhrase("公开", "Public")
+        "authenticated" -> nativePhrase("登录可见", "Signed-in users")
+        "role_restricted" -> nativePhrase("指定角色", "Selected roles")
+        "private" -> nativePhrase("仅自己", "Only me")
+        else -> value
+    }
 }
 
 /** 为 label 选择 value；options 限定服务端值，optionLabel 提供显示名，onChange 仅更新父级草稿。 */

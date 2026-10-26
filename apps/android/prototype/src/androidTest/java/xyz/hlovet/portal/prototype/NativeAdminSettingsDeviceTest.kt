@@ -20,6 +20,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -28,12 +29,14 @@ import java.util.concurrent.atomic.AtomicInteger
 /** 在设备内隔离 HTTP 服务验证站点配置交互与账号边界，不修改真实配置或保存会话。 */
 @RunWith(AndroidJUnit4::class)
 class NativeAdminSettingsDeviceTest {
-    @get:Rule val compose = createNativeComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createNativeComposeRule()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private var oldLocale = "zh-CN"
     private val calls = CopyOnWriteArrayList<RecordedRequest>()
     private val taxonomies = CopyOnWriteArrayList<JSONObject>()
+    private val backgrounds = CopyOnWriteArrayList<JSONObject>()
     private val nextId = AtomicInteger(20)
     @Volatile private var saved = JSONObject()
     /** 为当前 request 注入一次故障或等待；null 表示继续使用正常夹具。 */
@@ -42,7 +45,7 @@ class NativeAdminSettingsDeviceTest {
         PreviewAppearance("sky-blue", "#0284C7", "#1F2937", "#52616F", "#FFFFFF", 50, 18, "#FFFFFF", 46),
         isSuperAdmin = true, isAdministrator = true)
 
-    /** 先限定隔离构建地址，再准备虚构设置、资源和角色，防止误向正式服务提交。 */
+    /** 限定隔离构建并准备虚构配置，将服务绑定到 IPv4 回环，防止误向正式服务提交。 */
     @Before fun start() {
         // 跳过不匹配来源的包；不启动服务、不改设备登录态。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:39871")
@@ -59,7 +62,8 @@ class NativeAdminSettingsDeviceTest {
                 return intercept(request) ?: respond(request)
             }
         }
-        server.start(39871)
+        // 与客户端回环来源保持地址族一致，不依赖设备代理或系统的默认监听地址。
+        server.start(InetAddress.getByName("127.0.0.1"), 39871)
     }
 
     /** 先卸载组合，再关闭服务并恢复语言；保留所有真实账号和测试证据。 */
@@ -312,6 +316,119 @@ class NativeAdminSettingsDeviceTest {
         assertEquals(12, body.getInt("sortOrder"))
     }
 
+    /** 主题及可见范围显示本地化名称，切换语言不改变已选代码，保存仍符合接口契约。 */
+    @Test fun localizedSettingChoicesKeepTheirStableServerValues() {
+        // 从实际下拉菜单选择，不将翻译字符串直接写入配置草稿。
+        show()
+        find(hasTestTag("site-default-theme")).assertTextContains("浅云蓝白").performClick()
+        compose.onNode(hasText("夜紫灰蓝") and hasAnyAncestor(isPopup())).performClick()
+        find(hasTestTag("site-default-visibility")).assertTextContains("公开").performClick()
+        compose.onNode(hasText("仅自己") and hasAnyAncestor(isPopup())).performClick()
+        // 已挂载页面切为英文后，应仅改变显示名称，已选择的主题和权限保持不变。
+        compose.runOnIdle { NativeI18n.applyLocale("en-US") }
+        find(hasTestTag("site-default-visibility")).assertTextContains("Only me")
+        find(hasTestTag("site-default-theme")).assertTextContains("Night purple")
+        capture("localized-theme-english")
+        find(hasText("Save all settings")).performNativeStableClick(compose)
+        compose.waitUntil(10_000) { calls.any { it.method == "PATCH" } }
+        val body = JSONObject(calls.single { it.method == "PATCH" }.body.clone().readUtf8())
+        assertEquals("night-purple", body.getString("defaultThemeId"))
+        assertEquals("private", body.getString("defaultArticleVisibility"))
+        compose.onNodeWithTag("admin-site-settings-list").performScrollToIndex(0)
+        waitText("Site settings saved.")
+    }
+
+    /** 取消恢复默认不写接口，不丢弃未保存的数值，也不改变现有背景。 */
+    @Test fun cancellingDefaultsResetKeepsUnsavedInputAndActiveBackground() {
+        // 活动背景和分类均为本测试内存数据，不触碰设备真实配置。
+        prepareResetContent(); show(); fillPage("卡片透明度 38-76", "57")
+        chooseDefaultsReset(confirm = false)
+        assertFalse(calls.any { it.method != "GET" })
+        assertEquals("57", find(hasSetTextAction() and hasText("卡片透明度 38-76")).fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        find(hasText("当前全站背景")).assertIsDisplayed()
+        assertTrue(backgrounds.single().getBoolean("isActive"))
+    }
+
+    /** 恢复默认先取消活动背景再重置设置，保留资源、分类和标签并同步页面状态。 */
+    @Test fun defaultsResetClearsActiveBackgroundWithoutDeletingContent() {
+        // 模拟已有上传资源，核对恢复不是通过删除资源实现。
+        prepareResetContent(); show(); chooseDefaultsReset()
+        waitText("站点设置已恢复默认；资源、背景、分类和标签未删除。")
+        assertEquals(listOf("PATCH /backgrounds/active/clear", "POST /site-settings/reset"), calls.filter { it.method != "GET" }.map { "${it.method} ${path(it)}" })
+        assertEquals("Restored site", compose.onNode(hasSetTextAction() and hasText("站点名称")).fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        // 数值、活动标记和关联数据以服务端返回结果为准，不能只显示成功文案。
+        assertEquals("50", find(hasSetTextAction() and hasText("卡片透明度 38-76")).fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        find(hasText("Retained background.png")).assertIsDisplayed()
+        compose.onAllNodesWithText("当前全站背景").assertCountEquals(0)
+        find(hasText("Retained category")).assertIsDisplayed()
+        find(hasText("Retained tag")).assertIsDisplayed()
+        assertEquals(2, taxonomies.size)
+        assertFalse(backgrounds.single().getBoolean("isActive"))
+        capture("reset-content-retained")
+    }
+
+    /** 重置第二阶段失败时保留输入和已清除背景的事实，手动重试成功必须替换旧错误。 */
+    @Test fun defaultsResetFailureThenRetryShowsSuccessInsteadOfOldError() {
+        // 只令第一次设置重置失败；活动背景清除已成功，不模拟跨接口事务回滚。
+        prepareResetContent()
+        val attempts = AtomicInteger()
+        intercept = { request -> if (path(request) == "/site-settings/reset" && attempts.incrementAndGet() == 1) failure("Reset temporarily unavailable") else null }
+        show(); fillPage("卡片透明度 38-76", "57"); chooseDefaultsReset()
+        waitText("Reset temporarily unavailable")
+        assertEquals("57", find(hasSetTextAction() and hasText("卡片透明度 38-76")).fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        find(hasText("Retained background.png")).assertIsDisplayed()
+        compose.onAllNodesWithText("当前全站背景").assertCountEquals(0)
+        assertFalse(backgrounds.single().getBoolean("isActive"))
+        // 用户明确重试才允许第二次请求，恢复后的成功提示不能被第一次错误遮住。
+        chooseDefaultsReset()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasSetTextAction() and hasText("Restored site")).fetchSemanticsNodes().isNotEmpty() }
+        capture("reset-retry-result")
+        waitText("站点设置已恢复默认；资源、背景、分类和标签未删除。")
+        compose.onAllNodesWithText("Reset temporarily unavailable").assertCountEquals(0)
+        assertEquals(2, calls.count { path(it) == "/site-settings/reset" })
+        assertEquals(2, calls.count { path(it) == "/backgrounds/active/clear" })
+        assertFalse(calls.any { it.method == "DELETE" })
+    }
+
+    /** 背景清除失败必须阻止后续重置，不能宣称完成或自动重试写操作。 */
+    @Test fun backgroundClearFailureStopsDefaultsResetUntilExplicitRetry() {
+        // 第一阶段失败保持背景和本地草稿，用户重试后才允许完整流程。
+        prepareResetContent()
+        val attempts = AtomicInteger()
+        intercept = { request -> if (path(request) == "/backgrounds/active/clear" && attempts.incrementAndGet() == 1) failure("Background clear unavailable") else null }
+        show(); fillPage("卡片透明度 38-76", "57"); chooseDefaultsReset()
+        waitText("Background clear unavailable")
+        assertFalse(calls.any { path(it) == "/site-settings/reset" })
+        assertEquals("57", find(hasSetTextAction() and hasText("卡片透明度 38-76")).fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+        find(hasText("当前全站背景")).assertIsDisplayed()
+        assertTrue(backgrounds.single().getBoolean("isActive"))
+        // 重试是新的明确操作，成功后不能残留先前的背景错误。
+        chooseDefaultsReset()
+        waitText("站点设置已恢复默认；资源、背景、分类和标签未删除。")
+        compose.onAllNodesWithText("Background clear unavailable").assertCountEquals(0)
+        assertEquals(2, attempts.get())
+        assertEquals(1, calls.count { path(it) == "/site-settings/reset" })
+        assertFalse(calls.any { it.method == "DELETE" })
+    }
+
+    /** 准备恢复场景的分类、标签和活动背景；资源只写在当前测试的内存中。 */
+    private fun prepareResetContent() {
+        // 分类和标签使用稳定 ID，恢复设置不得清空这些独立资源。
+        taxonomies.add(JSONObject().put("id", 21).put("kind", "category").put("name", "Retained category"))
+        taxonomies.add(JSONObject().put("id", 22).put("kind", "tag").put("name", "Retained tag"))
+        backgrounds.add(JSONObject().put("id", 31).put("originalName", "Retained background.png").put("isActive", true).put("sizeBytes", 1024).put("url", "/backgrounds/fixture.png"))
+        saved.put("defaultBackgroundUrl", "/backgrounds/fixture.png")
+    }
+
+    /** 通过真实恢复图标打开确认框，再按 confirm 选择恢复或取消。 */
+    private fun chooseDefaultsReset(confirm: Boolean = true) {
+        // 顶部入口先滚入可见区域，不依赖上一个字段编辑后的页面位置。
+        compose.onNodeWithTag("admin-site-settings-list").performScrollToIndex(0)
+        compose.onNodeWithContentDescription("恢复默认").performNativeStableClick(compose)
+        compose.onNode(hasText(if (confirm) "恢复默认" else "取消") and hasClickAction() and hasAnyAncestor(isDialog())).performNativeStableClick(compose)
+        waitDialogClosed()
+    }
+
     /** 将页面中 label 对应字段滚动到可见位置，再通过真实编辑事件替换为 value。 */
     private fun fillPage(label: String, value: String) {
         // 不直接赋值页面草稿，保持数值输入和保存校验的完整调用链。
@@ -398,13 +515,24 @@ class NativeAdminSettingsDeviceTest {
         if (request.method == "GET") return when (path) {
             "/site-settings" -> json(settings())
             "/site-settings/assets" -> json(JSONArray((1..12).map { index -> JSONObject().put("id", index).put("kind", "logo").put("originalName", assetName(index)).put("url", if (index == 12) "/api/site-settings/assets/$index/file" else "/site-settings/assets/$index/file") }))
-            "/backgrounds" -> json(JSONArray())
+            "/backgrounds" -> json(JSONArray(backgrounds))
             "/roles" -> json(JSONArray("""[{"code":"reader","name":"Reader role","level":1},{"code":"writer","name":"Writer role","level":2}]"""))
             else -> failure("Unexpected fixture GET $path")
         }
         // 写操作只落入当前测试的内存；返回完整可回读实体，不伪造成功提示。
         val body = request.body.clone().readUtf8().takeIf { it.isNotBlank() }?.let(::JSONObject) ?: JSONObject()
         return when {
+            path == "/backgrounds/active/clear" && request.method == "PATCH" -> {
+                // 与真实接口一样只清除活动标记，保留文件记录和其它设置。
+                backgrounds.forEach { it.put("isActive", false) }
+                json(JSONObject().put("success", true))
+            }
+            path == "/site-settings/reset" && request.method == "POST" -> {
+                // 重置只替换站点设置，分类、标签和资源列表属于独立持久对象。
+                saved = JSONObject().put("siteName", "Restored site").put("browserTitle", "Restored title")
+                    .put("logoPath", "/logo.svg").put("pwaIconPath", "/pwa-logo.png").put("defaultRoleCode", "reader")
+                json(settings())
+            }
             path == "/site-settings" && request.method == "PATCH" -> {
                 // 写入 DTO 是扁平字段，读取响应将外观组织到 defaultTheme；与真实接口保持一致。
                 saved = body.put("defaultTheme", JSONObject()
