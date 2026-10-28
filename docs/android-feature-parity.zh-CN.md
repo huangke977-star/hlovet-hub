@@ -39,6 +39,12 @@
 - 本轮覆盖好友申请与同意、通知已读、Socket 私聊收发、聊天搜索定位、非成员权限隔离、拉黑即时拒绝和解除后重新同意；测试账号、关系、消息和报告均保留。
 - 测试结束已移除 API reverse，没有访问生产账号或修改生产配置。
 
+## 集成管理列表并发更新修复（2026-10-28）
+
+- `NativeLocalIntegrationsTest` 首次直接设备回归复现了集成管理页在创建只读令牌回包后的 Compose `LazyList` `IndexOutOfBoundsException`；原始失败证据保留，没有把崩溃误记为通过。
+- 根因是外层 `LazyColumn` 根据登录、加载、Google、令牌、通道和提示状态动态增删多个 item，令牌/通道状态在测量期间变化时修改了懒列表区间。现将主体固定为一个带 key 的 item，卡片状态在内部 `Column` 更新，保留原有滚动、刷新和弹窗行为。
+- 修复后重新编译主包和 AndroidTest，并在 `emulator-5554` 使用本地 API/网页地址直接执行该类，结果 `2/2` 通过；随后 JVM 全套回归为 `331/331`，失败/错误/跳过均为 0。
+
 ## 本地账号与隐私回归复核（2026-10-28）
 
 - 在本地 API `http://127.0.0.1:3001` 构建上重新执行 `NativeLocalAccountApiTest` 与 `NativeLocalPrivacyDeviceTest`，Android 15 共 `4/4` 通过，0 失败、0 错误、0 跳过。

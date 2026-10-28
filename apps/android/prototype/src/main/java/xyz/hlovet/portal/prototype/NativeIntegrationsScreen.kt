@@ -568,13 +568,18 @@ private fun NativeIntegrationsContent(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
         }
-        if (token.isNullOrBlank()) {
-            item { integrationEmpty(nativePhrase("请先登录后管理外部集成。", "Sign in to manage integrations.")) }
-        } else if (loading && tokens.isEmpty() && channels.isEmpty()) {
-            item { integrationEmpty(nativePhrase("正在读取集成配置…", "Loading integration settings...")) }
-        } else {
+        // 固定外层懒列表的区间数量，网络回包只改变主体 Column 内的内容，避免测量期间增删 item 触发 Compose 区间越界。
+        item(key = "integration-body") {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (token.isNullOrBlank()) {
+                    integrationEmpty(nativePhrase("请先登录后管理外部集成。", "Sign in to manage integrations."))
+                } else if (loading && tokens.isEmpty() && channels.isEmpty()) {
+                    integrationEmpty(nativePhrase("正在读取集成配置…", "Loading integration settings..."))
+                } else {
             if (googleAvailable == true || pendingGoogleLink != null || !oauthErrorMessage.isNullOrBlank()) {
-                item {
                     GlassCard(modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) {
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -702,10 +707,8 @@ private fun NativeIntegrationsContent(
                                 }
                             }
                         }
-                    }
                 }
             }
-            item {
                 GlassCard(modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -748,9 +751,7 @@ private fun NativeIntegrationsContent(
                             }
                         }
                     }
-                }
             }
-            item {
                 GlassCard(modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -798,11 +799,12 @@ private fun NativeIntegrationsContent(
                             }
                         }
                     }
+            }
                 }
+                if (!error.isNullOrBlank()) Text(error!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 22.dp))
+                if (!notice.isNullOrBlank()) Text(notice!!, color = HlovetUi.accent, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 22.dp))
             }
         }
-        if (!error.isNullOrBlank()) item { Text(error!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 22.dp)) }
-        if (!notice.isNullOrBlank()) item { Text(notice!!, color = HlovetUi.accent, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 22.dp)) }
     }
 
     if (tokenDialog) {
