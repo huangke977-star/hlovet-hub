@@ -27,6 +27,12 @@
 - 首次使用 Gradle `connectedDebugAndroidTest` 未产生用例结果（`0 tests`），原因是测试驱动与设备连接超时；重新安装主包/测试包后，直接启动同一 instrumentation runner 完成上述 `3/3`，因此不把前一次驱动超时误记为业务失败。
 - 测试结束后重新执行默认生产地址 Debug 构建，确认 `API_BASE_URL=https://5200918.xyz/api`、`PORTAL_BASE_URL=https://5200918.xyz`；安装并冷启动后无崩溃、无 ANR、无 SSL/网络异常，ADB reverse 已清空。
 
+## 本地账号与隐私回归复核（2026-10-28）
+
+- 在本地 API `http://127.0.0.1:3001` 构建上重新执行 `NativeLocalAccountApiTest` 与 `NativeLocalPrivacyDeviceTest`，Android 15 共 `4/4` 通过，0 失败、0 错误、0 跳过。
+- 本轮再次核对注册/登录、资料与邮箱/密码变更、错误密码反馈、TOTP/恢复码、六格自动提交、审计记录和 Activity 会话恢复；测试使用新建本地账号并保留业务记录，未触碰生产账号。
+- 测试结束重新构建并安装默认生产 API Debug 包，确认 `API_BASE_URL=https://5200918.xyz/api`、`PORTAL_BASE_URL=https://5200918.xyz`；冷启动前台为 `MainActivity`，无崩溃、无 ANR、无 SSL/网络异常，ADB reverse 为空。
+
 ## 源码覆盖最终审计节点（2026-10-28）
 
 - 重新执行 `apps/android/tools/check-route-parity.mjs`：70 个 PC 路由和 24 个后台入口均有真实 `MainActivity` 分发映射。
