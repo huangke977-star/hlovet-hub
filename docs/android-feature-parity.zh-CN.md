@@ -33,6 +33,12 @@
 - 通过同一 instrumentation runner 按依赖顺序直接执行 `NativeLocalMainSessionTest`、`NativeLocalCollectionsTest` 和 `NativeLocalRichEditorTest`，结果分别为 `1/1`、`1/1`、`1/1`，无失败；合集和富文本用例分别实际耗时约 32 秒和 20 秒，不是 `Assume` 跳过。
 - 本轮只建立并移除了 `emulator-5554` 到本机 API 的 `3001` reverse，保留测试账号、文章、合集、订阅和证据；没有触碰生产配置或清除业务数据。
 
+## 本地社交与聊天直接仪器复验（2026-10-28）
+
+- 在 `emulator-5554` 上使用本地 API/网页地址直接执行 `NativeLocalSocialTest`，结果 `1/1`，无失败。
+- 本轮覆盖好友申请与同意、通知已读、Socket 私聊收发、聊天搜索定位、非成员权限隔离、拉黑即时拒绝和解除后重新同意；测试账号、关系、消息和报告均保留。
+- 测试结束已移除 API reverse，没有访问生产账号或修改生产配置。
+
 ## 本地账号与隐私回归复核（2026-10-28）
 
 - 在本地 API `http://127.0.0.1:3001` 构建上重新执行 `NativeLocalAccountApiTest` 与 `NativeLocalPrivacyDeviceTest`，Android 15 共 `4/4` 通过，0 失败、0 错误、0 跳过。
