@@ -50,7 +50,8 @@ class NativeLocalCommunityAttachmentTest {
         // 正式构建不得创建测试业务数据；缺少已验证会话时直接跳过。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:3001" && BuildConfig.PORTAL_BASE_URL == "http://127.0.0.1:3000")
         val stored = requireNotNull(NativeSessionStore.load(context))
-        check(stored.userId == 34 && stored.username == "native_restore_fa84e606cbbb")
+        // 复用当前本地专项保留的动态读者，不绑定已经变化的历史用户编号。
+        check(stored.userId > 0 && stored.username.startsWith("native_restore_"))
         session = NativeAuthApi.refresh(stored.refreshToken)
         check(session.userId == stored.userId && NativeSessionStore.save(context, session))
         oldLocale = NativeI18n.locale

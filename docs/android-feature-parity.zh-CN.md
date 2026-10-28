@@ -15,6 +15,13 @@
 - 设备报告保存在 `tmp-android-resource-redemption-results-20261028/native-local-resource-retry-report.json` 和 `native-local-resource-refunded-report.json`；构建日志为同目录的 `build-local.txt`、设备日志为 `device-retry.txt` 与 `device-refunded.txt`。这些报告不包含令牌、密码、API Key 或文章附件内容。
 - 本轮新增的受限准备工具为 `apps/android/tools/prepare-local-resource-fixture.cjs`。它必须显式传入买家 ID、文章 ID 和模式，只接受本地 `native_restore_*` 买家、`native_resource_*` 文章及超级管理员夹具；使用前通过 `LOCAL_ANDROID_RESOURCE_FIXTURE=1` 明确开启，不能省略参数复用历史账号。
 
+## 群聊附件真实入口复验（2026-10-28）
+
+- `NativeLocalCommunityAttachmentTest#groupChatAttachmentUsesRealSocketMessageAndSystemSave` 在 Android 15 `emulator-5554`、本地 API/数据库和动态读者会话下实际执行 `1/1`，没有跳过或失败；测试创建独立邀请制群聊和独立文件消息，未向既有群或生产账号发送内容。
+- 真实链路覆盖群聊附件上传、Socket 发送、服务端消息回读、聊天页定位、原生文件面板、DocumentsUI 默认名称和另存为字节核对；保存文件与认证下载响应完全一致，报告中记录的 6 个检查点全部通过。
+- 非成员账号读取该会话消息和附件均被拒绝，说明知道附件 URL 不能绕过群成员权限。测试账号、群聊、消息、附件和系统 Downloads 文件均保留，报告为 `tmp-android-community-attachment-results-20261028-report.json`。
+- 仅将测试前置从历史固定账号改为本地 `native_restore_*` 动态读者；生产代码、群成员权限和附件接口没有放宽。测试包使用本地回环地址，结束后已移除 ADB reverse；随后会恢复默认生产地址 Debug 包。
+
 ## 当前剩余外部验收门槛（2026-10-28）
 
 | 功能 | 当前代码/隔离证据 | 尚未关闭的真实边界 | 需要的条件 |
