@@ -4,7 +4,14 @@
 
 ## 正式包签名与 App Links/Passkey
 
-Release 签名不保存到仓库。需要生成正式包时，在 `apps/android` 目录的当前 PowerShell 会话中注入以下四项环境变量，再执行 `:prototype:assembleRelease`：
+Release 签名不保存到仓库。当前机器已经有受 ACL 保护的加密签名材料，优先使用本机入口构建正式包。该入口会从 DPAPI 读取口令，只在当前 Gradle 子进程注入环境变量，结束后恢复环境：
+
+```powershell
+# 需要 PowerShell 7；不要把签名口令写入项目文件或命令行参数。
+pwsh -NoProfile -File "D:\files\hlovet-android-signing\build-native-release.ps1"
+```
+
+迁移到没有本机签名材料的环境时，才在 `apps/android` 目录的当前 PowerShell 会话中手工注入以下四项环境变量，再执行 `:prototype:assembleRelease`：
 
 ```powershell
 # 四项只在当前会话设置，下面密码文字为占位符，不是可用凭据。
@@ -15,7 +22,7 @@ $env:ANDROID_RELEASE_KEY_PASSWORD = "仅在当前会话中设置"
 .\gradlew.bat :prototype:assembleRelease
 ```
 
-四项必须同时存在；未配置时 Release 仍可用于源码构建检查，但产物不会被当作正式签名包。keystore 路径和密码不会写入 Git，也不要把密码写进项目级 `gradle.properties`。
+四项必须同时存在；未配置时 Release 仍可用于源码构建检查，但产物不会被当作正式签名包。Windows PowerShell 5.1 可能因脚本编码解析中文注释失败，优先使用 PowerShell 7。keystore 路径和密码不会写入 Git，也不要把密码写进项目级 `gradle.properties`。
 
 正式包的 SHA-256 证书指纹必须与生产 `ANDROID_APP_LINKS_JSON` 中该包的指纹一致；同一指纹还用于 `delegate_permission/common.handle_all_urls` 和 `delegate_permission/common.get_login_creds`。生产配置完成后，再执行 P22 检查并在真实 Android 系统验证 App Links、Passkey 注册和登录。
 
