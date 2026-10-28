@@ -20,6 +20,13 @@
 
 该表中的“尚未关闭”是验收条件缺失，不代表对应 Android 页面或接口未实现；在获得条件前不能用 MockWebServer、空配置或静态映射把它们标记为完整通过。
 
+## 本地内容主流程真实回归（2026-10-28）
+
+- `NativeLocalContentSuiteTest` 在 Android 15 模拟器上通过标准 `am instrument` 实际执行 `3/3`，0 失败、0 错误、0 跳过，耗时约 58 秒。
+- 测试按真实 `MainActivity` 顺序覆盖：动态本地账号注册/密码登录、Activity 重建后的加密会话恢复；合集的持久化顺序、可见性和订阅；富文本文章编辑、任务列表和复杂 HTML 保存后重新打开回显。测试数据和业务记录保留，没有清除数据库或应用数据。
+- 首次使用 Gradle `connectedDebugAndroidTest` 未产生用例结果（`0 tests`），原因是测试驱动与设备连接超时；重新安装主包/测试包后，直接启动同一 instrumentation runner 完成上述 `3/3`，因此不把前一次驱动超时误记为业务失败。
+- 测试结束后重新执行默认生产地址 Debug 构建，确认 `API_BASE_URL=https://5200918.xyz/api`、`PORTAL_BASE_URL=https://5200918.xyz`；安装并冷启动后无崩溃、无 ANR、无 SSL/网络异常，ADB reverse 已清空。
+
 ## FCM 可选配置边界回归（2026-10-28）
 
 - 抽出纯配置判断：四个 Firebase 标识全部非空才允许初始化 SDK；空配置或只填写部分参数时保持关闭，不申请令牌、不注册服务端推送，也不影响站内通知。

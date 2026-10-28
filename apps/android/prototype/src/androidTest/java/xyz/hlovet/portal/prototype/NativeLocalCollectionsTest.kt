@@ -42,7 +42,8 @@ class NativeLocalCollectionsTest {
         // 正式与隔离来源不能误执行真实写操作。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:3001" && BuildConfig.PORTAL_BASE_URL == "http://127.0.0.1:3000")
         val stored = requireNotNull(NativeSessionStore.load(context))
-        check(stored.userId == 34 && stored.username == "native_restore_fa84e606cbbb")
+        // 复用主会话专项刚创建的本地读者，不绑定历史数据库中的固定用户编号。
+        check(stored.username.startsWith("native_restore_"))
         reader = NativeAuthApi.refresh(stored.refreshToken)
         check(NativeSessionStore.save(context, requireNotNull(reader)))
         oldLocale = NativeI18n.locale
