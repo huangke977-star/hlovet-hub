@@ -2877,3 +2877,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 重新传入仅用于本地测试的 `localCredentialEncryptionConfigured=true` 参数后，账号凭据、隐私和主页面隐私专项 `5/5` 通过，`0` 失败、`0` 跳过；社交、主会话、集成权限和提及/通知定位专项沿用同一轮已通过的 `9` 个用例，不重复累计。
 - 测试产生的本地账号、文章、消息和审计记录按既定规则保留，未触碰生产数据；测试结束后重新构建并安装默认生产地址 Debug 包，确认 BuildConfig 恢复为 `https://5200918.xyz/api` / `https://5200918.xyz`，冷启动首页正常，Logcat 未发现崩溃、ANR 或 WebView 错误，ADB reverse 已清空。
 - 本轮仍未把本地真实 API 结果扩展为 Google/Passkey 成功回调、FCM 到达、生产 WebRTC、外部 AI/媒体供应商或 OSS/R2 的真实服务验收。
+
+## 正式发布契约与签名材料复核（2026-10-28）
+
+- 使用 `P22_WEB_BASE_URL=https://5200918.xyz` 执行 `scripts/p22-release-check.mjs`，公开 API 健康、就绪、站点地图、RSS、中英文首页、Manifest、Service Worker 和 `assetlinks` 共 `10/10` 通过；`assetlinks` 当前合法声明旧 TWA `xyz.hlovet.portal` 与正式原生包 `xyz.hlovet.portal.native`。
+- 当前工作区与本机 Android 构建目录没有正式 Release keystore，只有 Debug keystore；`prototype-release-unsigned.apk` 因此不能作为正式分发包，也不能用 Debug 证书替代线上 `xyz.hlovet.portal.native` 的公开指纹。正式 Passkey/App Links 的代码和服务器声明已具备，但最终闭环仍需要保管在本机或发布环境中的对应私钥完成签名。
+- 未生成或轮换线上证书，未改动公开 `assetlinks`、DNS、Passkey 配置和业务数据；该边界保留，避免在没有旧私钥备份时造成已安装正式包无法升级。
