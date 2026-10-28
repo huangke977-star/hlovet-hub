@@ -57,7 +57,8 @@ class NativeLocalResourceRedemptionTest {
         // 来源保护先于会话读写，避免正式地址构建误操作真实账号。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:3001" && BuildConfig.PORTAL_BASE_URL == "http://127.0.0.1:3000")
         val stored = requireNotNull(NativeSessionStore.load(context))
-        check(stored.userId == 34 && stored.username == "native_restore_fa84e606cbbb")
+        // 复用当前会话专项创建的动态本地恢复账号，不绑定已经变化的历史用户编号。
+        check(stored.userId > 0 && stored.username.startsWith("native_restore_"))
         buyer = NativeAuthApi.refresh(stored.refreshToken)
         check(NativeSessionStore.save(context, buyer))
         report.put("buyerId", buyer.userId)
@@ -219,8 +220,8 @@ class NativeLocalResourceRedemptionTest {
         // 编号由受限本地准备脚本提供，不扫描或修改用户其它失败的兑换记录。
         evidencePrefix = "native-local-resource-retry"
         val arguments = InstrumentationRegistry.getArguments()
-        val articleId = requireNotNull(arguments.getString("resourceArticleId")).toInt()
-        val exchangeId = requireNotNull(arguments.getString("resourceExchangeId")).toInt()
+        val articleId = requireNotNull(arguments.getString("resourceArticleId")) { "Prepare the local retry fixture and pass resourceArticleId" }.toInt()
+        val exchangeId = requireNotNull(arguments.getString("resourceExchangeId")) { "Prepare the local retry fixture and pass resourceExchangeId" }.toInt()
         val before = NativeResourceApi.listDeliveries(buyer.accessToken).items.single { it.id == exchangeId }
         check(before.articleId == articleId && before.articleTitle.startsWith("native_resource_20261015_") && before.pointCost == 2 && before.status == "failed")
         val pointsBefore = NativeResourceApi.getReputation(buyer.accessToken).points
@@ -255,8 +256,8 @@ class NativeLocalResourceRedemptionTest {
         // 只读取已明确传入的测试文章与退款记录，禁止用其它账号或正式文章构造负面场景。
         evidencePrefix = "native-local-resource-refunded"
         val arguments = InstrumentationRegistry.getArguments()
-        val articleId = requireNotNull(arguments.getString("resourceArticleId")).toInt()
-        val exchangeId = requireNotNull(arguments.getString("resourceExchangeId")).toInt()
+        val articleId = requireNotNull(arguments.getString("resourceArticleId")) { "Prepare the local refunded fixture and pass resourceArticleId" }.toInt()
+        val exchangeId = requireNotNull(arguments.getString("resourceExchangeId")) { "Prepare the local refunded fixture and pass resourceExchangeId" }.toInt()
         val delivery = NativeResourceApi.listDeliveries(buyer.accessToken).items.single { it.id == exchangeId }
         check(delivery.articleId == articleId && delivery.articleTitle.startsWith("native_resource_20261015_") && delivery.status == "refunded")
         val pointsBefore = NativeResourceApi.getReputation(buyer.accessToken).points

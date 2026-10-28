@@ -7,6 +7,14 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## 资源兑换异常交付真实复验（2026-10-28）
+
+- 在本地 Docker API、MySQL、Redis 和 Android 15 `emulator-5554` 上，沿用已保留的读者 `373/native_restore_*` 与文章 `226/native_resource_20261015_*`，重新执行资源兑换异常交付闭环。业务数据、兑换记录、积分流水和审计记录均保留，没有重置数据库或删除测试账号。
+- 失败交付用例 `NativeLocalResourceRedemptionTest#realFailedDeliveryRetriesThroughOrdersUiWithoutChargingAgain` 实际执行 `1/1`：订单页点击“重试”后状态变为“已解锁”，`attemptCount` 和 `retry/unlocked` 事件即时更新，正文资源恢复可见，积分保持不变。
+- 已退款用例 `NativeLocalResourceRedemptionTest#realRefundedResourceShowsErrorAndStaysLocked` 实际执行 `1/1`：阅读页提示“该资源已退款，不能再次兑换”，正文继续锁定，原文件和缩略图均返回 `403`，下载登记和再次兑换均返回 `400`，重复退款返回幂等结果且没有再次返还积分。
+- 设备报告保存在 `tmp-android-resource-redemption-results-20261028/native-local-resource-retry-report.json` 和 `native-local-resource-refunded-report.json`；构建日志为同目录的 `build-local.txt`、设备日志为 `device-retry.txt` 与 `device-refunded.txt`。这些报告不包含令牌、密码、API Key 或文章附件内容。
+- 本轮新增的受限准备工具为 `apps/android/tools/prepare-local-resource-fixture.cjs`。它必须显式传入买家 ID、文章 ID 和模式，只接受本地 `native_restore_*` 买家、`native_resource_*` 文章及超级管理员夹具；使用前通过 `LOCAL_ANDROID_RESOURCE_FIXTURE=1` 明确开启，不能省略参数复用历史账号。
+
 ## 当前剩余外部验收门槛（2026-10-28）
 
 | 功能 | 当前代码/隔离证据 | 尚未关闭的真实边界 | 需要的条件 |
