@@ -2865,3 +2865,8 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 在 Android 15 `emulator-5554` 安装当前生产地址 Debug 包，清空 Logcat 后冷启动 `xyz.hlovet.portal.prototype`；`MainActivity` 正常恢复，UI 层级包含 `HLOVET`、文章列表和底部导航，未发现 `FATAL EXCEPTION`、ANR、输入超时或 WebView 错误。
 - 冷启动结束后已移除全部 ADB reverse 规则，避免后续生产地址复验被本地端口转发影响。本轮没有修改业务数据、账号、数据库卷或生产配置。
 - 本记录只证明生产地址包能冷启动并显示首页，不替代 Google/Passkey 成功回调、FCM 到达、生产 WebRTC、AI/媒体供应商和 OSS/R2 的真实服务验收。
+
+## 推送提交后的 JVM 回归复核（2026-10-28）
+
+- 在提交 `4c11cb8` 推送后重新执行 `:prototype:testDebugUnitTest --no-daemon`，Gradle `BUILD SUCCESSFUL`；63 份 XML 共 `331/331`，失败、错误和跳过均为 `0`。
+- 本次只复核已推送源码的 JVM 行为，不把 JVM 通过扩大解释为 Google/Passkey、FCM、生产 WebRTC、外部 AI/媒体或 OSS/R2 已完成真实验收。
