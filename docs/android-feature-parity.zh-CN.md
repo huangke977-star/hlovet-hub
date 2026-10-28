@@ -39,6 +39,7 @@
 - 重新执行 `apps/android/tools/check-api-parity.mjs`：当前 PC 的 27 个 API 模块全部完成对齐审计，得到 388 个精确/跨模块匹配、21 个已确认的有意别名、11 个动态解析候选和 0 个确认缺失候选。
 - 重新执行 `:prototype:testDebugUnitTest`：63 个测试类共 `331/331`，0 失败、0 错误、0 跳过。该审计证明源码覆盖和 JVM 回归没有回退，不替代 Google/Passkey 成功授权、FCM、生产 WebRTC、外部供应商、OSS/R2 和正式签名等外部条件验收。
 - 使用本机 `D:\files\hlovet-android-signing\build-native-release.ps1`（PowerShell 7，避免 Windows PowerShell 5.1 的脚本编码解析问题）重新生成正式 Release 包，包名为 `xyz.hlovet.portal.native`，生产 API/站点地址和 HTTPS 关联入口均正确；本机构建脚本已校验 APK 包名、证书指纹与公开证书一致。产物为 `output/android/native-release/20261028-194825/hlovet-native-release.apk`，SHA-256 为 `114CCEFD5FA92F39EF99B596E2571512FDD4F72536BBD1D83E3DF918F8750A74`，公开证书指纹为 `45:74:83:FE:04:2E:97:8B:99:88:10:0E:05:2D:65:71:DB:93:CD:A2:D1:C6:F9:3A:98:BD:FC:31:1D:46:CC:EC`。APK 未上传或部署，不把构建/签名通过扩大为 Passkey 成功登录通过。
+- 该正式 APK 已在 Android 15 模拟器与 `xyz.hlovet.portal.prototype` Debug 预览包、旧 TWA 并存安装；系统 `pm get-app-links` 实际显示正式包 `5200918.xyz: verified`，签名指纹与构建产物一致，正式包冷启动前台为 `MainActivity`，无崩溃或 ANR。深链路由本轮未重新执行，不把系统关联状态扩大为文章深链或真实登录成功。
 - 使用正式包名和上述公开指纹重新执行 `P22_WEB_BASE_URL=https://5200918.xyz`、`P22_API_BASE_URL=https://5200918.xyz/api` 的公网只读发布检查，`10/10` 通过：API 健康/就绪、首页中英文、Manifest、Service Worker、Sitemap、RSS，以及旧 TWA 和正式原生包两条 assetlinks 声明均有效。该结果不扩大为 Google/Passkey 成功授权或 FCM 到达。
 
 ## FCM 可选配置边界回归（2026-10-28）
