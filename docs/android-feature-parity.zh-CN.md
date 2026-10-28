@@ -27,6 +27,12 @@
 - 首次使用 Gradle `connectedDebugAndroidTest` 未产生用例结果（`0 tests`），原因是测试驱动与设备连接超时；重新安装主包/测试包后，直接启动同一 instrumentation runner 完成上述 `3/3`，因此不把前一次驱动超时误记为业务失败。
 - 测试结束后重新执行默认生产地址 Debug 构建，确认 `API_BASE_URL=https://5200918.xyz/api`、`PORTAL_BASE_URL=https://5200918.xyz`；安装并冷启动后无崩溃、无 ANR、无 SSL/网络异常，ADB reverse 已清空。
 
+## 源码覆盖最终审计节点（2026-10-28）
+
+- 重新执行 `apps/android/tools/check-route-parity.mjs`：70 个 PC 路由和 24 个后台入口均有真实 `MainActivity` 分发映射。
+- 重新执行 `apps/android/tools/check-api-parity.mjs`：当前 PC 的 27 个 API 模块全部完成对齐审计，得到 388 个精确/跨模块匹配、21 个已确认的有意别名、11 个动态解析候选和 0 个确认缺失候选。
+- 重新执行 `:prototype:testDebugUnitTest`：63 个测试类共 `331/331`，0 失败、0 错误、0 跳过。该审计证明源码覆盖和 JVM 回归没有回退，不替代 Google/Passkey 成功授权、FCM、生产 WebRTC、外部供应商、OSS/R2 和正式签名等外部条件验收。
+
 ## FCM 可选配置边界回归（2026-10-28）
 
 - 抽出纯配置判断：四个 Firebase 标识全部非空才允许初始化 SDK；空配置或只填写部分参数时保持关闭，不申请令牌、不注册服务端推送，也不影响站内通知。
