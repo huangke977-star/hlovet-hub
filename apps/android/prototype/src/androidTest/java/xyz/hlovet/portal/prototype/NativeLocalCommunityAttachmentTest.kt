@@ -33,7 +33,8 @@ import org.junit.runner.RunWith
 /** 在真实 MainActivity 中验证评论、群聊和公告附件入口，保留独立本地业务数据及系统保存记录。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalCommunityAttachmentTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val arguments get() = InstrumentationRegistry.getArguments()
     private var activity: ActivityScenario<MainActivity>? = null

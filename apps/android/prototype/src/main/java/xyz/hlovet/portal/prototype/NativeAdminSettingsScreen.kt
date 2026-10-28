@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -118,21 +119,22 @@ private fun nativeSiteNumericDraft(settings: NativeAdminSiteSettings): NativeSit
     return NativeSiteNumericDraft(settings.defaultTheme.cardAlpha.toString(), settings.defaultTheme.glassBlur.toString(), settings.defaultTheme.glassTintAlpha.toString(), settings.apkRetentionCount.toString(), settings.articleImageMaxSizeMb.toString())
 }
 
-/** 按账号、令牌和权限隔离站点设置，避免切换身份后复用旧管理员的草稿、弹窗或请求。 */
+/** 按 session 身份隔离配置；onBack 返回上级，onSiteAppearanceChanged 在读取或写入确认后同步宿主外观。 */
 @Composable
 internal fun NativeAdminSettingsScreen(
     session: NativeSession?,
     onBack: () -> Unit,
+    onSiteAppearanceChanged: () -> Unit = {},
 ) {
     // 权限变化销毁整个页面作用域，让未完成的旧请求不能填充新身份的页面。
     key(session?.userId, session?.accessToken, session?.isAdministrator, session?.isSuperAdmin) {
-        NativeAdminSettingsContent(session, onBack)
+        NativeAdminSettingsContent(session, onBack, onSiteAppearanceChanged)
     }
 }
 
-/** 编辑 session 的全站配置；onBack 返回上级，配置及资源操作仍由服务器校验超级管理员权限。 */
+/** 编辑 session 的全站配置；onBack 返回上级，onSiteAppearanceChanged 在外观读取或写入确认后通知宿主。 */
 @Composable
-private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Unit) {
+private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Unit, onSiteAppearanceChanged: () -> Unit) {
     // 管理权限既限制界面，也限制读取和修改请求；页面状态仅属于当前身份。
     val token = session?.accessToken
     val canAccess = session?.isSuperAdmin == true
@@ -177,7 +179,10 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                 )
                 settings = next
                 // 上传后由服务端回读最终设置；应用失败时保留已上传资源，允许用户明确重试保存。
-                if (next != null) settings = withContext(Dispatchers.IO) { NativeAdminSettingsApi.update(requireNotNull(token), next) }
+                if (next != null) {
+                    settings = withContext(Dispatchers.IO) { NativeAdminSettingsApi.update(requireNotNull(token), next) }
+                    onSiteAppearanceChanged()
+                }
                 notice = if (kind == "logo") nativePhrase("Logo 已上传并应用。", "Logo uploaded and applied.") else nativePhrase("PWA 图标已上传并应用。", "PWA icon uploaded and applied.")
             } catch (exception: CancellationException) {
                 throw exception
@@ -233,6 +238,8 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                 numericDraft = nativeSiteNumericDraft(loaded.first)
                 assets = loaded.second
                 backgrounds = loaded.third
+                // 手动刷新也能重试宿主外观读取，不依赖再次保存或离开当前页面。
+                onSiteAppearanceChanged()
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
@@ -292,6 +299,8 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                 val saved = withContext(Dispatchers.IO) { NativeAdminSettingsApi.update(accessToken, snapshot) }
                 settings = saved
                 numericDraft = nativeSiteNumericDraft(saved)
+                // 只刷新宿主公共外观，不重建设置页或覆盖个人主题。
+                onSiteAppearanceChanged()
                 notice = nativePhrase("站点设置已保存。", "Site settings saved.")
             } catch (exception: CancellationException) {
                 throw exception
@@ -317,9 +326,12 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                 // 先取消全站背景的启用状态；失败时不继续重置，两个接口都不自动重试。
                 withContext(Dispatchers.IO) { NativeAdminSettingsApi.clearActiveBackground(accessToken) }
                 backgrounds = backgrounds.map { it.copy(isActive = false) }
+                // 第一阶段已生效，即使后续重置失败也要同步全局背景。
+                onSiteAppearanceChanged()
                 // 两次写入不是一个事务；第二步失败仍保留已清除标记及用户尚未保存的设置草稿。
                 settings = withContext(Dispatchers.IO) { NativeAdminSettingsApi.reset(accessToken) }
                 numericDraft = settings?.let(::nativeSiteNumericDraft)
+                onSiteAppearanceChanged()
                 notice = nativePhrase("站点设置已恢复默认；资源、背景、分类和标签未删除。", "Site settings restored to defaults; assets, backgrounds, categories, and tags were kept.")
             } catch (exception: CancellationException) {
                 // 身份切换或页面销毁仍传播取消，不将已完成的写入伪装成回滚。
@@ -345,6 +357,7 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                 val active = withContext(Dispatchers.IO) { NativeAdminSettingsApi.activateBackground(accessToken, item.id) }
                 backgrounds = backgrounds.map { it.copy(isActive = it.id == active.id) }
                 settings = settings?.copy(defaultBackgroundUrl = nativeSettingsAssetPath(active.url))
+                onSiteAppearanceChanged()
                 notice = nativePhrase("全站背景已切换。", "Site background changed.")
             } catch (exception: CancellationException) {
                 throw exception
@@ -368,6 +381,7 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                 withContext(Dispatchers.IO) { NativeAdminSettingsApi.deleteBackground(accessToken, item.id) }
                 backgrounds = backgrounds.filterNot { it.id == item.id }
                 if (item.isActive) settings = settings?.copy(defaultBackgroundUrl = "")
+                if (item.isActive) onSiteAppearanceChanged()
                 notice = nativePhrase("背景图片已删除。", "Background image deleted.")
             } catch (exception: CancellationException) {
                 throw exception
@@ -460,9 +474,9 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
         }
     }
 
-    // 配置复用现有玻璃组件；长页面由单一懒加载列表滚动，弹窗另行限制内容高度。
-    LazyColumn(modifier = Modifier.fillMaxSize().testTag("admin-site-settings-list"), contentPadding = PaddingValues(bottom = 34.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item {
+    // 单一列表保留滚动位置并避让软键盘，让底部保存入口在实际窗口中可见、可点击。
+    LazyColumn(modifier = Modifier.fillMaxSize().imePadding().testTag("admin-site-settings-list"), contentPadding = PaddingValues(bottom = 34.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item(key = "header") {
             TopAppBar(
                 title = { Column { Text(nativePhrase("站点设置", "Site settings"), fontSize = 20.sp, fontWeight = FontWeight.Bold); Text(nativePhrase("站点身份、外观、资源和内容规则", "Site identity, appearance, assets, and content rules"), color = HlovetUi.muted, fontSize = 10.sp) } },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = nativePhrase("返回", "Back")) } },
@@ -474,13 +488,14 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
         }
-        if (!error.isNullOrBlank() || !notice.isNullOrBlank()) item { NativeSettingsMessage(error ?: notice.orEmpty(), error != null) { error = null; notice = null } }
-        if (token.isNullOrBlank()) item { NativeSettingsMessage(nativePhrase("登录后查看站点设置。", "Sign in to view site settings."), false, null) }
-        else if (!canAccess) item { NativeSettingsMessage(nativePhrase("站点设置仅超级管理员可访问。", "Only super administrators can access site settings."), true, null) }
-        else if (loading && settings == null) item { NativeSettingsMessage(nativePhrase("正在读取站点设置…", "Loading site settings..."), false, null) }
+        // 提示插入或消失不能改变后续卡片身份，保留当前可见卡片的滚动锚点和字段状态。
+        if (!error.isNullOrBlank() || !notice.isNullOrBlank()) item(key = "feedback") { NativeSettingsMessage(error ?: notice.orEmpty(), error != null) { error = null; notice = null } }
+        if (token.isNullOrBlank()) item(key = "access") { NativeSettingsMessage(nativePhrase("登录后查看站点设置。", "Sign in to view site settings."), false, null) }
+        else if (!canAccess) item(key = "access") { NativeSettingsMessage(nativePhrase("站点设置仅超级管理员可访问。", "Only super administrators can access site settings."), true, null) }
+        else if (loading && settings == null) item(key = "loading") { NativeSettingsMessage(nativePhrase("正在读取站点设置…", "Loading site settings..."), false, null) }
         else settings?.let { current ->
             val numbers = numericDraft ?: nativeSiteNumericDraft(current)
-            item {
+            item(key = "identity") {
                 NativeSettingsCard(nativePhrase("站点身份", "Site identity"), Icons.Filled.Settings) {
                     NativeSettingsField(nativePhrase("站点名称", "Site name"), current.siteName, !busy) { settings = current.copy(siteName = it) }
                     NativeSettingsField(nativePhrase("浏览器标题", "Browser title"), current.browserTitle, !busy) { settings = current.copy(browserTitle = it) }
@@ -488,7 +503,7 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                     NativeSettingsAssetPicker(nativePhrase("PWA 图标", "PWA icon"), "pwa_icon", current.pwaIconPath, assets.filter { it.kind == "pwa_icon" }, !busy && !backgroundPickerBusy, onSelect = { settings = current.copy(pwaIconPath = it) }, onUpload = { uploadKind = "pwa_icon"; siteAssetPicker.launch(arrayOf("image/*")) }, onDelete = { confirmDeleteAsset = it })
                 }
             }
-            item {
+            item(key = "appearance") {
                 NativeSettingsCard(nativePhrase("外观与毛玻璃", "Appearance and glass"), Icons.Filled.Palette) {
                     NativeSettingsMenuField(nativePhrase("默认主题", "Default theme"), current.defaultTheme.themeId, nativeSettingThemes, !busy, Modifier.testTag("site-default-theme"), ::nativeSettingsOptionLabel) { settings = current.copy(defaultTheme = current.defaultTheme.copy(themeId = it)) }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -507,7 +522,7 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                     NativeSettingsField(nativePhrase("玻璃色调", "Glass tint"), current.defaultTheme.glassTint, !busy) { settings = current.copy(defaultTheme = current.defaultTheme.copy(glassTint = normalizeHex(it))) }
                 }
             }
-            item {
+            item(key = "rules") {
                 NativeSettingsCard(nativePhrase("运行规则", "Runtime rules"), Icons.Filled.Security) {
                     NativeSettingsToggle(nativePhrase("开放注册", "Open registration"), current.registrationOpen, !busy) { settings = current.copy(registrationOpen = it) }
                     NativeSettingsMenuField(
@@ -527,7 +542,7 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                     NativeSettingsToggle(nativePhrase("允许举报", "Allow reports"), current.reportsEnabled, !busy) { settings = current.copy(reportsEnabled = it) }
                 }
             }
-            item {
+            item(key = "backgrounds") {
                 NativeSettingsCard(nativePhrase("全站背景", "Site backgrounds"), Icons.Filled.Image) {
                     Text(nativePhrase("上传、启用或删除全站背景；最多选择 5 张。", "Upload, activate, or delete site backgrounds; select up to 5."), color = HlovetUi.muted, fontSize = 10.sp)
                     TextButton(onClick = { backgroundPicker.launch(arrayOf("image/*")) }, enabled = !busy && !backgroundPickerBusy) { Icon(Icons.Filled.Upload, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(5.dp)); Text(if (backgroundPickerBusy) nativePhrase("上传中…", "Uploading…") else nativePhrase("选择背景图片", "Choose background images"), fontSize = 11.sp) }
@@ -543,24 +558,24 @@ private fun NativeAdminSettingsContent(session: NativeSession?, onBack: () -> Un
                     }
                 }
             }
-            item {
+            item(key = "categories") {
                 NativeSettingsCard(nativePhrase("文章分类", "Article categories"), Icons.Filled.Folder) {
                     TextButton(onClick = { taxonomyError = null; taxonomyDialog = NativeAdminTaxonomy(0, "category", "", "#0284C7", 0, true, "", "") }, enabled = !busy && !backgroundPickerBusy) { Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(15.dp)); Text(nativePhrase("新增分类", "Add category"), fontSize = 11.sp) }
                     current.categories.forEach { taxonomy -> NativeTaxonomyRow(taxonomy, !busy && !backgroundPickerBusy, onEdit = { taxonomyError = null; taxonomyDialog = taxonomy }, onDelete = { deleteTaxonomy(taxonomy) }) }
                     if (current.categories.isEmpty()) Text(nativePhrase("暂无分类。", "No categories."), color = HlovetUi.muted, fontSize = 11.sp)
                 }
             }
-            item {
+            item(key = "tags") {
                 NativeSettingsCard(nativePhrase("文章标签", "Article tags"), Icons.Filled.Folder) {
                     TextButton(onClick = { taxonomyError = null; taxonomyDialog = NativeAdminTaxonomy(0, "tag", "", "#0284C7", 0, true, "", "") }, enabled = !busy && !backgroundPickerBusy) { Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(15.dp)); Text(nativePhrase("新增标签", "Add tag"), fontSize = 11.sp) }
                     current.tags.forEach { taxonomy -> NativeTaxonomyRow(taxonomy, !busy && !backgroundPickerBusy, onEdit = { taxonomyError = null; taxonomyDialog = taxonomy }, onDelete = { deleteTaxonomy(taxonomy) }) }
                     if (current.tags.isEmpty()) Text(nativePhrase("暂无标签。", "No tags."), color = HlovetUi.muted, fontSize = 11.sp)
                 }
             }
-            item {
+            item(key = "notifications") {
                 NativeNotificationSettingsCard(current.notifications, !busy) { next -> settings = current.copy(notifications = next) }
             }
-            item {
+            item(key = "save") {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = ::save, enabled = !busy && !backgroundPickerBusy) { Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(5.dp)); Text(if (busy) nativePhrase("保存中…", "Saving…") else nativePhrase("保存全部设置", "Save all settings"), fontSize = 12.sp) }
                 }

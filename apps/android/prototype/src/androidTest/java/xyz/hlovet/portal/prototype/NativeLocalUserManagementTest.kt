@@ -22,7 +22,8 @@ import java.util.UUID
 /** 在真实 MainActivity 和本地 API 中验收用户管理，保留新增账号与记录并恢复原读者。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalUserManagementTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private var activity: ActivityScenario<MainActivity>? = null
     private var reader: NativeSession? = null
@@ -39,7 +40,7 @@ class NativeLocalUserManagementTest {
         // 来源保护必须先于读取凭据和用户数据。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:3001" && BuildConfig.PORTAL_BASE_URL == "http://127.0.0.1:3000")
         val saved = requireNotNull(NativeSessionStore.load(context))
-        check(saved.userId in listOf(63, 64))
+        check(!saved.isAdministrator && !saved.isSuperAdmin) { "User-management reader fixture must be a normal local account" }
         reader = NativeAuthApi.refresh(saved.refreshToken)
         check(NativeSessionStore.save(context, requireNotNull(reader)))
         val file = File(context.filesDir, "native-local-users-admin-token.json")

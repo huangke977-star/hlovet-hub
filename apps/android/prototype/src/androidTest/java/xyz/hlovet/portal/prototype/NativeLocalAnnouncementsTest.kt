@@ -33,7 +33,8 @@ import org.junit.runner.RunWith
 /** 在真实 MainActivity/API 中验证独立角色的公告生命周期，保留记录并恢复原读者会话。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalAnnouncementsTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     /** 返回当前测试应用上下文，仅访问其私有会话与证据目录。 */
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private var activity: ActivityScenario<MainActivity>? = null
@@ -55,7 +56,7 @@ class NativeLocalAnnouncementsTest {
         // 来源校验必须早于读取授权，生产或隔离服务构建不能执行真实写入专项。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:3001" && BuildConfig.PORTAL_BASE_URL == "http://127.0.0.1:3000")
         val saved = requireNotNull(NativeSessionStore.load(context))
-        check(saved.userId in listOf(63, 64))
+        check(!saved.isAdministrator && !saved.isSuperAdmin) { "Announcement reader fixture must be a normal local account" }
         reader = saved
         reader = NativeAuthApi.refresh(saved.refreshToken)
         check(NativeSessionStore.save(context, requireNotNull(reader)))

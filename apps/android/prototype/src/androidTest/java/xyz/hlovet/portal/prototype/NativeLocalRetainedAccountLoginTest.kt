@@ -20,7 +20,8 @@ import org.junit.runner.RunWith
 /** 通过原生登录界面恢复既有本地测试账号会话，不注册账号、不导出认证材料。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalRetainedAccountLoginTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     private val context: Context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private lateinit var username: String
     private lateinit var password: String

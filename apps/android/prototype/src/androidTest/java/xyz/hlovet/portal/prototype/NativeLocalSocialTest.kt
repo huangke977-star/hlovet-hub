@@ -32,7 +32,8 @@ import org.junit.runner.RunWith
 /** 使用真实本地账号、MainActivity、Socket.IO 和数据库验收好友、私聊及权限边界，保留业务数据。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalSocialTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     /** 仅访问目标应用的私有报告目录和既有加密会话。 */
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private lateinit var reader: NativeSession

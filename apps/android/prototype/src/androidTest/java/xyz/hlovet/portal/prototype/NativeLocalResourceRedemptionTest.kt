@@ -41,7 +41,8 @@ import org.junit.runner.RunWith
 /** 使用独立作者及保留读者，验证真实阅读兑换、积分流水和系统下载，不清理业务记录。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalResourceRedemptionTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private var scenario: ActivityScenario<MainActivity>? = null
     private var author: NativeSession? = null

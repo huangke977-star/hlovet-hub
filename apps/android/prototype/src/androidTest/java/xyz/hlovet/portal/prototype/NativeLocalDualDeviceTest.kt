@@ -26,7 +26,8 @@ import org.junit.runner.RunWith
 /** 两台设备分别运行 host/peer，通过真实 MainActivity 互聊，不以辅助 Socket 冒充第二个原生客户端。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalDualDeviceTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     /** 读取当前设备的测试上下文，不跨设备传递会话或任何认证材料。 */
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private lateinit var session: NativeSession

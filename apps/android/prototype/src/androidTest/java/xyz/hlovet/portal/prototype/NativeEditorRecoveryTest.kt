@@ -44,6 +44,7 @@ import org.junit.runner.RunWith
 /** 通过真实编辑组件和受控 HTTP 时序验证离线草稿恢复，不访问线上接口或用户偏好。 */
 @RunWith(AndroidJUnit4::class)
 class NativeEditorRecoveryTest {
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer

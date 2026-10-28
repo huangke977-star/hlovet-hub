@@ -12,12 +12,14 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /** Real writes only create and update newly registered accounts on the local Docker API. */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalAccountApiTest {
+    @get:Rule val network = NativeLoopbackNetworkRule()
     private val results = JSONArray()
     private var fixtureId = 0
     private var fixtureUsername = ""

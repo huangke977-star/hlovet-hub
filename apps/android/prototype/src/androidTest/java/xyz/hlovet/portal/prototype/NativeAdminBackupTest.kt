@@ -46,7 +46,9 @@ import java.util.concurrent.atomic.AtomicInteger
 /** Destructive backup operations are exercised only against a device-local fixture. */
 @RunWith(AndroidJUnit4::class)
 class NativeAdminBackupTest {
-    @get:Rule val compose = createComposeRule()
+    // 设备内 MockWebServer 必须绕过模拟器的系统代理，避免回环请求被改写为外部错误。
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createComposeRule()
     private val contentHost = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private var oldLocale = "zh-CN"

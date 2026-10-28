@@ -158,6 +158,15 @@ internal data class PreviewAppearance(
     val glassTintAlpha: Int,
 )
 
+/** 仅包含公共默认配色与有效背景；独立刷新时不重新读取首页文章或销毁当前业务页面。 */
+internal data class NativeSiteAppearance(val appearance: PreviewAppearance, val backgroundUrl: String?) {
+    /** 将当前外观合并到 data，保留文章、专题与合集的原列表及顺序。 */
+    fun applyTo(data: PreviewData): PreviewData {
+        // 外观变更不具有重载内容列表或改变分页位置的业务含义。
+        return data.copy(appearance = appearance, backgroundUrl = backgroundUrl)
+    }
+}
+
 /** 首页公开/可见内容及外观读取；地址和外观工具不触发网络客户端初始化。 */
 internal object PreviewApi {
     private const val DEFAULT_BASE_URL = "https://5200918.xyz/api"
@@ -173,20 +182,36 @@ internal object PreviewApi {
     private val baseUrl: String
         get() = BuildConfig.API_BASE_URL.trimEnd('/').ifBlank { DEFAULT_BASE_URL }
 
-    suspend fun load(accessToken: String? = null): PreviewData {
+    /** 为 accessToken 读取公共外观；首次加载兼容旧服务器，写入后的严格刷新则保留失败语义。 */
+    suspend fun loadSiteAppearance(accessToken: String? = null, allowUnavailableBackground: Boolean = false): NativeSiteAppearance {
+        // 活动上传背景优先于配置的默认背景，两个读取均不触发首页内容接口。
         val settings = request("/site-settings/public", accessToken)
         val theme = settings.optJSONObject("defaultTheme") ?: JSONObject()
-        // The active uploaded background overrides the configured built-in
-        // background on the web client as well. Keep this lookup optional so
-        // an older server can still serve the configured default.
         val activeBackground = try {
             request("/backgrounds/active", accessToken)
                 .optJSONObject("background")
         } catch (error: CancellationException) {
             throw error
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            // 写后刷新不能把临时读取失败误当作活动背景已被删除。
+            if (!allowUnavailableBackground) throw error
             null
         }
+        return NativeSiteAppearance(
+            appearance = theme.toPreviewAppearance(),
+            backgroundUrl = activeBackground?.optString("url")
+                ?.takeIf { it.isNotBlank() && it != "null" }
+                ?.let(::apiAbsoluteUrl)
+                ?: settings.optString("defaultBackgroundUrl")
+                    .takeIf { it.isNotBlank() && it != "null" }
+                    ?.let(::siteAbsoluteUrl),
+        )
+    }
+
+    /** 为 accessToken 读取可见首页内容，匿名来源只访问公开接口；返回列表及公共外观。 */
+    suspend fun load(accessToken: String? = null): PreviewData {
+        // 首次加载保留旧服务器没有活动背景接口时的兼容行为。
+        val site = loadSiteAppearance(accessToken, allowUnavailableBackground = true)
         val articlePath = if (accessToken.isNullOrBlank()) "/articles?page=1&pageSize=8&sort=recommended" else "/articles/visible?page=1&pageSize=8&sort=recommended"
         val topicPath = if (accessToken.isNullOrBlank()) "/discovery/topics?page=1&pageSize=8" else "/discovery/topics/visible?page=1&pageSize=8"
         val collectionPath = if (accessToken.isNullOrBlank()) "/discovery/collections?page=1&pageSize=8" else "/discovery/collections/visible?page=1&pageSize=8"
@@ -199,17 +224,13 @@ internal object PreviewApi {
         val collections = request(collectionPath, accessToken)
             .optJSONArray("items")
             .toRemoteCollections()
+        // 内容和外观仍作为同一份可缓存首页返回，后台外观刷新使用更小的专用接口组合。
         return PreviewData(
             articles = articles,
             topics = topics,
             collections = collections,
-            appearance = theme.toPreviewAppearance(),
-            backgroundUrl = activeBackground?.optString("url")
-                ?.takeIf { it.isNotBlank() && it != "null" }
-                ?.let(::apiAbsoluteUrl)
-                ?: settings.optString("defaultBackgroundUrl")
-                    .takeIf { it.isNotBlank() && it != "null" }
-                    ?.let(::siteAbsoluteUrl),
+            appearance = site.appearance,
+            backgroundUrl = site.backgroundUrl,
         )
     }
 

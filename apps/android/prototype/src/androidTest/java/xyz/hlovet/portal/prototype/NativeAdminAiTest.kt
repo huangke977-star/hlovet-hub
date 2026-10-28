@@ -198,6 +198,8 @@ class NativeAiControlsTest {
 @RunWith(AndroidJUnit4::class)
 class NativeAdminAiTest {
     @get:Rule val compose = createComposeRule()
+    // 测试接口只绑定设备回环，避免主机或模拟器代理把本地 MockWebServer 请求改写成 502。
+    @get:Rule val loopbackNetwork = NativeLoopbackNetworkRule()
     private val contentHost = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private var oldLocale = "zh-CN"

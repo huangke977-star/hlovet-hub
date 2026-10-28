@@ -27,7 +27,9 @@ import java.util.concurrent.atomic.AtomicInteger
 /** 在真实 Compose 弹窗配合隔离 HTTP 服务验证集成表单，不冒充数据库或外部服务验收。 */
 @RunWith(AndroidJUnit4::class)
 class NativeIntegrationsDeviceTest {
-    @get:Rule val compose = createComposeRule()
+    // 设备内 MockWebServer 必须绕过模拟器的系统代理，避免回环请求被改写为外部错误。
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createComposeRule()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private val calls = CopyOnWriteArrayList<Pair<String, String>>()

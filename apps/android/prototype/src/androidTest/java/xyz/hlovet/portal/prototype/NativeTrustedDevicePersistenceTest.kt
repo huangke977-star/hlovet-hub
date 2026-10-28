@@ -21,11 +21,14 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
+/** 验证可信设备 Cookie 的加密持久化、来源隔离和真实 HTTP 回环行为，不访问生产站点。 */
 @RunWith(AndroidJUnit4::class)
 class NativeTrustedDevicePersistenceTest {
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
     private lateinit var root: File
     private lateinit var context: Context
     private lateinit var app: Context

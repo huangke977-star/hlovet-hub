@@ -26,7 +26,8 @@ import org.junit.runner.RunWith
 /** 以真实 MainActivity/API/MySQL 验证合集创建、收录排序、可见范围和订阅，保留数据与原读者会话。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalCollectionsTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     /** 仅使用目标应用私有目录保存本专项无凭据证据。 */
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private var scenario: ActivityScenario<MainActivity>? = null

@@ -1,3 +1,4 @@
+// 核对好友通话生命周期、参与者权限及真实头像路由契约，不将隔离业务测试视为双端媒体成功。
 import { createHmac } from "node:crypto";
 import { CallStatus, CallType, FriendshipStatus } from "../src/generated/prisma/client";
 import { PrismaService } from "../src/prisma/prisma.service";
@@ -61,6 +62,43 @@ describe("CallsService", () => {
     expect(create).toHaveBeenCalledWith({
       data: { conversationId: 5, callerId: 7, calleeId: 8, type: CallType.video },
     });
+  });
+
+  // 双方各自看到对方头像，不能返回自己的头像或指向未实现的按用户编号下载路由。
+  it("returns the counterpart avatar through the existing public avatar route", async () => {
+    const now = new Date();
+    const caller = { id: 7, nickname: "发起者", username: "caller", avatarStoredName: "caller.png", createdAt: now };
+    const callee = { id: 8, nickname: "接听者", username: "callee", avatarStoredName: "callee.webp", createdAt: now };
+    const prisma = {
+      callSession: { findUnique: jest.fn(async () => ({ id: 31, callerId: 7, calleeId: 8, caller, callee, createdAt: now, updatedAt: now })) },
+    };
+    const service = new CallsService(prisma as unknown as PrismaService);
+
+    // 同一通电话按查看者切换对方，不以返回名称参与身份判断。
+    expect((await service.getCallResponse(31, 7)).user).toEqual(expect.objectContaining({ id: 8, avatarUrl: "/auth/avatars/callee.webp" }));
+    expect((await service.getCallResponse(31, 8)).user).toEqual(expect.objectContaining({ id: 7, avatarUrl: "/auth/avatars/caller.png" }));
+  });
+
+  // 无头像用户保留 null，不能为了生成 URL 泄露用户编号或制造不可访问的下载地址。
+  it("keeps an absent counterpart avatar null", async () => {
+    const now = new Date();
+    const prisma = {
+      callSession: { findUnique: jest.fn(async () => ({ id: 31, callerId: 7, calleeId: 8, caller: {}, callee: { id: 8, avatarStoredName: null, createdAt: now }, createdAt: now, updatedAt: now })) },
+    };
+    const service = new CallsService(prisma as unknown as PrismaService);
+
+    // 缺省头像由各客户端统一处理，接口不发明占位文件或新的头像端点。
+    expect((await service.getCallResponse(31, 7)).user.avatarUrl).toBeNull();
+  });
+
+  // 统一头像字段后仍必须先执行通话存在性和参与者校验。
+  it("rejects missing calls and viewers outside the call", async () => {
+    const findUnique = jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ callerId: 7, calleeId: 8 });
+    const service = new CallsService({ callSession: { findUnique } } as unknown as PrismaService);
+
+    // 非参与者不会进入身份转换，缺少日期或头像也不应暴露内部转换异常。
+    await expect(service.getCallResponse(31, 7)).rejects.toThrow("通话记录不存在");
+    await expect(service.getCallResponse(31, 9)).rejects.toThrow("没有查看这通电话的权限");
   });
 
   it("persists a terminal call state and a compact conversation record", async () => {

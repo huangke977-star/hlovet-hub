@@ -16,12 +16,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /** 使用已保留的本地账号在 Docker API 验证文章媒体附件，报告不包含密码或令牌。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalArticleAttachmentTest {
+    @get:Rule val network = NativeLoopbackNetworkRule()
     /** 上传图片、文本和音频并保存重读，另外准备真实系统选择器的文件；全部测试记录保留。 */
     @Test fun uploadSaveDownloadAndPreparePickerWithLocalSession() {
         // 双重检查精确来源和已有测试账号，不能执行线上或任意已登录用户的写操作。

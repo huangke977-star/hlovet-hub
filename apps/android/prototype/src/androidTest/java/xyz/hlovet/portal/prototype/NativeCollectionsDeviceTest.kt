@@ -39,6 +39,7 @@ import org.junit.runner.RunWith
 /** 在隔离 HTTP 与实际 Compose 页面验证合集分页、保存恢复和身份隔离，不替代真实数据库验收。 */
 @RunWith(AndroidJUnit4::class)
 class NativeCollectionsDeviceTest {
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer

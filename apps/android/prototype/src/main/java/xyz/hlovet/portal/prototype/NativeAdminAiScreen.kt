@@ -3,6 +3,7 @@
 package xyz.hlovet.portal.prototype
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,7 +45,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -572,12 +572,15 @@ internal fun nativeAiKnowledgeStatus(status: String): String = when (status) {
 @Composable
 private fun NativeAiAdminCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tag: String = "", content: @Composable () -> Unit) { GlassCard(modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().testTag(tag), shape = HlovetUi.cardShape) { Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(icon, contentDescription = null, tint = HlovetUi.accent, modifier = Modifier.size(19.dp)); Spacer(Modifier.width(7.dp)); Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold) }; content() } } }
 
+/** 展示 AI 配置页的普通单行文本字段，并统一输入框外观令牌。 */
 @Composable
-private fun NativeAiAdminField(label: String, value: String, enabled: Boolean, onChange: (String) -> Unit) { OutlinedTextField(value, onChange, enabled = enabled, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(label, fontSize = 11.sp) }, textStyle = TextStyle(fontSize = 12.sp), colors = nativeAiFieldColors()) }
+private fun NativeAiAdminField(label: String, value: String, enabled: Boolean, onChange: (String) -> Unit) { OutlinedTextField(value, onChange, enabled = enabled, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = HlovetUi.controlShape, label = { Text(label, fontSize = 11.sp) }, textStyle = TextStyle(fontSize = 12.sp), colors = nativeAiFieldColors()) }
+/** 展示以微单位保存的整数价格字段，输入为空时保留现有值。 */
 @Composable
-private fun NativeAiAdminNumberField(label: String, value: Long, enabled: Boolean, onChange: (Long) -> Unit) { OutlinedTextField(value.toString(), { onChange(it.filter(Char::isDigit).toLongOrNull() ?: value) }, enabled = enabled, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(label, fontSize = 9.sp) }, textStyle = TextStyle(fontSize = 10.sp), colors = nativeAiFieldColors()) }
+private fun NativeAiAdminNumberField(label: String, value: Long, enabled: Boolean, onChange: (Long) -> Unit) { OutlinedTextField(value.toString(), { onChange(it.filter(Char::isDigit).toLongOrNull() ?: value) }, enabled = enabled, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = HlovetUi.controlShape, label = { Text(label, fontSize = 9.sp) }, textStyle = TextStyle(fontSize = 10.sp), colors = nativeAiFieldColors()) }
+/** 展示受最小值和最大值约束的 AI 并发数字字段。 */
 @Composable
-private fun NativeAiNumber(label: String, value: Int, min: Int, max: Int, enabled: Boolean, modifier: Modifier, onChange: (Int) -> Unit) { OutlinedTextField(value.toString(), { onChange(it.filter(Char::isDigit).toIntOrNull()?.coerceIn(min, max) ?: value) }, enabled = enabled, modifier = modifier, singleLine = true, label = { Text(label, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }, textStyle = TextStyle(fontSize = 12.sp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = nativeAiFieldColors()) }
+private fun NativeAiNumber(label: String, value: Int, min: Int, max: Int, enabled: Boolean, modifier: Modifier, onChange: (Int) -> Unit) { OutlinedTextField(value.toString(), { onChange(it.filter(Char::isDigit).toIntOrNull()?.coerceIn(min, max) ?: value) }, enabled = enabled, modifier = modifier, singleLine = true, shape = HlovetUi.controlShape, label = { Text(label, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }, textStyle = TextStyle(fontSize = 12.sp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = nativeAiFieldColors()) }
 @Composable
 private fun NativeAiAdminMenu(label: String, value: String, options: List<String>, enabled: Boolean, onChange: (String) -> Unit) {
     NativeAiSelect(label, value, options.map { NativeAiModelOption(it, nativeAiProviderLabel(it)) }, enabled, Modifier.fillMaxWidth(), onChange)
@@ -592,18 +595,19 @@ private fun nativeAiProviderLabel(provider: String): String = when (provider) {
     else -> provider
 }
 
-/** 用 label/value/options 展示模型选择器；enabled 控制可用性，modifier 控制宽度，onChange 回传模型标识。 */
+/** 用统一控件令牌展示模型选择器；enabled 控制可用性，modifier 控制宽度，onChange 回传模型标识。 */
 @Composable
 private fun NativeAiSelect(label: String, value: String, options: List<NativeAiModelOption>, enabled: Boolean, modifier: Modifier, onChange: (String) -> Unit) {
-    // 与拉取按钮保持固定高度；禁用时关闭弹层，选择时不触发模型接口请求。
+    // 与输入框和拉取按钮使用同一固定高度、圆角和边框，避免配置页控件视觉断裂。
     var expanded by remember { mutableStateOf(false) }
     LaunchedEffect(enabled, options) { if (!enabled) expanded = false }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, color = HlovetUi.muted, fontSize = 11.sp)
         Box {
             Row(
-                Modifier.fillMaxWidth().height(56.dp).testTag("ai-select-$label")
-                    .clip(MaterialTheme.shapes.extraSmall).background(HlovetUi.glassFallback)
+                Modifier.fillMaxWidth().height(HlovetUi.controlHeight).testTag("ai-select-$label")
+                    .clip(HlovetUi.controlShape).background(HlovetUi.glassFallback)
+                    .border(1.dp, HlovetUi.outline, HlovetUi.controlShape)
                     .clickable(enabled = enabled, role = Role.Button) { expanded = true }.padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -625,6 +629,7 @@ private fun NativeAiSelect(label: String, value: String, options: List<NativeAiM
 }
 @Composable
 private fun NativeAiAdminToggle(label: String, checked: Boolean, enabled: Boolean, modifier: Modifier = Modifier, onChange: (Boolean) -> Unit) { Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(label, fontSize = 11.sp, modifier = Modifier.weight(1f), color = if (enabled) HlovetUi.foreground else HlovetUi.muted); HlovetSwitch(checked, onChange, enabled = enabled) } }
+/** 展示 API 密钥字段，查看和清除操作都保持在输入框尾部。 */
 @Composable
 internal fun NativeAiAdminSecret(label: String, value: String, configured: Boolean, clear: Boolean, enabled: Boolean, onChange: (String) -> Unit, onClear: () -> Unit) {
     var visible by remember(label) { mutableStateOf(false) }
@@ -634,7 +639,7 @@ internal fun NativeAiAdminSecret(label: String, value: String, configured: Boole
         label = { Text(label, fontSize = 11.sp) },
         placeholder = { Text(if (clear) nativePhrase("保存时清除", "Clear on save") else if (configured) nativePhrase("已配置，留空保持不变", "Configured; leave blank to keep") else nativePhrase("输入 API Key", "Enter API key"), fontSize = 11.sp) },
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
-        textStyle = TextStyle(fontSize = 12.sp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        textStyle = TextStyle(fontSize = 12.sp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), shape = HlovetUi.controlShape,
         trailingIcon = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { visible = !visible }, enabled = enabled && value.isNotBlank(), modifier = Modifier.size(48.dp)) {
@@ -651,12 +656,13 @@ internal fun NativeAiAdminSecret(label: String, value: String, configured: Boole
         colors = nativeAiFieldColors(),
     )
 }
+/** 以统一控件高度并列展示模型下拉框和模型列表拉取入口。 */
 @Composable
 internal fun NativeAiModelField(label: String, value: String, models: List<NativeAiModelOption>, enabled: Boolean, loading: Boolean, onChange: (String) -> Unit, onFetch: () -> Unit, fetchEnabled: Boolean = true) {
     val options = ((if (value.isNotBlank() && models.none { it.id == value }) listOf(NativeAiModelOption(value, value)) else emptyList()) + models).distinctBy { it.id }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
         NativeAiSelect(label, value, options, enabled, Modifier.weight(1f), onChange)
-        IconButton(onClick = onFetch, enabled = enabled && !loading && fetchEnabled, modifier = Modifier.width(48.dp).height(56.dp).testTag("ai-fetch-$label")) {
+        IconButton(onClick = onFetch, enabled = enabled && !loading && fetchEnabled, modifier = Modifier.width(48.dp).height(HlovetUi.controlHeight).testTag("ai-fetch-$label")) {
             if (loading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = HlovetUi.accent)
             else Icon(Icons.Filled.CloudDownload, contentDescription = nativePhrase("获取模型列表", "Fetch model list"), tint = HlovetUi.accent, modifier = Modifier.size(18.dp))
         }
@@ -672,6 +678,7 @@ internal fun NativeAiPriceGrid(input: Long, cached: Long, output: Long, fallback
         }
     }
 }
+/** 展示单个价格输入字段，并在失焦时恢复服务端微单位对应的格式化值。 */
 @Composable
 private fun NativeAiPriceField(label: String, valueMicros: Long, enabled: Boolean, modifier: Modifier = Modifier, onChange: (Long) -> Unit) {
     var text by remember { mutableStateOf(formatNativeAiPrice(valueMicros)) }
@@ -693,7 +700,7 @@ private fun NativeAiPriceField(label: String, valueMicros: Long, enabled: Boolea
         },
         singleLine = true,
         label = { Text(label, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        textStyle = TextStyle(fontSize = 12.sp),
+        textStyle = TextStyle(fontSize = 12.sp), shape = HlovetUi.controlShape,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         colors = nativeAiFieldColors(),
     )

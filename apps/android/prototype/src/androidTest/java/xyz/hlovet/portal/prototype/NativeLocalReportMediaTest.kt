@@ -30,7 +30,8 @@ import java.util.UUID
 /** 在真实本地 MainActivity/API/MySQL 验证举报媒体和退群后的访问拒绝，保留所有测试记录。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalReportMediaTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     /** 当前业务 APK 的上下文仅用于既有会话和本次无凭据证据。 */
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private lateinit var session: NativeSession

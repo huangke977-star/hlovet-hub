@@ -23,7 +23,9 @@ import org.junit.runner.RunWith
 /** 在隔离服务中控制公告响应，核对已读同步、详情失败反馈、手动重试和账号切换边界。 */
 @RunWith(AndroidJUnit4::class)
 class NativeAnnouncementsReadDeviceTest {
-    @get:Rule val compose = createNativeComposeRule()
+    // 设备内 MockWebServer 必须绕过模拟器的系统代理，避免回环请求被改写为外部错误。
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createNativeComposeRule()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private var oldLocale = "zh-CN"

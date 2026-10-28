@@ -23,7 +23,8 @@ import org.junit.runner.RunWith
 /** Real account writes are restricted to newly registered fixtures on the local Docker API. */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalPrivacyDeviceTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createComposeRule()
     private val mounted = mutableStateOf(false)
     private var contentSet = false
     private var oldLocale = "zh-CN"

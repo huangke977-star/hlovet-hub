@@ -73,7 +73,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDateTime
@@ -309,12 +308,14 @@ private fun NativeIntegrationsContent(
         scope.launch {
             try {
                 val options = withContext(Dispatchers.IO) { NativePrivacyApi.sensitivePasskeyOptions(currentToken, "google_account_link") }
-                val result = withTimeout(20_000L) {
-                    credentialManager.getCredential(
-                        context = context,
-                        request = GetCredentialRequest(credentialOptions = listOf(GetPublicKeyCredentialOption(options.requestJson))),
-                    )
-                }
+                val result = requestNativeCredential(
+                    credentialManager = credentialManager,
+                    context = context,
+                    request = GetCredentialRequest(
+                        credentialOptions = listOf(GetPublicKeyCredentialOption(options.requestJson)),
+                        preferImmediatelyAvailableCredentials = true,
+                    ),
+                )
                 val credential = result.credential as? PublicKeyCredential
                     ?: throw IllegalStateException(nativePhrase("未返回通行密钥凭据。", "No passkey credential was returned."))
                 val verificationToken = withContext(Dispatchers.IO) {

@@ -29,7 +29,9 @@ import java.util.concurrent.atomic.AtomicInteger
 /** 在真实举报页面和隔离 HTTP 服务验证媒体操作；不替代数据库和真实权限验收。 */
 @RunWith(AndroidJUnit4::class)
 class NativeReportMediaDeviceTest {
-    @get:Rule val compose = createComposeRule()
+    // 设备内 MockWebServer 必须绕过模拟器的系统代理，避免回环请求被改写为外部错误。
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createComposeRule()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private val runId = UUID.randomUUID().toString()

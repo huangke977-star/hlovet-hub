@@ -26,7 +26,8 @@ import java.util.UUID
 /** 在本地真实 MainActivity 与数据库中验证令牌生命周期，保留撤销记录但不输出完整凭据。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalIntegrationsTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
     private lateinit var session: NativeSession

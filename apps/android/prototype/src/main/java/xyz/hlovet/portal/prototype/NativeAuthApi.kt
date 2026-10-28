@@ -76,6 +76,69 @@ internal data class NativeRegistrationCodeResult(
     val retryAfterSeconds: Int,
 )
 
+/** 将认证接口响应转换为移动端状态；所有需要继续验证的分支都必须携带有效令牌。 */
+internal fun parseNativeAuthResponse(response: JSONObject): NativeAuthResult {
+    // Google 同邮箱关联优先级最高，避免把待关联令牌误当成普通登录会话处理。
+    if (response.optBoolean("oauthLinkRequired")) {
+        val methods = response.optJSONObject("methods") ?: JSONObject()
+        return NativeAuthResult.GoogleLinkRequired(
+            pendingToken = response.optString("pendingToken").requireNativeAuthToken("Google 关联令牌"),
+            email = response.optString("email"),
+            methods = GoogleLinkMethods(
+                passkey = methods.optBoolean("passkey"),
+                email = methods.optBoolean("email"),
+                totp = methods.optBoolean("totp"),
+                password = methods.optBoolean("password"),
+            ),
+        )
+    }
+
+    // 新设备验证必须保留挑战值，邮箱验证码重发也依赖该值继续当前流程。
+    if (response.optBoolean("deviceVerificationRequired")) {
+        return NativeAuthResult.DeviceVerification(
+            challengeToken = response.optString("challengeToken").requireNativeAuthToken("设备验证挑战值"),
+            emailHint = response.optString("emailHint"),
+            retryAfterSeconds = response.optInt("retryAfterSeconds", 60).coerceAtLeast(1),
+        )
+    }
+
+    // TOTP 验证和设备验证一样，不能允许空挑战值进入下一步。
+    if (response.optBoolean("totpVerificationRequired")) {
+        return NativeAuthResult.TotpVerification(
+            response.optString("challengeToken").requireNativeAuthToken("双因素验证挑战值"),
+        )
+    }
+
+    // 未声明二次验证时才解析完整会话，缺少访问令牌会直接失败而不是保存半会话。
+    return NativeAuthResult.Authenticated(parseNativeSession(response))
+}
+
+/** 解析认证成功后的会话资料；访问令牌和用户对象缺失时拒绝建立本地会话。 */
+internal fun parseNativeSession(response: JSONObject): NativeSession {
+    // 先校验服务端最小会话字段，再读取可选的个人资料和外观配置。
+    val user = response.optJSONObject("user") ?: throw IllegalStateException("登录响应缺少用户信息")
+    val appearance = user.optJSONObject("appearance") ?: JSONObject()
+    return NativeSession(
+        accessToken = response.optString("accessToken").requireNativeAuthToken("访问令牌"),
+        refreshToken = response.optString("refreshToken"),
+        userId = user.optInt("id", 0),
+        username = user.optString("username", "user"),
+        nickname = user.optString("nickname", user.optString("username", "user")),
+        appearance = PreviewApi.appearanceFromJson(appearance),
+        email = user.optString("email"),
+        profileBio = user.optString("profileBio"),
+        avatarUrl = user.optString("avatarUrl").takeIf { it.isNotBlank() && it != "null" },
+        locale = user.optString("locale", "zh-CN"),
+        isSuperAdmin = user.optBoolean("isSuperAdmin"),
+        isAdministrator = user.optBoolean("isAdministrator"),
+    )
+}
+
+/** 校验需要回传服务端的认证令牌，统一拒绝空白值和无意义的空字符串。 */
+private fun String.requireNativeAuthToken(label: String): String = trim().ifBlank {
+    throw IllegalStateException("登录响应缺少$label")
+}
+
 internal data class NativeDeviceVerificationResend(
     val challengeToken: String,
     val emailHint: String,
@@ -111,7 +174,7 @@ internal object NativeAuthApi {
         }))
 
     fun refresh(refreshToken: String): NativeSession =
-        parseSession(request("/auth/refresh", JSONObject().apply { put("refreshToken", refreshToken) }))
+        parseNativeSession(request("/auth/refresh", JSONObject().apply { put("refreshToken", refreshToken) }))
 
     fun logout(refreshToken: String) {
         request("/auth/logout", JSONObject().apply { put("refreshToken", refreshToken) })
@@ -217,7 +280,7 @@ internal object NativeAuthApi {
         password: String,
         verificationCode: String?,
         turnstileToken: String?,
-    ): NativeAuthResult = NativeAuthResult.Authenticated(parseSession(request("/auth/register", JSONObject().apply {
+    ): NativeAuthResult = NativeAuthResult.Authenticated(parseNativeSession(request("/auth/register", JSONObject().apply {
         put("username", username)
         put("nickname", nickname)
         put("email", email)
@@ -310,32 +373,8 @@ internal object NativeAuthApi {
             put("currentPassword", password)
         }))
 
-    private fun parseLoginResponse(response: JSONObject): NativeAuthResult {
-        if (response.optBoolean("oauthLinkRequired")) {
-            val methods = response.optJSONObject("methods") ?: JSONObject()
-            return NativeAuthResult.GoogleLinkRequired(
-                pendingToken = response.optString("pendingToken").ifBlank { throw IllegalStateException("Google 关联令牌缺失") },
-                email = response.optString("email"),
-                methods = GoogleLinkMethods(
-                    passkey = methods.optBoolean("passkey"),
-                    email = methods.optBoolean("email"),
-                    totp = methods.optBoolean("totp"),
-                    password = methods.optBoolean("password"),
-                ),
-            )
-        }
-        if (response.optBoolean("deviceVerificationRequired")) {
-            return NativeAuthResult.DeviceVerification(
-                challengeToken = response.optString("challengeToken"),
-                emailHint = response.optString("emailHint"),
-                retryAfterSeconds = response.optInt("retryAfterSeconds", 60).coerceAtLeast(1),
-            )
-        }
-        if (response.optBoolean("totpVerificationRequired")) {
-            return NativeAuthResult.TotpVerification(response.optString("challengeToken"))
-        }
-        return NativeAuthResult.Authenticated(parseSession(response))
-    }
+    /** 解析登录类接口返回值，统一复用可测试的认证状态解析边界。 */
+    private fun parseLoginResponse(response: JSONObject): NativeAuthResult = parseNativeAuthResponse(response)
 
     private fun requestGet(path: String): JSONObject {
         val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
@@ -354,25 +393,6 @@ internal object NativeAuthApi {
         } finally {
             connection.disconnect()
         }
-    }
-
-    private fun parseSession(response: JSONObject): NativeSession {
-        val user = response.optJSONObject("user") ?: throw IllegalStateException("登录响应缺少用户信息")
-        val appearance = user.optJSONObject("appearance") ?: JSONObject()
-        return NativeSession(
-            accessToken = response.optString("accessToken").ifBlank { throw IllegalStateException("登录响应缺少访问令牌") },
-            refreshToken = response.optString("refreshToken"),
-            userId = user.optInt("id", 0),
-            username = user.optString("username", "user"),
-            nickname = user.optString("nickname", user.optString("username", "user")),
-            appearance = PreviewApi.appearanceFromJson(appearance),
-            email = user.optString("email"),
-            profileBio = user.optString("profileBio"),
-            avatarUrl = user.optString("avatarUrl").takeIf { it.isNotBlank() && it != "null" },
-            locale = user.optString("locale", "zh-CN"),
-            isSuperAdmin = user.optBoolean("isSuperAdmin"),
-            isAdministrator = user.optBoolean("isAdministrator"),
-        )
     }
 
     /** 发送已认证的会话操作请求；关闭连接复用以避免本地代理半关闭响应造成 EOF。 */

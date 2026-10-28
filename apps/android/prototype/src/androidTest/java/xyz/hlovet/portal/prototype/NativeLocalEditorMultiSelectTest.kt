@@ -35,7 +35,8 @@ import org.junit.runner.RunWith
 /** 使用真实系统 DocumentsUI 多选和真实本地 API 验证文章批量附件，不替换文件选择器回调。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalEditorMultiSelectTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val automation get() = InstrumentationRegistry.getInstrumentation().uiAutomation
     private var activity: ActivityScenario<MainActivity>? = null

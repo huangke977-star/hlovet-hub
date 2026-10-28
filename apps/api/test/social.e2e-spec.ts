@@ -635,7 +635,9 @@ describe("SocialService", () => {
     }));
   });
 
-  it("allows an attachment-only message and binds every attachment in the message transaction", async () => {
+  // 附件消息也必须先锁会话再写子表，同时保持所有附件与消息在同一事务提交。
+  it("locks the conversation before inserting an attachment-only message and participant states", async () => {
+    // 使用带真实发送者结构的附件消息夹具，既检查原有响应也检查关键写入顺序。
     const createdAt = new Date("2026-07-23T10:00:00.000Z");
     const message = {
       id: 31,
@@ -679,11 +681,16 @@ describe("SocialService", () => {
     };
     const service = createService(prisma);
 
+    // 通过业务入口触发同一事务，不直接调用事务回调制造顺序通过。
     const result = await service.createMessage(user.id, 5, "", [41]);
 
+    // 写锁必须先于消息外键及参与者插入，附件绑定仍由同一个事务客户端负责。
     expect(result.type).toBe("attachment");
     expect(result.attachments).toHaveLength(1);
     expect(attachmentsService.bindToMessage).toHaveBeenCalledWith(transaction, user.id, 5, [41], 31);
+    expect(transaction.conversation.update.mock.invocationCallOrder[0]).toBeLessThan(transaction.chatMessage.create.mock.invocationCallOrder[0]);
+    expect(transaction.conversation.update.mock.invocationCallOrder[0]).toBeLessThan(transaction.conversationParticipantState.createMany.mock.invocationCallOrder[0]);
+    expect(transaction.conversation.update).toHaveBeenCalledTimes(1);
   });
 
   it("delivers an accepted stranger-request conversation to both direct participants", async () => {

@@ -166,6 +166,7 @@ internal data class NativeMessageSearchResult(
     val hasMore: Boolean,
 )
 
+/** 保留服务端通话标识、对方身份和接听时间；缺失名称由展示层按当前语言兜底，头像为空时使用统一缺省样式。 */
 internal data class NativeCallSession(
     val id: Int,
     val conversationId: Int,
@@ -177,6 +178,7 @@ internal data class NativeCallSession(
     val userName: String,
     val userUsername: String,
     val acceptedAt: String?,
+    val userAvatarUrl: String? = null,
 )
 
 internal data class NativeIceServer(
@@ -933,11 +935,13 @@ internal object NativeSocialApi {
         )
     }
 
+    /** 将 value 通话响应转换为原生会话；昵称优先于账号名，缺失名称保持空串，JSON null 不作为头像地址。 */
     internal fun parseCallSession(value: JSONObject): NativeCallSession {
+        // 对方身份完全来自服务端，不以发起人编号猜测头像或名称，兼容字段缺省与 JSON null。
         val user = value.optJSONObject("user")
-        val userName = user?.optString("nickname").orEmpty().ifBlank {
-            user?.optString("username").orEmpty()
-        }.ifBlank { "聊天用户" }
+        val username = user?.optString("username")?.trim()?.takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+        val userName = user?.optString("nickname")?.trim()?.takeIf { it.isNotBlank() && it != "null" } ?: username
+        // 保留通话和参与者的稳定编号；展示名称、语言及头像均不参与媒体会话或权限判断。
         return NativeCallSession(
             id = value.optInt("id"),
             conversationId = value.optInt("conversationId"),
@@ -947,8 +951,9 @@ internal object NativeSocialApi {
             calleeId = value.optInt("calleeId"),
             userId = user?.optInt("id") ?: 0,
             userName = userName,
-            userUsername = user?.optString("username").orEmpty(),
+            userUsername = username,
             acceptedAt = value.optString("acceptedAt").takeIf { it.isNotBlank() && it != "null" },
+            userAvatarUrl = user?.optString("avatarUrl")?.trim()?.takeIf { it.isNotBlank() && it != "null" },
         )
     }
 

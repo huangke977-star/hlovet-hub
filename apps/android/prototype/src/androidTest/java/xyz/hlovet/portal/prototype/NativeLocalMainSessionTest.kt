@@ -17,10 +17,11 @@ import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.runner.RunWith
 
-/** Retains a new local account and its encrypted session for an independent process restart. */
+/** 通过真实登录创建并保留本地测试账号，核对加密会话及页面重建后的恢复，不接触生产账号。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalMainSessionTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     private var activity: ActivityScenario<MainActivity>? = null
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private var oldLocale: String? = null
@@ -28,13 +29,16 @@ class NativeLocalMainSessionTest {
     private var userId = 0
     private val checks = JSONArray()
 
+    /** 检查本地来源、空会话与注册策略；跳过时仅报告公开布尔开关，避免把未执行当作通过。 */
     @Before fun requireUnusedLocalOriginAndPolicy() {
+        // 仅在本地来源且没有现存会话时创建账号，不能覆盖其它专项保留的加密登录态。
         assumeTrue("Requires the exact real local API", BuildConfig.API_BASE_URL == "http://127.0.0.1:3001")
         val file = NativeSessionStore.sessionFile(context)
         assumeTrue("Never overwrites an existing local-origin session",
             listOf(file, File(file.path + ".bak"), File(file.path + ".new")).none { it.exists() })
         val policy = NativeAuthApi.registrationPolicy()
-        assumeTrue("Does not change registration or verification policies", policy.registrationOpen &&
+        // 报告准确的设备侧公开策略，以区分注册关闭、人机验证或邮箱验证造成的前置条件跳过。
+        assumeTrue("本地注册策略不满足：open=${policy.registrationOpen}, email=${policy.emailVerificationEnabled}, registrationTurnstile=${policy.turnstileEnabled}, loginTurnstile=${policy.loginTurnstileEnabled}", policy.registrationOpen &&
             !policy.emailVerificationEnabled && !policy.turnstileEnabled && !policy.loginTurnstileEnabled)
         val security = nativeLocalSecurityPolicy()
         assumeTrue("Does not send real email", !security.optBoolean("mailServiceEnabled") &&

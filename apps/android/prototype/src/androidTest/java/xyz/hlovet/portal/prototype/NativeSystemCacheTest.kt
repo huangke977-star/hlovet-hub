@@ -26,7 +26,9 @@ import java.util.concurrent.atomic.AtomicInteger
 /** 核对系统概况与缓存维护界面，所有写操作只允许精确匹配的设备本地测试服务。 */
 @RunWith(AndroidJUnit4::class)
 class NativeSystemCacheTest {
-    @get:Rule val compose = createComposeRule()
+    // 设备内 MockWebServer 必须绕过模拟器的系统代理，避免回环请求被改写为外部错误。
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createComposeRule()
     private val contentHost = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private var oldLocale = "zh-CN"

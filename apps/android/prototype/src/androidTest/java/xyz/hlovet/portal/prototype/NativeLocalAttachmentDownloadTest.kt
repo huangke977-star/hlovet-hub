@@ -35,7 +35,8 @@ import org.junit.runner.RunWith
 /** 使用保留的本地账号及文章完成真实阅读页下载到系统保存，不创建、覆盖或删除业务数据。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalAttachmentDownloadTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     private var scenario: ActivityScenario<MainActivity>? = null
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private var oldLocale: String? = null

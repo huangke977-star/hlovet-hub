@@ -43,12 +43,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -77,6 +79,7 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cameraswitch
@@ -126,6 +129,7 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.CardColors
 import androidx.compose.material3.CardElevation
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -164,6 +168,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -190,8 +195,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import org.webrtc.EglBase
-import org.webrtc.RendererCommon
-import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
@@ -204,6 +207,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -255,6 +260,18 @@ internal fun canConsumeNativePortalIntent(
     portalIntentUrl: String?,
     sessionRestoreComplete: Boolean,
 ): Boolean = sessionRestoreComplete && !portalIntentUrl.isNullOrBlank()
+
+/** 判断 OAuth 回调是否应立即打开原生登录层；已登录的 Google 关联回调留在集成页面处理。 */
+internal fun shouldShowNativeLoginForOAuth(
+    resultToken: String?,
+    errorMessage: String?,
+    returnTo: String?,
+): Boolean {
+    // 关联流程需要当前会话，不能因回调令牌存在而覆盖正在使用的集成页面。
+    if (returnTo == "/profile/integrations") return false
+    // 普通登录的成功令牌和错误回调都要在登录层消费，空值则交给无效回调提示处理。
+    return !resultToken.isNullOrBlank() || !errorMessage.isNullOrBlank()
+}
 
 private data class NativePendingMessageOperation(
     val operation: NativeMessageOperation,
@@ -486,10 +503,12 @@ private data class PendingMessagesRoute(
     val messageId: Int? = null,
 )
 
+/** 共享全局通话可用状态及发起/重连入口，聊天页重试时同时恢复独立的通话信令。 */
 private data class NativeCallLauncher(
     val connected: Boolean,
     val active: Boolean,
     val start: (conversationId: Int, type: String) -> Unit,
+    val reconnect: () -> Unit,
 )
 
 private fun fallbackConversationPreview(
@@ -655,7 +674,11 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** 承载原生首页、登录门槛、深链页面和业务子页面的统一移动端宿主。 */
+/**
+ * 原生统一宿主：oauthResultToken/oauthErrorMessage/oauthReturnTo 承接认证结果及原目标；
+ * passwordResetToken、notificationIntent、portalIntentUrl 分别承接重置密码、通知和站内深链，空值表示没有待处理事件。
+ * 四个 on*Consumed 回调只在对应事件已消费后通知 Activity 清除入口；页面、会话及外观状态由宿主管理。
+ */
 @Composable
 private fun HlovetMobilePreview(
     oauthResultToken: String? = null,
@@ -669,6 +692,7 @@ private fun HlovetMobilePreview(
     onNotificationIntentConsumed: () -> Unit = {},
     onPortalIntentConsumed: () -> Unit = {},
 ) {
+    // 页面位置和待恢复目标只属于当前宿主，外观更新不应重建这些业务状态。
     var selectedTab by remember { mutableIntStateOf(0) }
     var discoveryInitialMode by remember { mutableStateOf("推荐") }
     var discoveryInitialQuery by remember { mutableStateOf("") }
@@ -708,6 +732,9 @@ private fun HlovetMobilePreview(
     var loadState by remember { mutableStateOf<PreviewLoadState>(PreviewLoadState.Loading) }
     var backgroundBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var session by remember { mutableStateOf<NativeSession?>(null) }
+    // 写后只刷新公共外观，按令牌隔离响应，不能用首页 Loading 状态卸载正在编辑的设置页。
+    var siteAppearanceRefreshKey by remember(session?.accessToken) { mutableIntStateOf(0) }
+    var siteAppearance by remember(session?.accessToken) { mutableStateOf<NativeSiteAppearance?>(null) }
     var sessionRestoreComplete by remember { mutableStateOf(false) }
     var offlineMigrationReadyOwner by remember { mutableStateOf<String?>(null) }
     var offlineLegacyOwner by remember { mutableStateOf<String?>(null) }
@@ -720,7 +747,9 @@ private fun HlovetMobilePreview(
     var reputationSummary by remember { mutableStateOf<NativeReputationSummary?>(null) }
     var reputationLoading by remember { mutableStateOf(false) }
     var reputationError by remember { mutableStateOf<String?>(null) }
-    var loginVisible by remember { mutableStateOf(false) }
+    var loginVisible by remember {
+        mutableStateOf(shouldShowNativeLoginForOAuth(oauthResultToken, oauthErrorMessage, oauthReturnTo) || passwordResetToken != null)
+    }
     var credentialReturnState by remember { mutableStateOf(NativeCredentialReturnState()) }
     var loginInitialStep by remember { mutableStateOf<NativeLoginStep>(NativeLoginStep.Credentials) }
     var onboardingState by remember { mutableStateOf<NativeOnboardingState?>(null) }
@@ -733,6 +762,7 @@ private fun HlovetMobilePreview(
         mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
     }
     val scope = rememberCoroutineScope()
+    val previewCacheWriteMutex = remember { Mutex() }
 
     LaunchedEffect(session?.locale) {
         if (session != null) {
@@ -752,6 +782,15 @@ private fun HlovetMobilePreview(
         // 登录失效等异步结果也可能来自工作线程，不能让反馈本身导致页面崩溃。
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** 为 cacheOwner 保存 data 并合并最新公共外观；与写后刷新串行，避免迟到首页覆盖新背景缓存。 */
+    suspend fun savePreviewWithCurrentAppearance(data: PreviewData, cacheOwner: String) {
+        // 先取得宿主写锁再读取外观，保证两条保存路径无论调度顺序如何都采用最新已确认值。
+        previewCacheWriteMutex.withLock {
+            val current = siteAppearance?.applyTo(data) ?: data
+            withContext(Dispatchers.IO) { NativeOfflineCache.savePreview(context, current, cacheOwner) }
         }
     }
 
@@ -1354,13 +1393,17 @@ private fun HlovetMobilePreview(
         }
     }
 
-    LaunchedEffect(oauthResultToken, oauthErrorMessage, oauthReturnTo, passwordResetToken, session?.userId) {
+    LaunchedEffect(oauthResultToken, oauthErrorMessage, oauthReturnTo, passwordResetToken, session?.userId, sessionRestoreComplete) {
         // A Google callback started from integrations stays on that page. All
         // other callbacks enter the native authentication flow, including cold starts.
         if (oauthReturnTo == "/profile/integrations" && session != null && (oauthResultToken != null || !oauthErrorMessage.isNullOrBlank())) {
             loginVisible = false
             accountTarget = AccountTarget.Integrations
-        } else if (oauthResultToken != null || passwordResetToken != null) {
+        } else if (oauthReturnTo == "/profile/integrations" && sessionRestoreComplete && session == null && (oauthResultToken != null || !oauthErrorMessage.isNullOrBlank())) {
+            // 关联回调遇到过期会话时等待冷启动恢复结束，再把失败结果交给登录层消费，不能静默丢掉入口。
+            loginInitialStep = NativeLoginStep.Credentials
+            loginVisible = true
+        } else if (shouldShowNativeLoginForOAuth(oauthResultToken, oauthErrorMessage, oauthReturnTo) || passwordResetToken != null) {
             loginInitialStep = NativeLoginStep.Credentials
             loginVisible = true
         }
@@ -1475,7 +1518,10 @@ private fun HlovetMobilePreview(
     val nativeCallLauncher = NativeGlobalCallHost(
         session = session,
         onNotice = ::showNativeNotice,
-        onReauthenticate = { complete -> requestSocketReauthentication { complete(it?.accessToken) } },
+        onReauthenticate = { complete ->
+            // Socket 回调在事件线程触发；刷新等待队列和 Compose 会话统一由主线程协调。
+            scope.launch { requestSocketReauthentication { complete(it?.accessToken) } }
+        },
     )
 
     LaunchedEffect(Unit) {
@@ -1679,17 +1725,42 @@ private fun HlovetMobilePreview(
                 }
             },
             fetch = { PreviewApi.load(accessToken) },
-            save = { data -> withContext(Dispatchers.IO) { NativeOfflineCache.savePreview(context, data, cacheOwner) } },
+            save = { data -> savePreviewWithCurrentAppearance(data, cacheOwner) },
         ).collect { state ->
-            if (state is PreviewLoadState.Ready) {
-                HlovetUi.applyAppearance(session?.appearance ?: state.data.appearance)
+            // 外观覆盖只属于当前令牌；内容刷新仍保留原有在线/缓存状态语义。
+            val merged = if (state is PreviewLoadState.Ready) state.copy(data = siteAppearance?.applyTo(state.data) ?: state.data) else state
+            if (merged is PreviewLoadState.Ready) {
+                HlovetUi.applyAppearance(session?.appearance ?: merged.data.appearance)
             }
-            loadState = state
+            loadState = merged
         }
     }
-    LaunchedEffect(loadState) {
-        val data = (loadState as? PreviewLoadState.Ready)?.data ?: return@LaunchedEffect
-        backgroundBitmap = data.backgroundUrl?.let { url -> withContext(Dispatchers.IO) { NativeOfflineCache.loadBitmap(context, url) } }
+    LaunchedEffect(session?.accessToken, siteAppearanceRefreshKey) {
+        // 设置页读写确认后才刷新；连续操作或身份切换取消旧请求，不允许迟到结果覆盖最新背景。
+        if (siteAppearanceRefreshKey == 0) return@LaunchedEffect
+        val cacheOwner = NativeOfflineOwner.forSession(session)
+        try {
+            val refreshed = PreviewApi.loadSiteAppearance(session?.accessToken)
+            siteAppearance = refreshed
+            HlovetUi.applyAppearance(session?.appearance ?: refreshed.appearance)
+            val ready = loadState as? PreviewLoadState.Ready
+            if (ready != null) {
+                val data = refreshed.applyTo(ready.data)
+                loadState = ready.copy(data = data)
+                savePreviewWithCurrentAppearance(data, cacheOwner)
+            }
+        } catch (exception: CancellationException) {
+            // 请求取消只表示已被更新操作取代，不能显示刷新失败或清除已显示背景。
+            throw exception
+        } catch (_: Exception) {
+            // 配置写入已成功，外观读取失败不能伪装成保存失败或销毁当前草稿。
+            showNativeNotice(nativePhrase("全局外观暂未同步，请刷新站点设置重试。", "The appearance could not sync. Refresh site settings to retry."))
+        }
+    }
+    val effectiveBackgroundUrl = if (siteAppearance != null) siteAppearance?.backgroundUrl else (loadState as? PreviewLoadState.Ready)?.data?.backgroundUrl
+    LaunchedEffect(effectiveBackgroundUrl) {
+        // 相同图片不因列表或外观参数刷新反复解码；URL 变化时旧加载任务不能覆盖新结果。
+        backgroundBitmap = effectiveBackgroundUrl?.let { url -> withContext(Dispatchers.IO) { NativeOfflineCache.loadBitmap(context, url) } }
     }
     LaunchedEffect(session?.accessToken, session?.username, session?.profileBio) {
         val currentSession = session ?: run {
@@ -1801,7 +1872,7 @@ private fun HlovetMobilePreview(
         Box(Modifier.fillMaxSize()) {
             val backgroundPainter = backgroundBitmap?.asImageBitmap()?.let(::BitmapPainter)
             if (backgroundPainter != null) {
-                Image(backgroundPainter, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().hazeSource(hazeState))
+                Image(backgroundPainter, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().testTag("native-site-background").hazeSource(hazeState))
             } else {
                 Image(painterResource(id = R.drawable.hlovet_city_lights), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().hazeSource(hazeState))
             }
@@ -2305,6 +2376,7 @@ private fun HlovetMobilePreview(
                         NativeAdminSettingsScreen(
                             session = session,
                             onBack = { accountTarget = AccountTarget.AdminHome },
+                            onSiteAppearanceChanged = { siteAppearanceRefreshKey += 1 },
                         )
                     } else if (accountTarget == AccountTarget.AdminAi) {
                         NativeAdminAiScreen(
@@ -2422,7 +2494,10 @@ private fun HlovetMobilePreview(
                         session = session,
                         callLauncher = nativeCallLauncher,
                         onBack = { conversationTarget = null },
-                        onReauthenticate = { complete -> requestSocketReauthentication { complete(it?.accessToken) } },
+                        onReauthenticate = { complete ->
+                            // 与全局通话共用主线程刷新队列，不并发轮换同一个 refresh token。
+                            scope.launch { requestSocketReauthentication { complete(it?.accessToken) } }
+                        },
                     )
                 } else if (adminPreviewArticleId != null && session != null) {
                     NativeAdminArticlePreviewScreen(
@@ -2726,6 +2801,10 @@ private fun NativeLoginScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
+    // OAuth 回调消费期间隐藏登录表单，避免成功回调先闪出密码登录卡片。
+    var oauthProcessing by remember {
+        mutableStateOf(!oauthResultToken.isNullOrBlank() && oauthErrorMessage.isNullOrBlank())
+    }
     var googleAvailable by remember { mutableStateOf<Boolean?>(null) }
     var googleProviderError by remember { mutableStateOf<String?>(null) }
     var googleProviderRetryKey by remember { mutableIntStateOf(0) }
@@ -2842,26 +2921,36 @@ private fun NativeLoginScreen(
             try {
                 when (val result = withContext(Dispatchers.IO) { action() }) {
                     is NativeAuthResult.Authenticated -> {
+                        // 成功后由宿主切换到首页，不能再让回调中的认证遮罩停留在页面上。
+                        oauthProcessing = false
                         HlovetUi.applyAppearance(result.session.appearance)
                         loginTurnstileRequired = false
                         loginTurnstileToken = ""
                         onAuthenticated(result.session)
                     }
                     is NativeAuthResult.DeviceVerification -> {
+                        // 需要二次验证时再恢复认证界面，让用户看到正确的验证步骤。
+                        oauthProcessing = false
                         step = NativeLoginStep.Device(result.challengeToken, result.emailHint, result.retryAfterSeconds)
                         deviceRetryAfter = result.retryAfterSeconds
                         code = ""
                     }
                     is NativeAuthResult.TotpVerification -> {
+                        // TOTP 页面是明确的下一步，不应继续显示 OAuth 处理中状态。
+                        oauthProcessing = false
                         step = NativeLoginStep.Totp(result.challengeToken)
                         totpRecoveryMode = false
                         code = ""
                     }
                     is NativeAuthResult.GoogleLinkRequired -> {
+                        // 同邮箱关联需要用户选择验证方式，因此恢复登录卡片展示关联选项。
+                        oauthProcessing = false
                         step = NativeLoginStep.GoogleLink(result.pendingToken, result.email, result.methods)
                     }
                 }
             } catch (exception: Exception) {
+                // 回调失败时保留登录页和错误信息，允许用户重新选择密码或其他入口。
+                oauthProcessing = false
                 if (step == NativeLoginStep.Credentials && exception is NativeAuthHttpException && exception.statusCode == 428) {
                     loginTurnstileRequired = true
                     loginTurnstileToken = ""
@@ -3052,12 +3141,15 @@ private fun NativeLoginScreen(
     LaunchedEffect(oauthResultToken, oauthErrorMessage) {
         if (oauthResultToken == null && oauthErrorMessage.isNullOrBlank()) return@LaunchedEffect
         val token = oauthResultToken.orEmpty()
+        // 在消费入口前先进入处理中状态，避免宿主清空 token 后出现一帧普通登录表单。
+        oauthProcessing = oauthErrorMessage.isNullOrBlank() && token.isNotBlank()
         onOAuthResultConsumed()
         if (!oauthErrorMessage.isNullOrBlank()) {
             error = oauthErrorMessage
             return@LaunchedEffect
         }
         if (token.isBlank()) {
+            oauthProcessing = false
             error = nativePhrase("Google 登录回调无效，请重新发起登录。", "The Google sign-in callback is invalid. Start sign-in again.")
             return@LaunchedEffect
         }
@@ -3090,14 +3182,14 @@ private fun NativeLoginScreen(
                 val options = withContext(Dispatchers.IO) { NativeAuthApi.passkeyLoginOptions() }
                 // 系统凭据页接管返回键，避免返回后同一事件关闭登录页面。
                 onCredentialPromptStateChanged(true)
-                val credentialResult = withTimeout(20_000L) {
-                    credentialManager.getCredential(
-                        context = context,
-                        request = GetCredentialRequest(
-                            credentialOptions = listOf(GetPublicKeyCredentialOption(options.requestJson)),
-                        ),
-                    )
-                }
+                val credentialResult = requestNativeCredential(
+                    credentialManager = credentialManager,
+                    context = context,
+                    request = GetCredentialRequest(
+                        credentialOptions = listOf(GetPublicKeyCredentialOption(options.requestJson)),
+                        preferImmediatelyAvailableCredentials = true,
+                    ),
+                )
                 val credential = credentialResult.credential as? PublicKeyCredential
                     ?: throw IllegalStateException(nativePhrase("未返回通行密钥凭据", "No passkey credential was returned"))
                 when (val result = withContext(Dispatchers.IO) {
@@ -3169,14 +3261,14 @@ private fun NativeLoginScreen(
                 val options = withContext(Dispatchers.IO) { NativeAuthApi.googleLinkPasskeyOptions(current.pendingToken) }
                 // Google 关联验证同样通过系统凭据页完成，沿用登录页的返回保护。
                 onCredentialPromptStateChanged(true)
-                val credentialResult = withTimeout(20_000L) {
-                    credentialManager.getCredential(
-                        context = context,
-                        request = GetCredentialRequest(
-                            credentialOptions = listOf(GetPublicKeyCredentialOption(options.requestJson)),
-                        ),
-                    )
-                }
+                val credentialResult = requestNativeCredential(
+                    credentialManager = credentialManager,
+                    context = context,
+                    request = GetCredentialRequest(
+                        credentialOptions = listOf(GetPublicKeyCredentialOption(options.requestJson)),
+                        preferImmediatelyAvailableCredentials = true,
+                    ),
+                )
                 val credential = credentialResult.credential as? PublicKeyCredential
                     ?: throw IllegalStateException(nativePhrase("未返回通行密钥凭据", "No passkey credential was returned"))
                 when (val result = withContext(Dispatchers.IO) {
@@ -3245,8 +3337,31 @@ private fun NativeLoginScreen(
         else -> nativePhrase("继续完成账号安全验证", "Continue account security verification")
     }
 
-    Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
-        GlassCard(modifier = Modifier.fillMaxWidth(), shape = HlovetUi.cardShape) {
+    if (oauthProcessing) {
+        // Google 成功回调只保留明确的处理中反馈，认证成功后由宿主直接切换首页。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(20.dp)
+                .testTag("native-oauth-processing"),
+            contentAlignment = Alignment.Center,
+        ) {
+            GlassCard(modifier = Modifier.fillMaxWidth(), shape = HlovetUi.cardShape) {
+                Column(
+                    Modifier.padding(22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CircularProgressIndicator(color = Accent)
+                    Text(nativePhrase("正在完成 Google 登录…", "Completing Google sign-in…"), fontWeight = FontWeight.SemiBold)
+                    Text(nativePhrase("认证成功后将直接进入首页。", "You will go directly to the home screen after authentication."), color = TextMuted, fontSize = 12.sp)
+                }
+            }
+        }
+    } else {
+        // 普通登录、注册和二次验证继续使用同一张可滚动认证卡片。
+        Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
+            GlassCard(modifier = Modifier.fillMaxWidth(), shape = HlovetUi.cardShape) {
             Column(
                 Modifier
                     .padding(22.dp)
@@ -3816,6 +3931,7 @@ private fun NativeLoginScreen(
                 if (!notice.isNullOrBlank()) {
                     Text(notice!!, color = Accent, fontSize = 12.sp)
                 }
+            }
             }
         }
     }
@@ -7499,12 +7615,14 @@ private fun MessagesScreen(
     }
 }
 
+/** session 约束全局通话身份；onNotice 展示结果，onReauthenticate 复用宿主刷新认证，不因页面或面板切换重建媒体。 */
 @Composable
 private fun NativeGlobalCallHost(
     session: NativeSession?,
     onNotice: (String) -> Unit,
     onReauthenticate: (((String?) -> Unit) -> Unit),
 ): NativeCallLauncher {
+    // 全局媒体和信令按登录会话持有；最小化状态交给展示层，不参与这些资源的生命周期。
     val accessToken = session?.accessToken
     val sessionKey = session?.refreshToken?.substringBefore('.')?.takeIf { it.isNotBlank() }
         ?: session?.username.orEmpty()
@@ -7520,13 +7638,16 @@ private fun NativeGlobalCallHost(
     var callClient by remember(sessionKey) { mutableStateOf<NativeWebRtcCall?>(null) }
     var localVideoTrack by remember(sessionKey) { mutableStateOf<VideoTrack?>(null) }
     var remoteVideoTrack by remember(sessionKey) { mutableStateOf<VideoTrack?>(null) }
-    var pendingPermissionConversationId by remember(sessionKey) { mutableStateOf<Int?>(null) }
-    var pendingPermissionCallType by remember(sessionKey) { mutableStateOf<String?>(null) }
-    var pendingPermissionAccept by remember(sessionKey) { mutableStateOf(false) }
+    var pendingCallPermission by remember(sessionKey) { mutableStateOf<NativeCallPermissionRequest?>(null) }
     var terminatedCallId by remember(sessionKey) { mutableIntStateOf(0) }
+    var callCleanupVersion by remember(sessionKey) { mutableIntStateOf(0) }
+    val callLifetime = remember(sessionKey) { NativeCallLifetime() }
 
     /** 先清空界面状态，再在后台释放 WebRTC 资源，避免底层释放阻塞 Compose 重组。 */
     fun clearCall() {
+        // 挂断、断网和页面退出共用失效边界，先阻止在途配置、回执及媒体回调恢复旧通话。
+        callLifetime.invalidate()
+        terminatedCallId = callSession?.id ?: terminatedCallId
         val client = callClient
         callClient = null
         localVideoTrack = null
@@ -7541,23 +7662,31 @@ private fun NativeGlobalCallHost(
 
     val latestSocket = rememberUpdatedState(chatSocket)
     val latestCallSession = rememberUpdatedState(callSession)
-    val latestCallClient = rememberUpdatedState(callClient)
-    val latestCallPreparing = rememberUpdatedState(callPreparing)
-    val latestClearCall = rememberUpdatedState(::clearCall)
     val latestNotice = rememberUpdatedState(onNotice)
+    val latestReauthenticate = rememberUpdatedState(onReauthenticate)
 
+    /** 异步回调只请求清理；由当前组合读取实际媒体/面板，避免旧局部函数捕获初始空状态。 */
+    fun requestCallCleanup() {
+        // 立即作废迟到结果，但保留占用直到当前 Compose 效应完成真实清理。
+        callLifetime.invalidate()
+        callCleanupVersion += 1
+    }
+
+    /** 结束当前通话并展示 message；仅由仍有效的媒体尝试或当前界面调用。 */
     fun handleCallError(message: String) {
+        // 先通知服务端，再清空本端；断网时服务端自行通过 Socket 断开收尾。
         latestCallSession.value?.id?.let { latestSocket.value?.endCall(it, "failed") }
-        clearCall()
+        requestCallCleanup()
         onNotice(message)
     }
 
     val latestHandleCallError = rememberUpdatedState(::handleCallError)
 
-    /** 从服务端读取通话 ICE 配置，并应用仅对 Debug 生效的短时本机测试覆盖。 */
-    suspend fun buildCallClient(type: String, token: String): NativeWebRtcCall {
+    /** 为 type/token 对应的 attempt 读取 ICE 并创建媒体；等待期间失效时返回 null，不启动设备。 */
+    suspend fun buildCallClient(type: String, token: String, attempt: Long): NativeWebRtcCall? {
         // 配置请求放在 IO 线程；会话和业务数据仍由当前来源对应的服务端返回。
         val configuredIceServers = withContext(Dispatchers.IO) { NativeSocialApi.getCallIceServers(token) }
+        if (!callLifetime.isCurrent(attempt) || !connected) return null
         val iceConfiguration = NativeCallIceServerTestOverride.resolve(context, configuredIceServers)
 
         // 测试覆盖仅供验证 TURN 媒体通路，Release 构建由 resolver 固定回退到服务端配置。
@@ -7567,25 +7696,32 @@ private fun NativeGlobalCallHost(
             iceServers = iceConfiguration.servers,
             forceRelay = iceConfiguration.forceRelay,
             onSignal = { signal ->
-                latestCallSession.value?.id?.let { callId ->
-                    latestSocket.value?.sendCallSignal(callId, signal)
+                scope.launch {
+                    // 媒体线程已经投递的旧信令不能发送到下一通电话的编号。
+                    if (!callLifetime.isCurrent(attempt)) return@launch
+                    callSession?.id?.let { callId -> latestSocket.value?.sendCallSignal(callId, signal) }
                 }
             },
             onConnected = {
                 scope.launch {
-                    val callId = latestCallSession.value?.id ?: return@launch
+                    // ICE 与总状态回调可能晚于 disconnect；不能将新通话提前标记为活跃。
+                    if (!callLifetime.isCurrent(attempt)) return@launch
+                    val callId = callSession?.id ?: return@launch
                     callPhase = "active"
                     latestSocket.value?.markCallConnected(callId)
                 }
             },
-            onRemoteVideo = { track -> scope.launch { remoteVideoTrack = track } },
-            onError = { message -> scope.launch { latestHandleCallError.value(message) } },
+            onRemoteVideo = { track -> scope.launch { if (callLifetime.isCurrent(attempt)) remoteVideoTrack = track } },
+            onNotice = { message -> scope.launch { if (callLifetime.isCurrent(attempt)) latestNotice.value(message) } },
+            onError = { message -> scope.launch { if (callLifetime.isCurrent(attempt)) latestHandleCallError.value(message) } },
         )
         client.start()
         return client
     }
 
+    /** 为 conversationId 发起 type 通话；每次尝试绑定代次，断网后的迟到响应只收尾不恢复面板。 */
     fun startNativeCall(conversationId: Int, type: String) {
+        // 发起入口先验证身份、占用和实际聊天连接，避免未连上时启动麦克风。
         val token = accessToken ?: return
         if (callSession != null || callPreparing) {
             onNotice(nativePhrase("当前已有一通电话正在处理。", "Another call is already in progress."))
@@ -7597,55 +7733,69 @@ private fun NativeGlobalCallHost(
             return
         }
         terminatedCallId = 0
+        val attempt = callLifetime.begin()
+        callPreparing = true
         scope.launch {
-            callPreparing = true
             try {
-                val client = buildCallClient(type, token)
+                // ICE 读取可能跨越断网；无效结果不会创建媒体，也不会向重连后的 Socket 自动发起通话。
+                val client = buildCallClient(type, token, attempt) ?: return@launch
                 callClient = client
                 localVideoTrack = client.localVideoTrack
                 callCameraEnabled = type == "video"
                 socket.startCall(conversationId, type) { ok, call, message ->
-                    scope.launch {
+                    scope.launch response@ {
+                        // 服务端已创建但本地已取消的请求需要收尾，不能把迟到成功当作当前呼叫。
+                        if (!callLifetime.isCurrent(attempt)) {
+                            if (ok && call != null) socket.endCall(call.id, "failed")
+                            return@response
+                        }
                         if (!ok || call == null) {
-                            client.close()
-                            if (callClient === client) {
-                                callClient = null
-                                localVideoTrack = null
-                                remoteVideoTrack = null
-                            }
-                    onNotice(message ?: nativePhrase("通话发起失败。", "Failed to start the call."))
+                            requestCallCleanup()
+                            onNotice(message ?: nativePhrase("通话发起失败。", "Failed to start the call."))
                         } else {
                             callSession = call
                             callPhase = "outgoing"
+                            callPreparing = false
                         }
-                        callPreparing = false
                     }
                 }
             } catch (exception: Exception) {
-                clearCall()
-                onNotice(exception.message ?: nativePhrase("通话发起失败。", "Failed to start the call."))
+                // 旧请求的网络异常不得清除已经到达的新来电或重复显示旧失败。
+                if (callLifetime.isCurrent(attempt)) {
+                    requestCallCleanup()
+                    onNotice(exception.message ?: nativePhrase("通话发起失败。", "Failed to start the call."))
+                }
             }
         }
     }
 
+    /** 仅接听当前仍在响铃且连接可用的来电，配置和回执均绑定原操作代次。 */
     fun acceptNativeCall() {
+        // 来电在授权或配置等待期间可能被撤销，不能只依据曾经存在的面板继续接听。
         val token = accessToken ?: return
         val incoming = callSession ?: return
         val socket = chatSocket ?: return
-        if (callPreparing) return
+        if (callPreparing || !connected || callPhase != "incoming") return
         terminatedCallId = 0
+        val attempt = callLifetime.begin()
+        callPreparing = true
         scope.launch {
-            callPreparing = true
             try {
-                val client = buildCallClient(incoming.type, token)
+                // 断线清理会作废本次 ICE 请求，恢复网络后必须由用户再次明确操作。
+                val client = buildCallClient(incoming.type, token, attempt) ?: return@launch
                 callClient = client
                 localVideoTrack = client.localVideoTrack
                 callCameraEnabled = incoming.type == "video"
                 socket.respondCall(incoming.id, true) { ok, call, message ->
-                    scope.launch {
+                    scope.launch response@ {
+                        // 接听成功迟于断线或对方取消时只终止原通话，不覆盖更新的界面。
+                        if (!callLifetime.isCurrent(attempt)) {
+                            if (ok && call != null) socket.endCall(call.id, "failed")
+                            return@response
+                        }
                         if (!ok || call == null) {
-                            clearCall()
-                    onNotice(message ?: nativePhrase("接听失败。", "Failed to answer the call."))
+                            requestCallCleanup()
+                            onNotice(message ?: nativePhrase("接听失败。", "Failed to answer the call."))
                         } else {
                             callSession = call
                             callPhase = "connecting"
@@ -7654,8 +7804,11 @@ private fun NativeGlobalCallHost(
                     }
                 }
             } catch (exception: Exception) {
-                clearCall()
-                onNotice(exception.message ?: nativePhrase("无法接听通话。", "Unable to answer the call."))
+                // 异常也受相同代次约束，不将旧通话错误应用到重连后的下一通。
+                if (callLifetime.isCurrent(attempt)) {
+                    requestCallCleanup()
+                    onNotice(exception.message ?: nativePhrase("无法接听通话。", "Unable to answer the call."))
+                }
             }
         }
     }
@@ -7663,67 +7816,77 @@ private fun NativeGlobalCallHost(
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) { result ->
-        val conversationId = pendingPermissionConversationId
-        val type = pendingPermissionCallType
-        val accepting = pendingPermissionAccept
-        pendingPermissionConversationId = null
-        pendingPermissionCallType = null
-        pendingPermissionAccept = false
-        if (type == null) return@rememberLauncherForActivityResult
-        if (result.values.all { it }) {
-            if (accepting) acceptNativeCall()
-            else if (conversationId != null) startNativeCall(conversationId, type)
+        // 授权窗口期间可能退出账号、取消或换成新来电；只消费原始请求，过期结果直接作废。
+        val request = pendingCallPermission ?: return@rememberLauncherForActivityResult
+        pendingCallPermission = null
+        if (!connected || !request.matchesCurrentCall(sessionKey, callSession, callPhase, terminatedCallId, callLifetime.version)) return@rememberLauncherForActivityResult
+        val allGranted = nativeCallPermissionsGranted(request.type, result) { permission ->
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        }
+        if (allGranted) {
+            // 仅在用户同意且系统实际授予全部设备权限后，继续原来的发起或接听动作。
+            if (request.incomingCallId != null) acceptNativeCall()
+            else startNativeCall(request.conversationId, request.type)
         } else {
+            // 拒绝和空回调都保留当前来电的明确选择，不自动拒接或误显示通话成功。
             onNotice(
                 nativePhrase(
-                    "通话需要麦克风${if (type == "video") "和摄像头" else ""}权限。",
-                    "This call needs ${if (type == "video") "microphone and camera" else "microphone"} permission.",
+                    "通话需要麦克风${if (request.type == "video") "和摄像头" else ""}权限。",
+                    "This call needs ${if (request.type == "video") "microphone and camera" else "microphone"} permission.",
                 ),
             )
         }
     }
 
-    fun requiredPermissions(type: String): Array<String> = if (type == "video") {
-        arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA)
-    } else {
-        arrayOf(Manifest.permission.RECORD_AUDIO)
-    }
-
+    /** 为 conversationId 发起 type 通话；授权请求绑定当前账号，不能覆盖已到达的另一通电话。 */
     fun requestNativeCall(conversationId: Int, type: String) {
-        val missing = requiredPermissions(type).filter { permission ->
+        // 系统面板尚未返回时不重复申请；已有通话时使用与直接发起相同的业务提示。
+        if (pendingCallPermission != null) return
+        if (callSession != null || callPreparing) {
+            onNotice(nativePhrase("当前已有一通电话正在处理。", "Another call is already in progress."))
+            return
+        }
+        val missing = nativeCallRequiredPermissions(type).filter { permission ->
             ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) {
+            // 已有全部设备权限时不重复弹出系统窗口，但仍经过正常通话业务校验。
             startNativeCall(conversationId, type)
         } else {
-            pendingPermissionConversationId = conversationId
-            pendingPermissionCallType = type
-            pendingPermissionAccept = false
+            // 不清除过期请求来抢占系统窗口；回调消费后才能申请下一次授权。
+            pendingCallPermission = NativeCallPermissionRequest(sessionKey, conversationId, type, connectionVersion = callLifetime.version)
             permissionLauncher.launch(missing.toTypedArray())
         }
     }
 
+    /** 只为当前仍在响铃的来电申请设备权限，授权完成后必须再次核对原始通话编号。 */
     fun requestAcceptNativeCall() {
+        // 连接中、已结束或系统面板尚未返回的通话不能重复创建媒体客户端。
+        if (pendingCallPermission != null || callPreparing || callPhase != "incoming") return
         val incoming = callSession ?: return
-        val missing = requiredPermissions(incoming.type).filter { permission ->
+        val missing = nativeCallRequiredPermissions(incoming.type).filter { permission ->
             ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) {
+            // 权限完整时立即接听，但使用同一个服务端原始来电而不重新发起通话。
             acceptNativeCall()
         } else {
-            pendingPermissionConversationId = incoming.conversationId
-            pendingPermissionCallType = incoming.type
-            pendingPermissionAccept = true
+            // 同一会话可连续收到不同来电，必须绑定 callId 而不能仅保存 conversationId。
+            pendingCallPermission = NativeCallPermissionRequest(sessionKey, incoming.conversationId, incoming.type, incoming.id, callLifetime.version)
             permissionLauncher.launch(missing.toTypedArray())
         }
     }
 
+    /** 用户明确拒绝当前来电，发送拒接信令后立即失效本端异步结果。 */
     fun declineNativeCall() {
+        // 本地不等待回执才关闭；后续来电使用新的代次。
         callSession?.let { chatSocket?.respondCall(it.id, false) }
         clearCall()
     }
 
+    /** 用户挂断当前通话，释放媒体且不允许断网前的回执重新打开面板。 */
     fun endNativeCall() {
+        // 已失去网络时服务端通过 disconnect 收尾，重连后不补发旧呼叫动作。
         callSession?.let { chatSocket?.endCall(it.id) }
         clearCall()
     }
@@ -7733,17 +7896,31 @@ private fun NativeGlobalCallHost(
         if (token.isNullOrBlank()) {
             onDispose { clearCall() }
         } else {
+            var attached = true
             val instance = NativeChatSocket(
                 accessToken = token,
                 onMessage = {},
                 onRead = { _, _ -> },
                 onError = { message ->
-                    if (latestCallSession.value != null) scope.launch { latestNotice.value(message) }
+                    scope.launch { if (attached && callSession != null) latestNotice.value(message) }
                 },
-                onConnectionChanged = { value -> scope.launch { connected = value } },
+                onConnectionChanged = { value ->
+                    scope.launch {
+                        // 与 PC 一致：信令连接中断即结束本端通话，恢复只恢复聊天，不重放旧通话。
+                        if (!attached) return@launch
+                        connected = value
+                        if (!value) {
+                            val hadCall = callSession != null || callPreparing
+                            terminatedCallId = callSession?.id ?: terminatedCallId
+                            requestCallCleanup()
+                            if (hadCall) latestNotice.value(nativePhrase("聊天连接已断开，当前通话已结束。", "Chat connection was lost and the current call ended."))
+                        }
+                    }
+                },
                 onCallIncoming = { incoming ->
                     scope.launch {
-                        if (incoming.id != terminatedCallId && latestCallSession.value == null && !latestCallPreparing.value) {
+                        // 服务端已鉴权的来电可能先于 ready 到达；不能因本地 ready 尚未重组而丢弃有效邀请。
+                        if (attached && incoming.id != terminatedCallId && callSession == null && !callPreparing) {
                             callSession = incoming
                             callPhase = "incoming"
                         }
@@ -7752,24 +7929,25 @@ private fun NativeGlobalCallHost(
                 onCallAccepted = { accepted ->
                     if (accepted.id != terminatedCallId && accepted.id == latestCallSession.value?.id) {
                         scope.launch {
-                            if (accepted.id == terminatedCallId) {
+                            if (!attached || !connected || accepted.id == terminatedCallId || callSession?.id != accepted.id) {
                                 return@launch
                             }
                             callSession = accepted
                             callPhase = "connecting"
-                            latestCallClient.value?.createOffer()
+                            callClient?.createOffer()
                         }
                     }
                 },
-                onCallClaimed = { claimed ->
+                onCallClaimed = { claimed, acceptedHere ->
                     if (claimed.id != terminatedCallId && claimed.id == latestCallSession.value?.id) {
                         scope.launch {
-                            if (claimed.id == terminatedCallId) {
+                            if (!attached || !connected || claimed.id == terminatedCallId || callSession?.id != claimed.id) {
                                 return@launch
                             }
-                            if (latestCallClient.value == null) {
-                                latestClearCall.value()
-                        latestNotice.value(nativePhrase("这通电话已在其他设备接听。", "This call was answered on another device."))
+                            // 媒体已赋值但尚未重组时快照仍可能为空；接听归属只认实际连接编号。
+                            if (!acceptedHere) {
+                                requestCallCleanup()
+                                latestNotice.value(nativePhrase("这通电话已在其他设备接听。", "This call was answered on another device."))
                             } else {
                                 callSession = claimed
                                 callPhase = "connecting"
@@ -7779,13 +7957,13 @@ private fun NativeGlobalCallHost(
                 },
                 onCallSignal = { callId, signal ->
                     if (callId == latestCallSession.value?.id) {
-                        scope.launch { latestCallClient.value?.handleSignal(signal) }
+                        scope.launch { if (attached && connected && callSession?.id == callId) callClient?.handleSignal(signal) }
                     }
                 },
                 onCallActive = { active ->
                     if (active.id != terminatedCallId && active.id == latestCallSession.value?.id) {
                         scope.launch {
-                            if (active.id == terminatedCallId) {
+                            if (!attached || !connected || active.id == terminatedCallId || callSession?.id != active.id) {
                                 return@launch
                             }
                             callSession = active
@@ -7794,33 +7972,36 @@ private fun NativeGlobalCallHost(
                     }
                 },
                 onCallEnded = { ended ->
-                    val active = latestCallSession.value
-                    // 正常情况只按通话编号匹配；仅当响应缺少有效编号时才以同一私聊会话兜底。
-                    val matchesActiveCall = active != null && (
-                        ended.id == active.id ||
-                            (ended.id <= 0 && ended.conversationId == active.conversationId)
-                        )
-                    if (matchesActiveCall) {
-                        // 先同步标记结束 ID，缺少编号时回落到当前通话编号，阻止旧回调恢复面板。
-                        terminatedCallId = ended.id.takeIf { it > 0 } ?: active?.id ?: 0
-                        scope.launch {
+                    scope.launch {
+                        // 主线程核对当下的通话编号；退出账号或已换来电时，排队的旧结束事件必须忽略。
+                        if (!attached) return@launch
+                        val active = callSession
+                        val matchesActiveCall = active != null && (
+                            ended.id == active.id ||
+                                (ended.id <= 0 && ended.conversationId == active.conversationId)
+                            )
+                        if (matchesActiveCall) {
+                            terminatedCallId = ended.id.takeIf { it > 0 } ?: active?.id ?: 0
+                            requestCallCleanup()
                             latestNotice.value(
                                 when (ended.status) {
-                            "declined" -> nativePhrase("对方已拒绝通话。", "The call was declined.")
-                            "missed" -> nativePhrase("无人接听。", "The call was not answered.")
-                            "busy" -> nativePhrase("对方正在通话中。", "The other person is busy.")
-                            "failed" -> nativePhrase("通话连接失败。", "The call connection failed.")
-                            else -> nativePhrase("通话已结束。", "The call ended.")
+                                    "declined" -> nativePhrase("对方已拒绝通话。", "The call was declined.")
+                                    "missed" -> nativePhrase("无人接听。", "The call was not answered.")
+                                    "busy" -> nativePhrase("对方正在通话中。", "The other person is busy.")
+                                    "failed" -> nativePhrase("通话连接失败。", "The call connection failed.")
+                                    else -> nativePhrase("通话已结束。", "The call ended.")
                                 },
                             )
                         }
                     }
                 },
-                onReauthenticate = onReauthenticate,
+                onReauthenticate = { complete -> latestReauthenticate.value(complete) },
             )
             chatSocket = instance
             instance.connect()
             onDispose {
+                // 先使已排入主线程队列的旧 Socket 回调失效，再关闭连接及媒体。
+                attached = false
                 instance.close()
                 if (chatSocket === instance) chatSocket = null
                 connected = false
@@ -7829,62 +8010,47 @@ private fun NativeGlobalCallHost(
         }
     }
 
-    LaunchedEffect(terminatedCallId) {
-        val endedId = terminatedCallId
-        if (endedId <= 0 || callSession?.id != endedId) return@LaunchedEffect
-        // 结束事件只更新状态；在当前组合中清理，避免 Socket 回调持有旧的清理闭包。
-        clearCall()
+    LaunchedEffect(callCleanupVersion) {
+        // 清理函数必须从当前组合调用，Socket 回调只提交版本变化，不直接操作旧媒体引用。
+        if (callCleanupVersion > 0) clearCall()
     }
 
     LaunchedEffect(accessToken) {
         accessToken?.let { chatSocket?.updateAccessToken(it) }
     }
 
+    // 展示层收起/恢复只装卸视频渲染 View，不触碰当前 Socket、媒体轨道或服务端通话。
     callSession?.let { activeCall ->
-        Dialog(
-            onDismissRequest = {},
-            properties = DialogProperties(
-                dismissOnBackPress = false,
-                dismissOnClickOutside = false,
-                usePlatformDefaultWidth = false,
-            ),
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(Modifier.fillMaxWidth().widthIn(max = 520.dp)) {
-                    NativeCallPanel(
-                        call = activeCall,
-                        phase = callPhase.orEmpty(),
-                        preparing = callPreparing,
-                        localVideoTrack = localVideoTrack,
-                        remoteVideoTrack = remoteVideoTrack,
-                        eglContext = callClient?.eglContext,
-                        muted = callMuted,
-                        cameraEnabled = callCameraEnabled,
-                        onAccept = ::requestAcceptNativeCall,
-                        onDecline = ::declineNativeCall,
-                        onEnd = ::endNativeCall,
-                        onToggleMute = {
-                            callMuted = !callMuted
-                            callClient?.setMuted(callMuted)
-                        },
-                        onToggleCamera = {
-                            callCameraEnabled = !callCameraEnabled
-                            callClient?.setCameraEnabled(callCameraEnabled)
-                        },
-                        onSwitchCamera = { callClient?.switchCamera() },
-                    )
-                }
-            }
-        }
+        NativeCallOverlay(
+            call = activeCall,
+            phase = callPhase.orEmpty(),
+            preparing = callPreparing,
+            localVideoTrack = localVideoTrack,
+            remoteVideoTrack = remoteVideoTrack,
+            eglContext = callClient?.eglContext,
+            muted = callMuted,
+            cameraEnabled = callCameraEnabled,
+            onAccept = ::requestAcceptNativeCall,
+            onDecline = ::declineNativeCall,
+            onEnd = ::endNativeCall,
+            onToggleMute = {
+                callMuted = !callMuted
+                callClient?.setMuted(callMuted)
+            },
+            onToggleCamera = {
+                callCameraEnabled = !callCameraEnabled
+                callClient?.setCameraEnabled(callCameraEnabled)
+            },
+            onSwitchCamera = { callClient?.switchCamera() },
+            canSwitchCamera = callClient?.canSwitchCamera == true,
+        )
     }
 
     return NativeCallLauncher(
         connected = connected,
         active = callSession != null || callPreparing,
         start = ::requestNativeCall,
+        reconnect = { chatSocket?.reconnect() },
     )
 }
 
@@ -8164,6 +8330,7 @@ private fun ConversationScreen(
         mentionLoading = false
     }
 
+    val latestChatReauthenticate = rememberUpdatedState(onReauthenticate)
     DisposableEffect(sessionKey, conversationId) {
         val token = accessToken
         if (token.isNullOrBlank()) {
@@ -8217,8 +8384,12 @@ private fun ConversationScreen(
                     }
                 },
                 onError = { message -> scope.launch { error = message } },
-                onConnectionChanged = { value -> scope.launch { connected = value } },
-                onReauthenticate = onReauthenticate,
+                onConnectionChanged = { value -> scope.launch {
+                    // 恢复后的成功状态清除前一次断线错误，避免页面仍显示已经失效的失败提示。
+                    connected = value
+                    if (value) error = null
+                } },
+                onReauthenticate = { complete -> latestChatReauthenticate.value(complete) },
             )
             chatSocket = instance
             instance.connect()
@@ -8694,12 +8865,23 @@ private fun ConversationScreen(
                     IconButton(onClick = { conversationMenuOpen = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = nativePhrase("聊天设置", "Chat settings"))
                     }
-                    Icon(
-                        if (connected) Icons.Filled.Wifi else Icons.Filled.WifiOff,
-                        contentDescription = if (connected) nativePhrase("聊天已连接", "Chat connected") else nativePhrase("聊天未连接", "Chat disconnected"),
-                        tint = if (connected) Accent else TextMuted,
-                        modifier = Modifier.padding(end = 12.dp),
-                    )
+                    // 聊天和全局通话使用独立连接；任一未就绪都可通过同一入口刷新凭据并重试。
+                    if (connected && callLauncher.connected) {
+                        Icon(
+                            Icons.Filled.Wifi,
+                            contentDescription = nativePhrase("聊天已连接", "Chat connected"),
+                            tint = Accent,
+                            modifier = Modifier.padding(end = 12.dp),
+                        )
+                    } else {
+                        IconButton(onClick = {
+                            error = null
+                            chatSocket?.reconnect()
+                            callLauncher.reconnect()
+                        }) {
+                            Icon(Icons.Filled.WifiOff, contentDescription = nativePhrase("重新连接聊天", "Reconnect chat"), tint = TextMuted)
+                        }
+                    }
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
@@ -9294,11 +9476,16 @@ private fun ConversationScreen(
     }
 }
 
+/**
+ * 展示 call 与 phase/preparing 对应的通话状态；localVideoTrack/remoteVideoTrack 共用 eglContext。
+ * duration 回显接听时长；muted/cameraEnabled 回显媒体开关，canSwitchCamera 决定切换可用性；回调处理通话决策及媒体操作。
+ */
 @Composable
-private fun NativeCallPanel(
+internal fun NativeCallPanel(
     call: NativeCallSession,
     phase: String,
     preparing: Boolean,
+    duration: String?,
     localVideoTrack: VideoTrack?,
     remoteVideoTrack: VideoTrack?,
     eglContext: EglBase.Context?,
@@ -9310,13 +9497,19 @@ private fun NativeCallPanel(
     onToggleMute: () -> Unit,
     onToggleCamera: () -> Unit,
     onSwitchCamera: () -> Unit,
+    onMinimize: () -> Unit,
+    canSwitchCamera: Boolean = false,
 ) {
+    // 视频沿用大画面叠本地预览结构，语音复用已有头像加载与失败兜底，不申请额外摄像头资源。
     val isVideo = call.type == "video"
+    val userName = call.userName.ifBlank { nativePhrase("聊天用户", "Chat user") }
     GlassCard(
         modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp).fillMaxWidth(),
         shape = HlovetUi.cardShape,
     ) {
+        // 保留标题和控制区的实际高度，视频按剩余空间收缩，横屏或分屏时仍能直接操作。
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 标题区只展示对方身份和当前阶段；状态由全局通话宿主驱动。
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(if (isVideo) Icons.Filled.Videocam else Icons.Filled.Call, contentDescription = null, tint = Accent, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
@@ -9327,23 +9520,23 @@ private fun NativeCallPanel(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Text(call.userName, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(userName, modifier = Modifier.testTag("native-call-peer-name"), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(
-                    when {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(when {
                         preparing -> nativePhrase("准备中…", "Preparing...")
                         phase == "incoming" -> nativePhrase("来电", "Incoming call")
                         phase == "outgoing" -> nativePhrase("等待接听", "Waiting for answer")
                         phase == "active" -> nativePhrase("通话中", "In call")
                         else -> nativePhrase("连接中", "Connecting")
-                    },
-                    color = TextMuted,
-                    fontSize = 11.sp,
-                )
+                    }, color = TextMuted, fontSize = 11.sp)
+                    if (duration != null) Text(duration, modifier = Modifier.testTag("native-call-duration"), color = Accent, fontSize = 12.sp)
+                }
             }
+            // 本地预览使用独立的媒体叠放层，避免晚到的远端 Surface 遮盖已经显示的小画面。
             if (isVideo && eglContext != null) {
                 Box(
-                    modifier = Modifier.fillMaxWidth().height(220.dp),
+                    modifier = Modifier.weight(1f, fill = false).fillMaxWidth().height(220.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (remoteVideoTrack != null) {
@@ -9361,15 +9554,22 @@ private fun NativeCallPanel(
                             track = localVideoTrack,
                             eglContext = eglContext,
                             mirror = true,
-                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(width = 96.dp, height = 128.dp),
+                            overlay = true,
+                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).fillMaxHeight(.62f).aspectRatio(.75f),
                         )
                     }
                 }
             } else if (!isVideo) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    Avatar(call.userName.takeLast(2), Accent, large = true)
+                    NativeCoverImage(
+                        path = call.userAvatarUrl,
+                        modifier = Modifier.size(54.dp).clip(CircleShape).testTag("native-call-peer-avatar"),
+                        fallbackText = userName,
+                        tint = Accent,
+                    )
                 }
             }
+            // 来电仅提供接听/拒绝；连接后才允许操作媒体开关，挂断始终可用。
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
@@ -9398,46 +9598,18 @@ private fun NativeCallPanel(
                                 tint = if (cameraEnabled) Accent else TextMuted,
                             )
                         }
-                        IconButton(onClick = onSwitchCamera, enabled = phase == "active" || phase == "connecting", modifier = Modifier.size(42.dp)) {
-                            Icon(Icons.Filled.Cameraswitch, contentDescription = nativePhrase("切换摄像头", "Switch camera"), tint = Accent)
+                        IconButton(onClick = onSwitchCamera, enabled = canSwitchCamera && (phase == "active" || phase == "connecting"), modifier = Modifier.size(42.dp)) {
+                            Icon(Icons.Filled.Cameraswitch, contentDescription = nativePhrase("切换摄像头", "Switch camera"), tint = if (canSwitchCamera) Accent else TextMuted)
                         }
+                    }
+                    IconButton(onClick = onMinimize, modifier = Modifier.size(42.dp)) {
+                        Icon(Icons.Filled.CloseFullscreen, contentDescription = nativePhrase("最小化通话", "Minimize call"), tint = Accent)
                     }
                     IconButton(onClick = onEnd, modifier = Modifier.size(44.dp)) {
                         Icon(Icons.Filled.CallEnd, contentDescription = nativePhrase("结束通话", "End call"), tint = MaterialTheme.colorScheme.error)
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun NativeWebRtcVideoView(
-    track: VideoTrack?,
-    eglContext: EglBase.Context,
-    mirror: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    var renderer by remember(eglContext) { mutableStateOf<SurfaceViewRenderer?>(null) }
-    AndroidView(
-        modifier = modifier,
-        factory = { viewContext ->
-            SurfaceViewRenderer(viewContext).also {
-                it.init(eglContext, null)
-                it.setEnableHardwareScaler(true)
-                it.setMirror(mirror)
-                it.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
-                renderer = it
-            }
-        },
-        update = { it.setMirror(mirror) },
-    )
-    DisposableEffect(track, renderer) {
-        val currentRenderer = renderer
-        if (track != null && currentRenderer != null) track.addSink(currentRenderer)
-        onDispose {
-            if (track != null && currentRenderer != null) track.removeSink(currentRenderer)
-            currentRenderer?.release()
         }
     }
 }
@@ -11659,14 +11831,14 @@ internal fun NativePrivacyScreen(
                             }
                         }
                     }
-                    val credentialResult = withTimeout(20_000L) {
-                        credentialManager.getCredential(
-                            context = context,
-                            request = GetCredentialRequest(
-                                credentialOptions = listOf(GetPublicKeyCredentialOption(response.first.requestJson)),
-                            ),
-                        )
-                    }
+                    val credentialResult = requestNativeCredential(
+                        credentialManager = credentialManager,
+                        context = context,
+                        request = GetCredentialRequest(
+                            credentialOptions = listOf(GetPublicKeyCredentialOption(response.first.requestJson)),
+                            preferImmediatelyAvailableCredentials = true,
+                        ),
+                    )
                     val credential = credentialResult.credential as? PublicKeyCredential
                         ?: throw IllegalStateException(nativePhrase("未返回通行密钥凭据", "No passkey credential was returned"))
                     val sensitiveVerificationToken = withContext(Dispatchers.IO) {

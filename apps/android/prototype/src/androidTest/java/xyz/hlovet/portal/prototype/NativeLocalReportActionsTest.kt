@@ -25,7 +25,8 @@ import java.net.URL
 /** 在真实 MainActivity 与本地 API 验证举报处理及后台媒体；短期管理员授权不代表交互登录。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalReportActionsTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     /** 测试只读取指定应用私有证据和专用临时授权文件。 */
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private var reader: NativeSession? = null

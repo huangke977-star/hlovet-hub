@@ -205,6 +205,7 @@ const notificationInclude = {
 type NotificationRecord = Prisma.UserNotificationGetPayload<{ include: typeof notificationInclude }>;
 type NotificationContext = NonNullable<UserNotificationResponse["context"]>;
 
+/** 维护用户社交关系、会话与消息权限，并负责相关业务数据及通知的事务一致性。 */
 @Injectable()
 export class SocialService {
   constructor(
@@ -1224,6 +1225,10 @@ export class SocialService {
     return this.toMessage(updated);
   }
 
+  /**
+   * 为 userId 向 conversationId 发送 rawBody、attachmentIds 及可选 quotedMessageId，返回已提交消息和被提及用户。
+   * 消息、附件绑定、参与者恢复和提及通知在同一事务内写入；同一会话先取得写锁，避免双端同时发送死锁。
+   */
   async createMessage(
     userId: number,
     conversationId: number,
@@ -1231,6 +1236,7 @@ export class SocialService {
     attachmentIds: number[] = [],
     quotedMessageId?: number,
   ): Promise<ChatMessageResponse & { mentionedUserIds: number[] }> {
+    // 保留尾部空格以确认提及标签，只去掉开头空白，校验文字或附件至少存在一种。
     const body = rawBody.replace(/^\s+/, "");
     if (!body.trim() && !attachmentIds.length) {
       throw new BadRequestException("消息文字和附件不能同时为空。");
@@ -1238,6 +1244,7 @@ export class SocialService {
     if (Array.from(body).length > 2000) {
       throw new BadRequestException("单条消息不能超过 2000 个字符。");
     }
+    // 先校验当前成员资格与引用目标，不能跨会话引用或绕过屏蔽及群权限。
     const membership = await this.assertConversationMember(conversationId, userId);
     let quote: { id: number; body: string; senderName: string; createdAt: Date } | null = null;
     if (quotedMessageId) {
@@ -1245,6 +1252,7 @@ export class SocialService {
       if (!quoted) throw new BadRequestException("引用的消息不存在或当前不可见。");
       quote = { id: quoted.id, body: quoted.body, senderName: quoted.sender.nickname || quoted.sender.username, createdAt: quoted.createdAt };
     }
+    // 禁言和内容审核在写事务前完成，不在持锁期间调用外部审核服务。
     if (membership.group?.mutedUntil && membership.group.mutedUntil > new Date()) {
       throw new ForbiddenException(`你已被禁言至 ${membership.group.mutedUntil.toLocaleString("zh-CN", { hour12: false })}。`);
     }
@@ -1252,7 +1260,10 @@ export class SocialService {
     if (membership.group) {
       await this.contentModerationService.enforce({ source: "group_message", actorId: userId, content: body || "[附件消息]", attachmentOnly: !body });
     }
+    // 参与者使用稳定用户编号排序；会话先加排他锁，再插入消息和恢复参与者状态，避免共享锁升级互等。
+    const participantIds = [...membership.participantIds].sort((left, right) => left - right);
     const result = await this.prisma.$transaction(async (transaction) => {
+      await transaction.conversation.update({ where: { id: conversationId }, data: { updatedAt: new Date() } });
       const created = await transaction.chatMessage.create({
         data: {
           conversationId,
@@ -1268,6 +1279,7 @@ export class SocialService {
         },
         select: { id: true },
       });
+      // 附件绑定与消息同时提交，失败回滚后不留下半条消息或恢复一半的会话状态。
       await this.chatAttachmentsService.bindToMessage(
         transaction,
         userId,
@@ -1276,21 +1288,23 @@ export class SocialService {
         created.id,
       );
       await transaction.conversationParticipantState.createMany({
-        data: membership.participantIds.map((participantId) => ({ conversationId, userId: participantId })),
+        data: participantIds.map((participantId) => ({ conversationId, userId: participantId })),
         skipDuplicates: true,
       });
       await transaction.conversationParticipantState.updateMany({
         where: { conversationId },
         data: { hidden: false },
       });
-      await transaction.conversation.update({ where: { id: conversationId }, data: { updatedAt: new Date() } });
+      // 提及通知使用本次真实消息编号，事务内创建后一次性返回，网关仅广播已提交结果。
       const mentionedUserIds = await this.createMessageMentionNotifications(transaction, membership, conversationId, created.id, userId, body);
       const message = await transaction.chatMessage.findUniqueOrThrow({ where: { id: created.id }, include: messageInclude });
       return { message, mentionedUserIds };
     });
+    // 审核接受记录只在提交后写入，普通私聊不执行群消息审核记录。
     if (membership.group) {
       await this.contentModerationService.recordAccepted({ source: "group_message", actorId: userId, content: body.trim() || "[附件消息]", contentRef: `group_message:${result.message.id}` });
     }
+    // 使用既有展示转换与群别名，不改变消息权限、附件和提及的响应契约。
     return { ...this.toMessage(result.message, membership.group?.alias ?? undefined), mentionedUserIds: result.mentionedUserIds };
   }
 

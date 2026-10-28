@@ -25,7 +25,8 @@ import java.net.URL
 /** 验证真实群主管理与后台群聊举报媒体，保留数据并恢复原读者会话；不代表管理员交互登录。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalGroupReportMediaTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     /** 当前测试包只访问业务私有目录中的专用证据和临时授权。 */
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private var owner: NativeSession? = null

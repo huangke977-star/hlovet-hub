@@ -46,7 +46,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** Operational writes run only against the explicitly selected device-local fixture. */
 @RunWith(AndroidJUnit4::class)
 class NativeAdminOperationsTest {
-    @get:Rule val compose = createComposeRule()
+    // 设备内 MockWebServer 必须绕过模拟器的系统代理，避免回环请求被改写为外部错误。
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createComposeRule()
     private val contentHost = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private var oldLocale = "zh-CN"
@@ -303,7 +305,9 @@ class NativeAdminOperationsTest {
             }
         } else null }
         show()
-        button("checks", "依赖评估").performScrollTo().performClick()
+        // 首次概览和质量请求并行加载；确认按钮必须从禁用态变为可用后再触发，避免把加载竞态误报成弹窗缺失。
+        waitEnabled("checks", "依赖评估")
+        button("checks", "依赖评估").performClick()
         dialogButton("开始评估").performClick()
         waitDialogText("Dependency review unavailable")
         dialogButton("开始评估").performClick()
@@ -396,6 +400,17 @@ class NativeAdminOperationsTest {
     private fun button(card: String, label: String) = node(card, hasText(label) and hasClickAction())
     private fun field(card: String, label: String) = node(card, hasText(label) and hasSetTextAction())
     private fun text(card: String, value: String) = node(card, hasText(value))
+    /** 等待指定卡片操作按钮可用，确保设备测试点击的是完成初始加载后的真实控件。 */
+    private fun waitEnabled(card: String, label: String, timeoutMillis: Long = 10_000) {
+        // 先把卡片滚入视口，再只读取按钮的 enabled 语义；滚动动作不能放在每次轮询中重复触发。
+        compose.onNodeWithTag("operations-list").performScrollToNode(hasTestTag("operations-$card-card"))
+        compose.waitUntil(timeoutMillis) {
+            runCatching {
+                compose.onNode(hasText(label) and hasAnyAncestor(hasTestTag("operations-$card-card"))).assertIsEnabled()
+                true
+            }.getOrDefault(false)
+        }
+    }
     private fun dialogButton(label: String) = compose.onNode(hasText(label) and hasClickAction() and hasAnyAncestor(isDialog()))
     private fun waitText(value: String, timeoutMillis: Long = 10_000) { compose.waitUntil(timeoutMillis) { compose.onAllNodesWithText(value).fetchSemanticsNodes().isNotEmpty() } }
     private fun waitDialogText(value: String) { compose.waitUntil(10_000) { compose.onAllNodes(hasText(value) and hasAnyAncestor(isDialog())).fetchSemanticsNodes().isNotEmpty() } }

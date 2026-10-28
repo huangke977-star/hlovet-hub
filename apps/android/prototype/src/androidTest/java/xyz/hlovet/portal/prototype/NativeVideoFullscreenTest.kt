@@ -26,6 +26,7 @@ import org.junit.runner.RunWith
 /** 用真实竖屏 MP4 与系统窗口验证全屏往返，不用元数据或模拟播放器替代实际画面。 */
 @RunWith(AndroidJUnit4::class)
 class NativeVideoFullscreenTest {
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer

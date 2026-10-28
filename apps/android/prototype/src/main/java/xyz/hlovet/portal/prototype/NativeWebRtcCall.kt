@@ -51,6 +51,7 @@ internal class NativeWebRtcCall(
     private val onSignal: (JSONObject) -> Unit,
     private val onConnected: () -> Unit,
     private val onRemoteVideo: (VideoTrack) -> Unit,
+    private val onNotice: (String) -> Unit,
     private val onError: (String) -> Unit,
 ) {
     private val applicationContext = context.applicationContext
@@ -75,6 +76,8 @@ internal class NativeWebRtcCall(
     private var videoSource: VideoSource? = null
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
     private var cameraCapturer: CameraVideoCapturer? = null
+    var canSwitchCamera: Boolean = false
+        private set
     private var localAudioTrack: AudioTrack? = null
     @Volatile
     private var closed = false
@@ -100,13 +103,13 @@ internal class NativeWebRtcCall(
                 .setUseHardwareNoiseSuppressor(true)
                 .createAudioDeviceModule()
             val currentEglContext = eglBase?.eglBaseContext
-                ?: throw IllegalStateException("WebRTC 图形上下文初始化失败。")
+                ?: throw IllegalStateException(nativePhrase("WebRTC 图形上下文初始化失败。", "WebRTC graphics context initialization failed."))
             factory = PeerConnectionFactory.builder()
                 .setAudioDeviceModule(audioDeviceModule)
                 .setVideoEncoderFactory(DefaultVideoEncoderFactory(currentEglContext, true, true))
                 .setVideoDecoderFactory(DefaultVideoDecoderFactory(currentEglContext))
                 .createPeerConnectionFactory()
-            val currentFactory = factory ?: throw IllegalStateException("WebRTC 工厂初始化失败。")
+            val currentFactory = factory ?: throw IllegalStateException(nativePhrase("WebRTC 工厂初始化失败。", "WebRTC factory initialization failed."))
             audioSource = currentFactory.createAudioSource(MediaConstraints())
             localAudioTrack = currentFactory.createAudioTrack("hlovet-audio", audioSource)
             if (type == "video") prepareCamera(currentFactory, currentEglContext)
@@ -117,19 +120,19 @@ internal class NativeWebRtcCall(
                 if (forceRelay) iceTransportsType = PeerConnection.IceTransportsType.RELAY
             }
             peer = currentFactory.createPeerConnection(configuration, observer)
-                ?: throw IllegalStateException("WebRTC 对等连接初始化失败。")
+                ?: throw IllegalStateException(nativePhrase("WebRTC 对等连接初始化失败。", "WebRTC peer connection initialization failed."))
             Log.i(LOG_TAG, "peer connection created")
             localAudioTrack?.let { peer?.addTrack(it, listOf("hlovet-stream")) }
             localVideoTrack?.let { peer?.addTrack(it, listOf("hlovet-stream")) }
         } catch (exception: Exception) {
-            reportError(exception.message ?: "无法初始化音视频设备。")
+            reportError(nativePhrase("无法初始化音视频设备。", "Unable to initialize audio and video devices."))
             close()
         }
     }
 
     /** 创建并发送主叫 SDP offer，媒体候选通过同一个 Socket 信令通道继续交换。 */
     fun createOffer() {
-        val currentPeer = peer ?: return reportError("通话连接尚未准备好。")
+        val currentPeer = peer ?: return reportError(nativePhrase("通话连接尚未准备好。", "The call connection is not ready."))
         Log.i(LOG_TAG, "create offer")
         currentPeer.createOffer(descriptionObserver { description ->
             if (description != null) setLocalDescriptionAndSend(description)
@@ -138,12 +141,12 @@ internal class NativeWebRtcCall(
 
     /** 处理对端 SDP 或 ICE 候选；只记录信令类型，不记录内容和网络凭据。 */
     fun handleSignal(signal: JSONObject) {
-        val currentPeer = peer ?: return reportError("通话连接尚未准备好。")
+        val currentPeer = peer ?: return reportError(nativePhrase("通话连接尚未准备好。", "The call connection is not ready."))
         Log.i(LOG_TAG, "handle signal type=${signal.optString("type")}")
         when (signal.optString("type")) {
             "offer" -> {
                 val sdp = signal.optString("sdp").takeIf(String::isNotBlank)
-                    ?: return reportError("收到的通话邀请无效。")
+                    ?: return reportError(nativePhrase("收到的通话邀请无效。", "The received call offer is invalid."))
                 currentPeer.setRemoteDescription(descriptionObserver {
                     flushCandidates()
                     currentPeer.createAnswer(descriptionObserver { answer ->
@@ -153,7 +156,7 @@ internal class NativeWebRtcCall(
             }
             "answer" -> {
                 val sdp = signal.optString("sdp").takeIf(String::isNotBlank)
-                    ?: return reportError("收到的通话应答无效。")
+                    ?: return reportError(nativePhrase("收到的通话应答无效。", "The received call answer is invalid."))
                 currentPeer.setRemoteDescription(descriptionObserver { flushCandidates() }, SessionDescription(SessionDescription.Type.ANSWER, sdp))
             }
             "ice-candidate" -> {
@@ -177,12 +180,24 @@ internal class NativeWebRtcCall(
         localVideoTrack?.setEnabled(enabled)
     }
 
+    /** 仅在存在备用摄像头时切换；切换错误交给 onNotice 提示，不终止仍可用的音视频会话。 */
     fun switchCamera() {
+        // 单摄设备没有备用采集源，不能调用 WebRTC 切换接口制造致命错误。
+        if (closed || !canSwitchCamera) return
         val capturer = cameraCapturer ?: return
         capturer.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
-            override fun onCameraSwitchDone(isFrontCamera: Boolean) = Unit
+            /** 记录实际采集器切换完成及朝向，不记录设备标识或用户媒体内容。 */
+            override fun onCameraSwitchDone(isFrontCamera: Boolean) {
+                // 真正完成切换后才输出成功日志，供双端真实媒体验收核对。
+                Log.i(LOG_TAG, "camera switch complete front=$isFrontCamera")
+            }
+            /** 切换失败不代表当前通话失效；保留连接并通过主线程提示用户。 */
             override fun onCameraSwitchError(errorDescription: String?) {
-                reportError(errorDescription ?: "摄像头切换失败。")
+                // 只显示稳定的本地化提示，避免底层英文异常泄露到界面或误触发挂断。
+                Log.w(LOG_TAG, "camera switch failed")
+                mainHandler.post {
+                    if (!closed) onNotice(nativePhrase("摄像头切换失败，请重试。", "Unable to switch cameras. Try again."))
+                }
             }
         })
     }
@@ -195,6 +210,7 @@ internal class NativeWebRtcCall(
         runCatching { cameraCapturer?.stopCapture() }
         cameraCapturer?.dispose()
         cameraCapturer = null
+        canSwitchCamera = false
         surfaceTextureHelper?.dispose()
         surfaceTextureHelper = null
 
@@ -227,17 +243,22 @@ internal class NativeWebRtcCall(
         pendingCandidates.clear()
     }
 
+    /** 使用 currentFactory/currentEglContext 创建首选前置采集源，并按真实设备数量决定能否切换。 */
     private fun prepareCamera(currentFactory: PeerConnectionFactory, currentEglContext: EglBase.Context) {
+        // 以系统实际可见设备为准，不假设手机、模拟器或外接摄像头一定具备前后双摄。
         val enumerator: CameraEnumerator = if (Camera2Enumerator.isSupported(applicationContext)) {
             Camera2Enumerator(applicationContext)
         } else {
             Camera1Enumerator(true)
         }
-        val deviceName = enumerator.deviceNames.firstOrNull(enumerator::isFrontFacing)
-            ?: enumerator.deviceNames.firstOrNull()
-            ?: throw IllegalStateException("没有找到可用摄像头。")
+        val devices = enumerator.deviceNames.distinct()
+        canSwitchCamera = devices.size > 1
+        val deviceName = devices.firstOrNull(enumerator::isFrontFacing)
+            ?: devices.firstOrNull()
+            ?: throw IllegalStateException(nativePhrase("没有找到可用摄像头。", "No usable camera was found."))
+        // 只建立本次使用的采集器，备用摄像头不提前打开，避免占用系统相机资源。
         cameraCapturer = enumerator.createCapturer(deviceName, cameraEventsHandler)
-            ?: throw IllegalStateException("摄像头初始化失败。")
+            ?: throw IllegalStateException(nativePhrase("摄像头初始化失败。", "Camera initialization failed."))
         videoSource = currentFactory.createVideoSource(cameraCapturer?.isScreencast == true)
         surfaceTextureHelper = SurfaceTextureHelper.create("HlovetVideoCapture", currentEglContext)
         cameraCapturer?.initialize(surfaceTextureHelper, applicationContext, videoSource!!.capturerObserver)
@@ -246,9 +267,9 @@ internal class NativeWebRtcCall(
     }
 
     private val cameraEventsHandler = object : CameraVideoCapturer.CameraEventsHandler {
-        override fun onCameraError(error: String?) = reportError(error ?: "摄像头发生错误。")
-        override fun onCameraDisconnected() = reportError("摄像头连接已断开。")
-        override fun onCameraFreezed(error: String?) = reportError(error ?: "摄像头画面被冻结。")
+        override fun onCameraError(error: String?) = reportError(nativePhrase("摄像头发生错误。", "The camera reported an error."))
+        override fun onCameraDisconnected() = reportError(nativePhrase("摄像头连接已断开。", "The camera connection was lost."))
+        override fun onCameraFreezed(error: String?) = reportError(nativePhrase("摄像头画面被冻结。", "The camera preview has frozen."))
         override fun onCameraOpening(cameraName: String?) = Unit
         override fun onFirstFrameAvailable() = Unit
         override fun onCameraClosed() = Unit
@@ -263,7 +284,7 @@ internal class NativeWebRtcCall(
             if (state == PeerConnection.IceConnectionState.CONNECTED || state == PeerConnection.IceConnectionState.COMPLETED) {
                 notifyConnectedOnce()
             } else if (state == PeerConnection.IceConnectionState.FAILED) {
-                reportError("ICE 媒体连接失败，请检查网络或 TURN 配置。")
+                reportError(nativePhrase("ICE 媒体连接失败，请检查网络或 TURN 配置。", "ICE media connection failed. Check the network or TURN configuration."))
             }
         }
         override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
@@ -293,7 +314,7 @@ internal class NativeWebRtcCall(
             if (state == PeerConnection.PeerConnectionState.CONNECTED) {
                 notifyConnectedOnce()
             } else if (state == PeerConnection.PeerConnectionState.FAILED) {
-                reportError("媒体连接失败，请检查网络或 TURN 配置。")
+                reportError(nativePhrase("媒体连接失败，请检查网络或 TURN 配置。", "The media connection failed. Check the network or TURN configuration."))
             }
         }
         override fun onTrack(transceiver: RtpTransceiver) {
@@ -344,8 +365,8 @@ internal class NativeWebRtcCall(
     private fun descriptionObserver(onSuccess: (SessionDescription?) -> Unit): SdpObserver = object : SdpObserver {
         override fun onCreateSuccess(description: SessionDescription) = onSuccess(description)
         override fun onSetSuccess() = onSuccess(null)
-        override fun onCreateFailure(error: String) = reportError("媒体描述创建失败：$error")
-        override fun onSetFailure(error: String) = reportError("媒体描述设置失败：$error")
+        override fun onCreateFailure(error: String) = reportError(nativePhrase("媒体描述创建失败。", "Failed to create the media description."))
+        override fun onSetFailure(error: String) = reportError(nativePhrase("媒体描述设置失败。", "Failed to set the media description."))
     }
 
     private fun emitSignal(signal: JSONObject) {

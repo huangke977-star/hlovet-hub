@@ -53,6 +53,7 @@ export interface CallDescriptor {
   status: CallStatus;
 }
 
+/** 管理好友会话的通话生命周期、参与者可见信息及短期媒体连接配置，不承担头像文件存储。 */
 @Injectable()
 export class CallsService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
@@ -181,12 +182,16 @@ export class CallsService implements OnModuleInit {
     });
   }
 
+  /** 按 callId 读取 viewerId 所参与的通话，返回对方身份；不存在或非参与者拒绝读取，头像沿用公开头像路由。 */
   async getCallResponse(callId: number, viewerId: number): Promise<CallSessionResponse> {
+    // 一次读取双方身份，避免按展示字段再次查询或由客户端猜测对方账号。
     const call = await this.prisma.callSession.findUnique({ where: { id: callId }, include: callInclude });
+    // 只允许通话双方读取描述，头像地址的统一不能扩大通话记录访问范围。
     if (!call) throw new NotFoundException("通话记录不存在。");
     if (![call.callerId, call.calleeId].includes(viewerId)) {
       throw new ForbiddenException("没有查看这通电话的权限。");
     }
+    // viewerId 决定对方身份，与发起或接听阶段无关；地址复用已有 AuthController 头像下载入口。
     const counterpart = call.callerId === viewerId ? call.callee : call.caller;
     return {
       id: call.id,
@@ -199,7 +204,7 @@ export class CallsService implements OnModuleInit {
         id: counterpart.id,
         nickname: counterpart.nickname,
         username: counterpart.username,
-        avatarUrl: counterpart.avatarStoredName ? `/users/${counterpart.id}/avatar` : null,
+        avatarUrl: counterpart.avatarStoredName ? `/auth/avatars/${counterpart.avatarStoredName}` : null,
         profileBio: counterpart.profileBio,
         isSuperAdmin: counterpart.isSuperAdmin,
         isAdministrator: counterpart.isAdministrator,

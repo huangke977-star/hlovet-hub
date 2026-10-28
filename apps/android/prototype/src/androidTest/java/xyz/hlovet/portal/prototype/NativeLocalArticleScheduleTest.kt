@@ -30,7 +30,8 @@ import org.junit.runner.RunWith
 /** 在真实本地 MainActivity 中保存、重开、取消文章计划，并等待自然发布/下线；保留全部业务记录。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalArticleScheduleTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     /** 仅访问当前原生应用的私有会话与证据目录。 */
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private var activity: ActivityScenario<MainActivity>? = null

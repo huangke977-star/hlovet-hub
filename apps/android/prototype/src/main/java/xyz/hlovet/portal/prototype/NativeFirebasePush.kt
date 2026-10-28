@@ -12,16 +12,33 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
+/** 判断 Firebase 配置是否完整；空值或只填写部分参数时必须保持可选能力关闭。 */
+internal fun isNativeFirebaseConfigured(
+    apiKey: String,
+    projectId: String,
+    applicationId: String,
+    senderId: String,
+): Boolean {
+    // 只有四个公开 Firebase 标识都存在时，应用才允许初始化 SDK 并申请设备令牌。
+    return apiKey.isNotBlank() && projectId.isNotBlank() && applicationId.isNotBlank() && senderId.isNotBlank()
+}
+
 /** Optional FCM bridge. Empty Gradle Firebase properties intentionally disable it. */
 internal object NativeFirebasePush {
     private const val PREFS = "native-firebase-push"
     private const val TOKEN_KEY = "token"
     private const val INSTALLATION_KEY = "installation-id"
 
-    fun isConfigured(): Boolean = BuildConfig.FIREBASE_API_KEY.isNotBlank() &&
-        BuildConfig.FIREBASE_PROJECT_ID.isNotBlank() &&
-        BuildConfig.FIREBASE_APPLICATION_ID.isNotBlank() &&
-        BuildConfig.FIREBASE_SENDER_ID.isNotBlank()
+    /** 返回当前构建是否提供完整 Firebase 参数；未配置时不触碰 Firebase SDK。 */
+    fun isConfigured(): Boolean {
+        // 将 BuildConfig 的构建注入值交给纯函数判断，避免局部缺项被误当成已启用。
+        return isNativeFirebaseConfigured(
+            apiKey = BuildConfig.FIREBASE_API_KEY,
+            projectId = BuildConfig.FIREBASE_PROJECT_ID,
+            applicationId = BuildConfig.FIREBASE_APPLICATION_ID,
+            senderId = BuildConfig.FIREBASE_SENDER_ID,
+        )
+    }
 
     fun initialize(context: Context): Boolean {
         if (!isConfigured()) return false

@@ -26,6 +26,7 @@ import org.junit.runner.RunWith
 /** 使用系统解码器与真实音视频验证共享播放组件，网络夹具不替代本地业务入口验收。 */
 @RunWith(AndroidJUnit4::class)
 class NativeInlineMediaTest {
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val host = NativeComposeTestHost(compose)
     private lateinit var directory: File

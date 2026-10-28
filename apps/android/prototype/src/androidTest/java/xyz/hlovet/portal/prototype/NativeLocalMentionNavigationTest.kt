@@ -35,11 +35,13 @@ import kotlin.math.abs
 /** 在真实本地 MainActivity 验证提及候选、旧通知拦截及历史消息锚点；账号和业务记录全部保留。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalMentionNavigationTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     /** 使用目标应用上下文读取既有会话与写入非敏感验收报告。 */
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private lateinit var reader: NativeSession
     private lateinit var peer: NativeSession
+    private var groupOutsider: NativeSession? = null
     private lateinit var socket: NativeChatSocket
     private lateinit var conversation: NativeConversationPreview
     private var activity: ActivityScenario<MainActivity>? = null
@@ -83,6 +85,7 @@ class NativeLocalMentionNavigationTest {
         activity?.close()
         if (::socket.isInitialized) socket.close()
         if (::peer.isInitialized) runCatching { NativeAuthApi.logout(peer.refreshToken) }
+        groupOutsider?.let { runCatching { NativeAuthApi.logout(it.refreshToken) } }
         if (::reader.isInitialized) report.put("sessionPreserved", NativeSessionStore.load(context)?.userId == reader.userId)
         saveReport()
         oldLocale?.let { locale -> InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale(locale) } }
@@ -106,14 +109,22 @@ class NativeLocalMentionNavigationTest {
         record("empty-and-single-character-mention-candidates-are-conversation-scoped-and-selectable")
         screenshot("mention-selected")
 
-        // 显式复用前序双设备保留群，核对候选来自有效成员；新注册的非成员不能枚举群成员。
-        val groupId = requireNotNull(InstrumentationRegistry.getArguments().getString("mentionGroupId")).toInt()
-        val group = NativeGroupApi.get(reader.accessToken, groupId)
+        // 优先复用显式传入的历史群；本地回归没有夹具参数时创建独立邀请制群，避免测试依赖隐藏设备文件。
+        val configuredGroupId = InstrumentationRegistry.getArguments().getString("mentionGroupId")?.toIntOrNull()
+        val group = configuredGroupId?.let { NativeGroupApi.get(reader.accessToken, it) } ?: createMentionGroupFixture()
+        val groupId = group.summary.id
         val expectedMembers = group.members.filter { it.status == "active" && it.user.id != reader.userId }.map { it.user.id }.sorted()
         val groupCandidates = NativeFriendsApi.searchUsers(reader.accessToken, "", 20, mention = true, conversationId = group.summary.conversationId)
         assertEquals(expectedMembers, groupCandidates.map { it.user.id }.sorted())
-        assertFalse(groupCandidates.any { it.user.id == peer.userId })
-        assertTrue(runCatching { NativeFriendsApi.searchUsers(peer.accessToken, "", 20, mention = true, conversationId = group.summary.conversationId) }.isFailure)
+        if (configuredGroupId != null) {
+            // 显式历史群沿用原约定：当前私聊辅助账号必须是群外用户。
+            assertFalse(groupCandidates.any { it.user.id == peer.userId })
+        } else {
+            // 自动夹具邀请 peer 作为有效成员，另一个独立账号承担群外拒绝边界。
+            assertTrue(groupCandidates.any { it.user.id == peer.userId })
+        }
+        val outsiderAccessToken = groupOutsider?.accessToken ?: peer.accessToken
+        assertTrue(runCatching { NativeFriendsApi.searchUsers(outsiderAccessToken, "", 20, mention = true, conversationId = group.summary.conversationId) }.isFailure)
         report.put("existingGroupId", groupId).put("groupCandidateIds", JSONArray(expectedMembers))
         record("group-mention-candidates-match-active-members-and-reject-outsider-enumeration")
 
@@ -201,6 +212,30 @@ class NativeLocalMentionNavigationTest {
         verifyCommentNotifications()
         report.put("completed", true)
         saveReport()
+    }
+
+    /** 创建并接受本地提及专项的临时群聊；成员关系经真实邀请接口建立，不绕过群权限。 */
+    private fun createMentionGroupFixture(): NativeGroupDetail {
+        // 群主使用当前读者，辅助账号通过待处理邀请接受，保证候选范围来自服务端成员状态。
+        val created = NativeGroupApi.create(reader.accessToken, "$marker group", false, 7, "invite_only")
+        NativeGroupApi.invite(reader.accessToken, created.summary.id, listOf(peer.userId))
+
+        // 只从辅助账号自己的审批列表取邀请，避免用群主权限代替成员加入操作。
+        val invitation = NativeGroupApi.listApprovals(peer.accessToken).invitations.single { it.group.id == created.summary.id }
+        NativeGroupApi.respondInvitation(peer.accessToken, invitation.id, "accepted")
+
+        // 单独注册群外账号作为权限边界，不能把有效成员误当成非成员来断言拒绝。
+        val outsiderName = "mo_${UUID.randomUUID().toString().replace("-", "").take(12)}"
+        groupOutsider = (NativeAuthApi.register(
+            outsiderName,
+            "Mention outsider",
+            "$outsiderName@android-fixture.invalid",
+            "Local!${UUID.randomUUID()}",
+            null,
+            null,
+        ) as NativeAuthResult.Authenticated).session
+        NativeDiscoveryApi.completeOnboarding(groupOutsider!!.accessToken, emptyList(), emptyList())
+        return NativeGroupApi.get(reader.accessToken, created.summary.id)
     }
 
     /** 单独重跑真实评论通知链路，报告明确限定范围，不复用或冒充整套历史消息验收。 */

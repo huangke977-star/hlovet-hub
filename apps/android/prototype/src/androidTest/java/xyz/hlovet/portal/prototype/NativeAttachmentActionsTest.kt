@@ -53,6 +53,7 @@ import org.junit.runner.RunWith
 /** 核对真实 FileProvider、独立 UID 权限及系统文档写入，夹具不访问业务接口、不清理用户数据。 */
 @RunWith(AndroidJUnit4::class)
 class NativeAttachmentActionsTest {
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val host = NativeComposeTestHost(compose)
     private val device get() = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())

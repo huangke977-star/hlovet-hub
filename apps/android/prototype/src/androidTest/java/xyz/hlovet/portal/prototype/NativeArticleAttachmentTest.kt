@@ -59,6 +59,7 @@ import org.junit.runner.RunWith
 /** 通过真实编辑组件、文件读取和受控接口验证附件操作，只允许精确的本地夹具来源。 */
 @RunWith(AndroidJUnit4::class)
 class NativeArticleAttachmentTest {
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer

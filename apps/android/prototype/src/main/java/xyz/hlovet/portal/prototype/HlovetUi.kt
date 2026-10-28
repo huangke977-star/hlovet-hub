@@ -70,6 +70,9 @@ internal object HlovetUi {
     val contentPadding = PaddingValues(horizontal = 20.dp)
     val cardShape = RoundedCornerShape(20.dp)
     val rowShape = RoundedCornerShape(16.dp)
+    // 表单控件统一使用较小圆角和固定高度，避免同一页面的下拉框、输入框互相错位。
+    val controlShape = RoundedCornerShape(12.dp)
+    val controlHeight = 56.dp
     val menuShape = RoundedCornerShape(14.dp)
     val incomingMessageShape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp)
     val outgoingMessageShape = RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp)
@@ -317,7 +320,8 @@ internal fun HlovetTheme(content: @Composable () -> Unit) {
             outline = HlovetUi.outline
         ),
         shapes = Shapes(
-            extraSmall = RoundedCornerShape(6.dp),
+            // 未显式传 shape 的输入框和菜单也必须落到共享控件圆角，避免页面之间出现默认 Material 圆角。
+            extraSmall = HlovetUi.controlShape,
             small = RoundedCornerShape(12.dp),
             medium = RoundedCornerShape(16.dp),
             large = RoundedCornerShape(20.dp),

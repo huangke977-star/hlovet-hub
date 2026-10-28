@@ -34,8 +34,10 @@ import java.util.concurrent.atomic.AtomicInteger
 /** All configuration writes and external delivery scenarios use a device-local fixture. */
 @RunWith(AndroidJUnit4::class)
 class NativeAdminIntegrationsDeviceTest {
-    @get:Rule(order = 0) val compose = createComposeRule()
-    @get:Rule(order = 1) val evidence = object : TestWatcher() {
+    // 设备内 MockWebServer 必须绕过模拟器的系统代理，避免回环请求被改写为外部错误。
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createComposeRule()
+    @get:Rule(order = 2) val evidence = object : TestWatcher() {
         override fun failed(error: Throwable, description: Description) {
             runCatching { capture("failed-${description.methodName}") }
             runCatching {

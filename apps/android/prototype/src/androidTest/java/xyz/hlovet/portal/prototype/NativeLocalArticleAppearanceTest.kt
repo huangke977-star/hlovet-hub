@@ -41,7 +41,8 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 @SdkSuppress(minSdkVersion = 29)
 class NativeLocalArticleAppearanceTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     /** 只取得本次应用的测试驱动，不操作其他模拟器或应用。 */
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     /** 私有会话与截图仅访问当前原生测试包的数据目录。 */

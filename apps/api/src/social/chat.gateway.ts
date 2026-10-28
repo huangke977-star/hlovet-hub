@@ -12,7 +12,7 @@ import {
 } from "@nestjs/websockets";
 import type { Namespace, Socket } from "socket.io";
 import { AccessTokenPayload } from "../auth/auth.types";
-import { CallStatus, CallType } from "../generated/prisma/client";
+import { CallStatus, CallType, Prisma } from "../generated/prisma/client";
 import { RedisService } from "../redis/redis.service";
 import { UsersService } from "../users/users.service";
 import { CallDescriptor, CallsService } from "./calls.service";
@@ -85,6 +85,7 @@ interface RuntimeCall extends CallDescriptor {
   timer: NodeJS.Timeout;
 }
 
+/** 管理已认证聊天连接、消息广播及通话信令，错误回执不得泄露数据库内部诊断。 */
 @Injectable()
 @WebSocketGateway({
   namespace: "/chat",
@@ -122,8 +123,10 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     this.sessionValidationTimer.unref();
   }
 
+  /** 校验 client 的来源、登录会话和连接限额，加入权限房间后同步仍在响铃的来电。 */
   async handleConnection(client: Socket): Promise<void> {
     try {
+      // 原生与网页共用来源及有效会话限制，未通过认证的连接不能接收私聊或通话信息。
       if (!this.isAllowedOrigin(client.handshake.headers.origin)) {
         client.emit("chat:error", {
           message: "当前页面来源不允许建立聊天连接。",
@@ -139,6 +142,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         throw new Error("聊天会话已经失效。");
       }
       const user = await this.usersService.findActiveById(payload.sub);
+      // 同一账号最多三个连接，重连只登记自己的 socketId，不抢占其它设备已接听的通话。
       const existingSockets = this.socketsByUser.get(user.id) ?? new Set<string>();
       if (existingSockets.size >= 3) {
         client.emit("chat:error", { message: "当前账号打开的聊天页面过多。" });
@@ -153,14 +157,33 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       (client.data as ChatSocketData).forwardTimestamps = [];
       (client.data as ChatSocketData).callTimestamps = [];
       if (payload.exp) this.scheduleReauthentication(client, payload.exp);
+      // 房间来自服务端账号与群成员关系；ready 表示鉴权及订阅均已完成。
       await client.join(this.userRoom(user.id));
       const groupConversationIds = await this.socialService.listActiveGroupConversationIds(user.id);
       await Promise.all(groupConversationIds.map((conversationId) => client.join(this.groupRoom(conversationId))));
       await this.redis.set(this.presenceKey(user.id), "online", 90);
       client.emit("chat:ready", { userId: user.id });
+      // 新连接可能错过重连间隙的邀请，只补仍然响铃的来电，不恢复 active/accepted 或已结束通话。
+      await this.deliverPendingIncomingCall(client, user.id).catch(() => undefined);
     } catch {
+      // 认证失败统一拒绝，不泄露 JWT、会话或数据库内部异常。
       client.emit("chat:error", { message: "聊天连接认证失败，请重新登录。" });
       client.disconnect(true);
+    }
+  }
+
+  /** 为 userId 的新 client 补发仍然有效的被叫邀请；查询期间被取消/接听的邀请不再发送。 */
+  private async deliverPendingIncomingCall(client: Socket, userId: number): Promise<void> {
+    // 仅依据服务端运行态和稳定账号编号找被叫，不从客户端参数推测通话所有权。
+    const callId = this.activeCallByUser.get(userId);
+    const call = callId === undefined ? undefined : this.runtimeCalls.get(callId);
+    if (!call || call.calleeId !== userId || call.status !== CallStatus.ringing) return;
+    const response = await this.callsService.getCallResponse(call.id, userId);
+
+    // 数据库读取是异步边界，必须回查同一个运行态对象、响铃阶段和当前连接归属。
+    if (client.connected && this.socketsByUser.get(userId)?.has(client.id) &&
+      this.runtimeCalls.get(call.id) === call && call.status === CallStatus.ringing && response.status === CallStatus.ringing) {
+      client.emit("call:incoming", response);
     }
   }
 
@@ -743,7 +766,16 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     return `chat:presence:${userId}`;
   }
 
+  /** 将 error 转为用户提示；数据库内部异常使用 fallback，业务校验继续保留明确原因。 */
   private errorMessage(error: unknown, fallback: string): string {
+    // Prisma 异常可能带有 SQL、路径和连接细节，不能直接作为聊天页面的错误正文。
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError ||
+      error instanceof Prisma.PrismaClientUnknownRequestError ||
+      error instanceof Prisma.PrismaClientValidationError ||
+      error instanceof Prisma.PrismaClientInitializationError
+    ) return fallback;
+    // 保留权限、参数和限流等已有业务提示，未知非异常对象使用当前操作的默认文案。
     return error instanceof Error && error.message ? error.message : fallback;
   }
 }

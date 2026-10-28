@@ -25,7 +25,9 @@ import java.util.concurrent.atomic.AtomicInteger
 /** 在隔离 HTTP 服务验证实际举报中心操作、失败恢复和身份隔离，不替代真实数据库验收。 */
 @RunWith(AndroidJUnit4::class)
 class NativeAdminReportActionsDeviceTest {
-    @get:Rule val compose = createComposeRule()
+    // 设备内 MockWebServer 必须绕过模拟器的系统代理，避免回环请求被改写为外部错误。
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createComposeRule()
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private val session = NativeSession("report-action-fixture", "fixture-refresh", 7, "admin-fixture", "Admin fixture",

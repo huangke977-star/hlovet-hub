@@ -25,7 +25,8 @@ import org.junit.runner.RunWith
 /** 对真实本地 API 验证作者收益与管理员资源页面，保留业务数据并恢复原读者会话。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalResourceManagementTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private var scenario: ActivityScenario<MainActivity>? = null
     private var reader: NativeSession? = null

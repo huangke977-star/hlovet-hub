@@ -27,7 +27,8 @@ import org.junit.runner.RunWith
 /** 在真实已登录 MainActivity 中验证评论和 Socket 群聊音视频，业务数据与可核对证据全部保留。 */
 @RunWith(AndroidJUnit4::class)
 class NativeLocalInlineMediaTest {
-    @get:Rule val compose = createEmptyComposeRule()
+    @get:Rule(order = 0) val network = NativeLoopbackNetworkRule()
+    @get:Rule(order = 1) val compose = createEmptyComposeRule()
     /** 使用当前业务 APK 的 Context 保存证据，不访问测试 APK 外的任意账号目录。 */
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private var activity: ActivityScenario<MainActivity>? = null
