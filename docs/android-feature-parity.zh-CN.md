@@ -39,6 +39,7 @@
 - 重新执行 `apps/android/tools/check-api-parity.mjs`：当前 PC 的 27 个 API 模块全部完成对齐审计，得到 388 个精确/跨模块匹配、21 个已确认的有意别名、11 个动态解析候选和 0 个确认缺失候选。
 - 重新执行 `:prototype:testDebugUnitTest`：63 个测试类共 `331/331`，0 失败、0 错误、0 跳过。该审计证明源码覆盖和 JVM 回归没有回退，不替代 Google/Passkey 成功授权、FCM、生产 WebRTC、外部供应商、OSS/R2 和正式签名等外部条件验收。
 - 重新执行 `:prototype:assembleRelease`：Release 产物构建成功，包名为 `xyz.hlovet.portal.native`，BuildConfig 使用生产 API/站点地址，合并 Manifest 的 `asset_statements`、Google 回调和 HTTPS App Links 均只声明 `5200918.xyz`。产物 SHA-256 为 `932FD9E0381B544F756C86A22D694506DABD1335ACA77494855EA5CF0BA28C74`；由于本机没有正式 Release keystore，该 APK 保持未签名，不作为可发布安装包或正式 Passkey 成功证据。
+- 使用 `P22_WEB_BASE_URL=https://5200918.xyz`、`P22_API_BASE_URL=https://5200918.xyz/api` 和正式包名参数重新执行公网只读发布检查，`10/10` 通过：API 健康/就绪、首页中英文、Manifest、Service Worker、Sitemap、RSS，以及旧 TWA 和正式原生包两条 assetlinks 声明均有效。该结果不扩大为 Google/Passkey 成功授权、FCM 到达或正式签名验收。
 
 ## FCM 可选配置边界回归（2026-10-28）
 
