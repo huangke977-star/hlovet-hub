@@ -27,6 +27,12 @@
 - 首次使用 Gradle `connectedDebugAndroidTest` 未产生用例结果（`0 tests`），原因是测试驱动与设备连接超时；重新安装主包/测试包后，直接启动同一 instrumentation runner 完成上述 `3/3`，因此不把前一次驱动超时误记为业务失败。
 - 测试结束后重新执行默认生产地址 Debug 构建，确认 `API_BASE_URL=https://5200918.xyz/api`、`PORTAL_BASE_URL=https://5200918.xyz`；安装并冷启动后无崩溃、无 ANR、无 SSL/网络异常，ADB reverse 已清空。
 
+### 同设备直接仪器复验（2026-10-28）
+
+- 为排除多设备 Gradle 聚合任务把本地前置条件误判为跳过，在 `emulator-5554` 上重新安装本地配置包，并显式使用 `API_BASE_URL=http://127.0.0.1:3001`、`PORTAL_BASE_URL=http://127.0.0.1:3000`。
+- 通过同一 instrumentation runner 按依赖顺序直接执行 `NativeLocalMainSessionTest`、`NativeLocalCollectionsTest` 和 `NativeLocalRichEditorTest`，结果分别为 `1/1`、`1/1`、`1/1`，无失败；合集和富文本用例分别实际耗时约 32 秒和 20 秒，不是 `Assume` 跳过。
+- 本轮只建立并移除了 `emulator-5554` 到本机 API 的 `3001` reverse，保留测试账号、文章、合集、订阅和证据；没有触碰生产配置或清除业务数据。
+
 ## 本地账号与隐私回归复核（2026-10-28）
 
 - 在本地 API `http://127.0.0.1:3001` 构建上重新执行 `NativeLocalAccountApiTest` 与 `NativeLocalPrivacyDeviceTest`，Android 15 共 `4/4` 通过，0 失败、0 错误、0 跳过。
