@@ -2883,3 +2883,10 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用 `P22_WEB_BASE_URL=https://5200918.xyz` 执行 `scripts/p22-release-check.mjs`，公开 API 健康、就绪、站点地图、RSS、中英文首页、Manifest、Service Worker 和 `assetlinks` 共 `10/10` 通过；`assetlinks` 当前合法声明旧 TWA `xyz.hlovet.portal` 与正式原生包 `xyz.hlovet.portal.native`。
 - 当前工作区与本机 Android 构建目录没有正式 Release keystore，只有 Debug keystore；`prototype-release-unsigned.apk` 因此不能作为正式分发包，也不能用 Debug 证书替代线上 `xyz.hlovet.portal.native` 的公开指纹。正式 Passkey/App Links 的代码和服务器声明已具备，但最终闭环仍需要保管在本机或发布环境中的对应私钥完成签名。
 - 未生成或轮换线上证书，未改动公开 `assetlinks`、DNS、Passkey 配置和业务数据；该边界保留，避免在没有旧私钥备份时造成已安装正式包无法升级。
+
+## Android Compose 销毁稳定性修复与复验（2026-10-28）
+
+- 本地真实主会话回归曾在 Activity 销毁/重建时触发 Compose `SlotWriter.moveSlotGapTo`，堆栈显示生命周期观察器在组合树释放过程中同步写入 `appInForeground`。现已在 Activity finishing 或 configuration change 的 `ON_STOP` 路径跳过该状态写入；正常退后台仍保持前台状态更新。
+- 修复后 `NativeLocalMainSessionTest` 在 Android 15 `1/1` 通过，未再出现 Compose 销毁崩溃；随后 JVM `331/331`、PC 路由 `70/70`、后台入口 `24/24`、API 模块 `27/27` 和 `git diff --check` 均通过。
+- 生产地址 Debug 包重新安装后确认 BuildConfig 为 `https://5200918.xyz/api` / `https://5200918.xyz`，冷启动首页正常，Logcat 未发现崩溃、ANR 或 SSL 错误，ADB reverse 已清空。
+- 同轮合集与富文本真实测试因测试包重装后没有保留读者会话，在业务入口前置检查处停止；它们不计为通过或失败，待下一轮用动态会话夹具单独执行。

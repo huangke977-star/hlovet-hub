@@ -4,6 +4,7 @@ package xyz.hlovet.portal.prototype
 
 import android.annotation.SuppressLint
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -846,7 +847,12 @@ private fun HlovetMobilePreview(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> appInForeground = true
-                Lifecycle.Event.ON_STOP -> appInForeground = false
+                Lifecycle.Event.ON_STOP -> {
+                    // Activity 正在销毁或配置重建时，组合树即将释放，跳过状态写入避免与 SlotTable 清理竞争。
+                    val hostActivity = lifecycleOwner as? Activity
+                    if (hostActivity?.isFinishing == true || hostActivity?.isChangingConfigurations == true) return@LifecycleEventObserver
+                    appInForeground = false
+                }
                 else -> Unit
             }
         }
