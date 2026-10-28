@@ -39,6 +39,12 @@
 - 本轮再次核对注册/登录、资料与邮箱/密码变更、错误密码反馈、TOTP/恢复码、六格自动提交、审计记录和 Activity 会话恢复；测试使用新建本地账号并保留业务记录，未触碰生产账号。
 - 测试结束重新构建并安装默认生产 API Debug 包，确认 `API_BASE_URL=https://5200918.xyz/api`、`PORTAL_BASE_URL=https://5200918.xyz`；冷启动前台为 `MainActivity`，无崩溃、无 ANR、无 SSL/网络异常，ADB reverse 为空。
 
+### 同设备直接仪器复验（2026-10-28）
+
+- 在 `emulator-5554` 上使用本地 API/网页地址和已配置的本地凭据加密条件，直接执行 `NativeLocalAccountApiTest`、`NativeLocalMainPrivacyTest` 和 `NativeLocalPrivacyDeviceTest`。
+- 结果分别为 `2/2`、`1/1`、`2/2`，合计 `5/5`，无失败；覆盖账号注册/登录、资料和邮箱/密码变更、错误密码反馈、隐私敏感操作继续执行，以及 TOTP/恢复码六格交互。
+- 本轮只使用新建本地账号并保留业务记录，未修改生产配置、未清除数据库或应用数据；临时 API reverse 已移除。
+
 ## 源码覆盖最终审计节点（2026-10-28）
 
 - 重新执行 `apps/android/tools/check-route-parity.mjs`：70 个 PC 路由和 24 个后台入口均有真实 `MainActivity` 分发映射。
