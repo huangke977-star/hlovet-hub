@@ -2870,3 +2870,10 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 
 - 在提交 `4c11cb8` 推送后重新执行 `:prototype:testDebugUnitTest --no-daemon`，Gradle `BUILD SUCCESSFUL`；63 份 XML 共 `331/331`，失败、错误和跳过均为 `0`。
 - 本次只复核已推送源码的 JVM 行为，不把 JVM 通过扩大解释为 Google/Passkey、FCM、生产 WebRTC、外部 AI/媒体或 OSS/R2 已完成真实验收。
+
+## 本地真实账号回归与生产包恢复（2026-10-28）
+
+- 在本地 API、MySQL 和 Redis 健康的前提下，使用 `127.0.0.1:3001/3000` 构建并安装 Android 15 测试包，首轮核心场景执行结果为 `9/12` 通过、`0` 失败、`3` 主动跳过；跳过项均为账号凭据/隐私测试要求的本地加密前置标记未传入，不计为通过。
+- 重新传入仅用于本地测试的 `localCredentialEncryptionConfigured=true` 参数后，账号凭据、隐私和主页面隐私专项 `5/5` 通过，`0` 失败、`0` 跳过；社交、主会话、集成权限和提及/通知定位专项沿用同一轮已通过的 `9` 个用例，不重复累计。
+- 测试产生的本地账号、文章、消息和审计记录按既定规则保留，未触碰生产数据；测试结束后重新构建并安装默认生产地址 Debug 包，确认 BuildConfig 恢复为 `https://5200918.xyz/api` / `https://5200918.xyz`，冷启动首页正常，Logcat 未发现崩溃、ANR 或 WebView 错误，ADB reverse 已清空。
+- 本轮仍未把本地真实 API 结果扩展为 Google/Passkey 成功回调、FCM 到达、生产 WebRTC、外部 AI/媒体供应商或 OSS/R2 的真实服务验收。
