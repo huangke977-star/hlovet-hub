@@ -35,6 +35,13 @@
 
 该表中的“尚未关闭”是验收条件缺失，不代表对应 Android 页面或接口未实现；在获得条件前不能用 MockWebServer、空配置或静态映射把它们标记为完整通过。
 
+## Android 15 合集线程边界修复与复验（2026-10-29）
+
+- Android 15 `emulator-5556` 首轮复验曾在合集页面生命周期切换后出现 `CalledFromWrongThreadException`，堆栈指向 Compose 布局请求，说明合集页面的异步状态回写没有显式固定在 Android 主线程；这次异常不是接口、权限或测试数据失败。
+- `MyCollectionsContent` 的保存、删除、候选分页、文章分页、订阅和封面读取回调统一使用 `Dispatchers.Main.immediate` 启动协程，网络请求仍明确放在 `Dispatchers.IO`，避免页面关闭/重开时后台线程直接触发 Compose 状态更新。
+- 修复后使用当前源码在 Android 15 `emulator-5556` 连续执行合集专项两次，均为 `1/1` 通过；富文本专项执行 `1/1` 通过。合集报告包含 9 个检查点，富文本报告包含 8 个检查点，均已保存在 `tmp-android-content-suite-results-20261029/android15-fixed/`。
+- Android 15 主会话专项本轮因设备已保留本地会话按测试设计跳过，沿用前一轮当前源码的 `1/1` 通过证据；本轮不把跳过写成通过。测试数据未清理，结束后已恢复生产地址 Debug 包并移除 ADB reverse。
+
 ## 本地内容主流程补充复验（2026-10-29）
 
 - 使用当前源码重新构建本地 API 地址 Debug/AndroidTest 包，在 Android 11 `emulator-5562` 通过真实 `MainActivity`、本地 Docker API/MySQL/Redis 和动态测试账号执行 `NativeLocalContentSuiteTest`，结果为 `3/3`、0 失败、0 跳过，耗时约 61 秒。

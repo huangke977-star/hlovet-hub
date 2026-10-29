@@ -10397,7 +10397,7 @@ private fun MyCollectionsContent(
         val pendingCover = coverFile
         saving = true
         editorError = null
-        scope.launch {
+        scope.launch(Dispatchers.Main.immediate) {
             var savedStep = false
             try {
                 // 创建/元数据先保存；后续收录和封面接口本身不属于同一服务端事务。
@@ -10470,7 +10470,7 @@ private fun MyCollectionsContent(
         if (uri == null) return@rememberLauncherForActivityResult
         coverUri = uri
         coverLoading = true
-        scope.launch {
+        scope.launch(Dispatchers.Main.immediate) {
             runCatching { withContext(Dispatchers.IO) { readCollectionCoverFile(context, uri) } }
                 .onSuccess { file -> coverFile = file; editorCoverPath = "" }
                 .onFailure { if (it is CancellationException) throw it; editorError = it.message ?: nativePhrase("封面读取失败。", "Unable to read the cover image.") }
@@ -10485,7 +10485,7 @@ private fun MyCollectionsContent(
         if (saving) return
         saving = true
         deleteError = null
-        scope.launch {
+        scope.launch(Dispatchers.Main.immediate) {
             try {
                 withContext(Dispatchers.IO) { NativeDiscoveryApi.deleteCollection(currentToken, collection.id) }
                 collections = collections.filterNot { it.id == collection.id }
@@ -10510,7 +10510,7 @@ private fun MyCollectionsContent(
         val generation = browseGeneration
         val query = browseQuery
         val nextPage = browsePage + 1
-        scope.launch {
+        scope.launch(Dispatchers.Main.immediate) {
             runCatching {
                 withContext(Dispatchers.IO) {
                     NativeDiscoveryApi.listVisibleCollections(
@@ -10545,7 +10545,7 @@ private fun MyCollectionsContent(
         val nextPage = articlePage + 1
         articleLoading = true
         articleError = null
-        scope.launch {
+        scope.launch(Dispatchers.Main.immediate) {
             try {
                 val result = withContext(Dispatchers.IO) { NativeArticleApi.listMine(accessToken, page = nextPage, pageSize = 50, status = "published", search = query) }
                 if (generation != articleGeneration) return@launch
@@ -10564,7 +10564,7 @@ private fun MyCollectionsContent(
         val currentToken = token ?: return
         if (browseActionId != null) return
         browseActionId = collection.id
-        scope.launch {
+        scope.launch(Dispatchers.Main.immediate) {
             runCatching {
                 withContext(Dispatchers.IO) {
                     NativeDiscoveryApi.setCollectionSubscription(currentToken, collection.id, !collection.subscribed)
