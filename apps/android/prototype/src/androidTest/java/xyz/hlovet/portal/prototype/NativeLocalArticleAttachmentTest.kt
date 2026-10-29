@@ -30,7 +30,7 @@ class NativeLocalArticleAttachmentTest {
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:3001")
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val stored = requireNotNull(NativeSessionStore.load(context)) { "Local test session is missing" }
-        check(stored.userId == 34 && stored.username == "native_restore_fa84e606cbbb")
+        check(stored.userId > 0 && stored.username.startsWith("native_restore_") && !stored.isSuperAdmin)
         val session = NativeAuthApi.refresh(stored.refreshToken)
         check(session.userId == stored.userId)
         check(NativeSessionStore.save(context, session))

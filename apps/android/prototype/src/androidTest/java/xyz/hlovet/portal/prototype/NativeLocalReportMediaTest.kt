@@ -40,12 +40,12 @@ class NativeLocalReportMediaTest {
     private val checks = JSONArray()
     private val report = JSONObject().put("testDataRemoved", false).put("apiBaseUrl", BuildConfig.API_BASE_URL)
 
-    /** 沿用已授权的本地读者登录，禁止使用此用例写入正式服务器。 */
+    /** 沿用任意已授权的本地读者登录，禁止使用此用例写入正式服务器。 */
     @Before fun requireLocalSession() {
         // 不注入替身会话、不读取密码、不关闭站点安全配置。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:3001" && BuildConfig.PORTAL_BASE_URL == "http://127.0.0.1:3000")
         val stored = requireNotNull(NativeSessionStore.load(context))
-        check(stored.userId == 34 && stored.username == "native_restore_fa84e606cbbb")
+        check(stored.userId > 0 && stored.username.startsWith("native_restore_") && !stored.isSuperAdmin)
         session = NativeAuthApi.refresh(stored.refreshToken)
         check(NativeSessionStore.save(context, session))
         oldLocale = NativeI18n.locale
