@@ -76,7 +76,10 @@ class NativeLocalReportMediaTest {
         val attachments = requireNotNull(submitted.message).attachments
         assertEquals(listOf("image", "audio", "video", "file", "file"), attachments.map { it.kind })
         report.put("userId", session.userId).put("groupId", groupId).put("messageId", messageId).put("reportId", submitted.id)
-            .put("attachments", JSONArray(attachments.map { JSONObject().put("id", it.id).put("kind", it.kind).put("name", it.originalName) }))
+            .put("attachments", JSONArray(attachments.map {
+                JSONObject().put("id", it.id).put("kind", it.kind).put("name", it.originalName)
+                    .put("downloadUrl", it.downloadUrl).put("thumbnailUrl", it.thumbnailUrl ?: JSONObject.NULL)
+            }))
         record("real-report-api-persisted-and-listed-under-own-account")
 
         // 身份头必须由真实下载接口接受，匿名请求不允许读取任何附件。
@@ -129,12 +132,17 @@ class NativeLocalReportMediaTest {
         compose.onNodeWithText("另存为").performClick()
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         // 系统目录条目也使用 title，必须限定为可编辑文件名，不能误取最近目录名称。
-        val title = device.wait(Until.findObject(By.res("android", "title").clazz("android.widget.EditText")), 20000) ?: error("System file name input missing")
+        // Android 15 的 DocumentsUI 将保存名称控件标记为 android:id/title，但 By.res 的资源包解析在不同系统镜像上不一致；当前窗口唯一的 EditText 才是稳定契约。
+        val title = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 40000) ?: error("System file name input missing")
         assertEquals(file.originalName, title.text)
         val savedName = "hlovet-report-${UUID.randomUUID()}.txt"
         title.text = savedName
-        requireNotNull(device.wait(Until.findObject(By.res("android", "button1")), 20000)).click()
-        waitText("附件已保存到所选位置。")
+        // 同一镜像下保存按钮的资源包标记也可能不稳定，按 DocumentsUI 的可见文案获取实际按钮并点击其屏幕中心。
+        val saveButton = requireNotNull(device.wait(Until.findObject(By.text("SAVE")), 20000))
+        val saveBounds = saveButton.visibleBounds
+        device.click(saveBounds.centerX(), saveBounds.centerY())
+        // Toast 属于短暂系统反馈，不能作为文件是否真正写入的唯一依据；直接等待系统目录中的最终文件。
+        waitSavedFile(device, savedName, file.sizeBytes)
         val saved = device.executeShellCommand("cat /sdcard/Download/$savedName").toByteArray()
         val expected = http(file.downloadUrl, session.accessToken, 200)
         assertArrayEquals(expected, saved)
@@ -162,6 +170,20 @@ class NativeLocalReportMediaTest {
     private fun clickFile(id: Int) {
         // 父附件标识限定本次点击范围。
         compose.onNode(hasClickAction() and hasAnyAncestor(hasTestTag("report-attachment-$id"))).performScrollTo().performClick()
+    }
+
+    /** 等待 DocumentsUI 将另存为结果真正落盘，避免短暂 Toast 或窗口切换造成误判。 */
+    private fun waitSavedFile(device: UiDevice, name: String, expectedBytes: Long) {
+        // 文件名由本测试生成的 UUID 组成，只检查 Download 目录中的本次结果。
+        // 某些 Android 15 shell 环境不会稳定返回 test 的 stdout，使用 ls 同时确认文件已写到服务端声明的大小。
+        val command = "ls -l /sdcard/Download/$name"
+        val deadline = System.nanoTime() + 40_000_000_000L
+        while (System.nanoTime() < deadline) {
+            val listing = device.executeShellCommand(command)
+            if (listing.contains(name) && listing.split(Regex("\\s+")).contains(expectedBytes.toString())) return
+            Thread.sleep(500)
+        }
+        error("Saved attachment file is missing or incomplete: $name")
     }
 
     /** 认证下载 path 并断言 expected 状态，只返回字节而不记录身份信息。 */

@@ -2951,3 +2951,12 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 修复后 `NativeLocalMainSessionTest` 在 Android 15 `1/1` 通过，未再出现 Compose 销毁崩溃；随后 JVM `331/331`、PC 路由 `70/70`、后台入口 `24/24`、API 模块 `27/27` 和 `git diff --check` 均通过。
 - 生产地址 Debug 包重新安装后确认 BuildConfig 为 `https://5200918.xyz/api` / `https://5200918.xyz`，冷启动首页正常，Logcat 未发现崩溃、ANR 或 SSL 错误，ADB reverse 已清空。
 - 同轮合集与富文本真实测试因测试包重装后没有保留读者会话，在业务入口前置检查处停止；它们不计为通过或失败，待下一轮用动态会话夹具单独执行。
+
+## 举报媒体与系统另存为最终本地复验（2026-10-29）
+
+- 修正 AndroidTest 的本地回环规则：测试期间清除 Java 层 HTTP/HTTPS 代理属性并加入回环地址白名单，测试结束精确恢复原代理属性；不修改系统代理，也不进入正式 release 源集。
+- 修正 DocumentsUI 另存为验收的竞态判断：不再依赖 `test -f` 或短暂 Toast，而是等待系统目录中的目标文件名和服务端声明字节数均已落盘，再读取文件并核对服务端附件字节和 SHA-256。
+- 修正动态举报夹具的权限边界：群主创建群，发送者发送五类附件，第三个普通成员负责举报并退群。这样“退群后未缓存附件返回 403”的场景不再错误地使用群主身份。
+- 本地 Docker API、MySQL、Redis 健康，API 就绪检查返回 `200`。Android 11 `emulator-5562` 使用真实 MainActivity、本地 API、真实数据库和五类真实附件执行 `NativeLocalReportMediaTest`，结果 `1/1`、0 失败、0 跳过，六项检查全部通过：举报记录持久化、鉴权下载与匿名 `401`、图片缩略图及原图预览、音视频解码暂停、系统另存为字节一致、退群后举报保留且未缓存附件为 `403` 并显示错误。
+- 最终非敏感证据保存在 `tmp-android-report-media-results-20261029/android11`，报告中的保存文件为 37 字节，SHA-256 与服务端附件一致；测试账号、群组、消息、举报和附件均按约定保留，没有清理业务数据。
+- Android 15 `emulator-5556` 本轮重跑时受到模拟器系统级 ANR 影响，不能把该次启动失败计为产品失败或通过；此前同一真实流程的完整六项报告仍保留在 `tmp-android-report-media-results-20261015/local`，本轮 Android 11 结果用于确认当前代码和 DocumentsUI 轮询修复后的闭环。Google/Passkey、FCM、外部 AI/媒体供应商、OSS/R2 等外部条件仍不以本地结果替代。
