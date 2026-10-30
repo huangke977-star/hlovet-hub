@@ -42,6 +42,13 @@
 - 修复后使用当前源码在 Android 15 `emulator-5556` 连续执行合集专项两次，均为 `1/1` 通过；富文本专项执行 `1/1` 通过。合集报告包含 9 个检查点，富文本报告包含 8 个检查点，均已保存在 `tmp-android-content-suite-results-20261029/android15-fixed/`。
 - Android 15 主会话专项本轮因设备已保留本地会话按测试设计跳过，沿用前一轮当前源码的 `1/1` 通过证据；本轮不把跳过写成通过。测试数据未清理，结束后已恢复生产地址 Debug 包并移除 ADB reverse。
 
+## Android 15 干净安装主会话复验（2026-10-29）
+
+- 使用当前源码以独立包名 `xyz.hlovet.portal.paritytest` 构建本地 API/网页地址 Debug 包，并在 Android 15 `emulator-5556` 卸载旧测试包后重新安装主包和 AndroidTest 包；构建入口的显式包名校验同时修复为完整包名正则，支持独立原生包的干净安装验证。
+- `NativeLocalMainSessionTest` 通过真实 `MainActivity` 实际执行 `1/1`，耗时约 12.9 秒，0 失败、0 错误、0 跳过；6 个检查点全部通过：动态注册、密码登录、引导跳过、加密会话保存、备份目录隔离和 Activity 重建后的会话恢复。
+- 设备报告为 `tmp-android15-clean-main-session-20261029.json`，只记录本地 API 来源、测试夹具 ID、随机测试用户名和通过项，不包含密码、令牌或 API Key；本地业务测试数据按约定保留，没有清理数据库。
+- 测试结束已卸载独立测试包、移除临时 ADB reverse，并重新构建安装默认生产地址 Debug 包；该轮没有修改生产服务、代理配置或业务数据。
+
 ## 本地内容主流程补充复验（2026-10-29）
 
 - 使用当前源码重新构建本地 API 地址 Debug/AndroidTest 包，在 Android 11 `emulator-5562` 通过真实 `MainActivity`、本地 Docker API/MySQL/Redis 和动态测试账号执行 `NativeLocalContentSuiteTest`，结果为 `3/3`、0 失败、0 跳过，耗时约 61 秒。

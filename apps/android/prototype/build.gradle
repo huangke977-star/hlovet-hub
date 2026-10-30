@@ -10,10 +10,8 @@ def configuredPortalBaseUrl = (project.findProperty('previewPortalBaseUrl') ?: c
 // 默认以变体后缀区分正式原生包和既有预览包；显式 applicationId 保持完整覆盖语义。
 def nativeApplicationId = project.findProperty('nativeApplicationId')
 def configuredApplicationId = (nativeApplicationId == null ? 'xyz.hlovet.portal' : nativeApplicationId.toString()).trim()
-def applicationIdParts = configuredApplicationId.tokenize('.')
-def applicationIdValid = configuredApplicationId.count('.') == applicationIdParts.size() - 1 &&
-    applicationIdParts.size() >= 2 &&
-    applicationIdParts.every { it ==~ '[A-Za-z][A-Za-z0-9_]*' }
+// 用完整包名正则校验显式注入的独立应用身份，避免 Groovy 的字符串计数把点号当成模式字符。
+def applicationIdValid = configuredApplicationId.matches('[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+')
 if (!applicationIdValid) {
     throw new GradleException('nativeApplicationId 必须是合法的 Android applicationId。')
 }
