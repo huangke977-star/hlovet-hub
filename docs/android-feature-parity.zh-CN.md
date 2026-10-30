@@ -3002,3 +3002,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用本地 Docker API、MySQL、Redis 和 Android 15 `emulator-5556` 的独立测试包完成 `NativeLocalMainSessionTest` `1/1`、`NativeLocalSocialTest` `1/1`，均为 0 失败、0 跳过。社交专项的 7 个检查点全部通过：好友申请方向与通知已读、真实 MainActivity 发送、Socket 对端收消息、服务端持久化和自动已读、聊天搜索定位、非成员历史/上下文/搜索隔离、拉黑后现有 Socket 拒绝及解除后重新同意。
 - 首轮社交专项失败原因是测试依赖 `hasText("输入消息…")`，当前 Compose 语义树没有把共享输入框占位文字暴露给该匹配器；未将失败改写为通过，改用稳定标签后重新运行并通过。非敏感报告和三张现场截图保存在 `tmp-android-social-results-20261030`；测试账号、好友关系、会话、消息和通知按约定保留，报告标记 `testDataRemoved=false`、`productionTested=false`。
 - 测试结束后已卸载独立本地包、清空 Android 15 的 `3000/3001` ADB reverse 并停止本地 Web；随后重新构建并安装默认生产地址 Debug 包，BuildConfig 确认为 `https://5200918.xyz/api` / `https://5200918.xyz`，冷启动无 FATAL、ANR、输入超时或 WebView 错误。本轮源码/文档修改已完成静态差异检查，仍不把本地结果扩大为 Google/Passkey 成功流程、FCM 到达、生产 WebRTC、外部 AI/媒体供应商或 OSS/R2 的真实验收。
+
+## Android 15 内容主流程复验（2026-10-30）
+
+- 使用包含最新聊天输入语义标签的独立本地测试包，在 Android 15 `emulator-5556` 通过 `NativeLocalContentSuiteTest` `3/3`，0 失败、0 跳过，耗时约 48.5 秒。主会话 6 个检查点、合集 9 个检查点、富文本 8 个检查点全部通过。
+- 合集专项实际覆盖创建、箭头排序持久化、编辑、增删文章、私有/登录可见/公开权限、订阅/取消订阅/重复订阅、删除合集不删除文章和拒绝会话恢复；富文本专项覆盖 Android 输入任务列表、撤销/重做、代码语言与桥接插入、复杂 HTML 保存重开、代码/表格/任务预览和无修改预览不污染草稿状态。
+- 非敏感证据保存在 `tmp-android-content-suite-results-20261030`，本轮账号、文章、合集和审计记录保留，未测试生产数据。测试结束后已卸载独立包、清空 ADB reverse、停止本地 Web，并重新安装默认生产地址 Debug 包；BuildConfig 为 `https://5200918.xyz/api` / `https://5200918.xyz`，冷启动没有 FATAL、ANR 或 WebView 错误。
