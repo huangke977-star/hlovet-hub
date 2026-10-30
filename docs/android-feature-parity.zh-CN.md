@@ -41,6 +41,14 @@
 - 使用当前 PC API 清单重新执行接口对齐检查：`27/27` 个 API 模块完成审计，得到 `388` 个精确/跨模块匹配、`21` 个已确认的有意别名、`11` 个动态解析候选，`0` 个确认缺失候选。
 - 本轮审计没有发现新的 Android 页面或接口映射缺口；这些结果仍只证明源码覆盖关系，不能替代外部验收表中的真实授权、推送、第三方服务、远程存储和双设备网络条件。
 
+## 公告生命周期最新源码真实复验（2026-10-30）
+
+- 使用当前源码构建本地 API/网页地址 Debug 包，在 Android 11 `emulator-5562` 通过真实 `MainActivity`、本地 Docker API/MySQL/Redis 和动态测试夹具执行公告专项；主会话先通过 `1/1`，随后普通公告生命周期补跑通过 `1/1`，耗时约 50 秒。
+- 普通公告覆盖读者权限拒绝、管理员真实页面保存与发布、指定角色投递、收件人阅读同步、归档、删除和记录保留，共 `9/9` 个检查点通过；测试数据、公告、通知、角色和账号均保留，没有清理数据库。
+- 定时公告生命周期通过 `1/1`，耗时约 269 秒；`7/7` 个检查点通过，包含系统日期/时间取消、定时值精确保存、发布时间前不可见、服务端自然调度发布、收件人阅读、自然过期和管理员历史记录保留。报告明确记录 `naturalSchedulerTested=true`、`lifecycleInvokedManually=false`、`testDataRemoved=false`。
+- 非敏感报告和截图分别保存在 `tmp-android-announcements-results-20261030/regular/` 与 `tmp-android-announcements-results-20261030/scheduled/`。测试结束已卸载本地包、移除 Android 11 的 `3000/3001` reverse、停止本地 Web，并重新构建安装生产地址 Debug 包；生产包 BuildConfig 为 `https://5200918.xyz/api` 与 `https://5200918.xyz`，Android 15 冷启动前台为 `MainActivity`，最近 Logcat 未发现应用 FATAL/ANR。
+- 本轮仍不扩大为 Google/Passkey 成功授权、FCM 真推送、生产双设备 WebRTC、外部 AI/OCR/语音/图片服务、OSS/R2 或物理断网验收；这些边界仍需要对应外部账号、设备或服务配置。
+
 ## Android 15 合集线程边界修复与复验（2026-10-29）
 
 - Android 15 `emulator-5556` 首轮复验曾在合集页面生命周期切换后出现 `CalledFromWrongThreadException`，堆栈指向 Compose 布局请求，说明合集页面的异步状态回写没有显式固定在 Android 主线程；这次异常不是接口、权限或测试数据失败。
