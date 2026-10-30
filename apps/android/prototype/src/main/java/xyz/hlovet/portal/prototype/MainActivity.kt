@@ -9132,6 +9132,7 @@ private fun ConversationScreen(
                             modifier = Modifier.weight(1f),
                             enabled = connected && !sending,
                             placeholder = nativePhrase("输入消息…", "Message..."),
+                            semanticTag = "native-chat-input",
                         )
                         IconButton(
                             onClick = ::sendMessage,

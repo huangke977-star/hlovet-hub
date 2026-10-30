@@ -2995,3 +2995,10 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 本地 Docker API、MySQL、Redis 健康，API 就绪检查返回 `200`。Android 11 `emulator-5562` 使用真实 MainActivity、本地 API、真实数据库和五类真实附件执行 `NativeLocalReportMediaTest`，结果 `1/1`、0 失败、0 跳过，六项检查全部通过：举报记录持久化、鉴权下载与匿名 `401`、图片缩略图及原图预览、音视频解码暂停、系统另存为字节一致、退群后举报保留且未缓存附件为 `403` 并显示错误。
 - 最终非敏感证据保存在 `tmp-android-report-media-results-20261029/android11`，报告中的保存文件为 37 字节，SHA-256 与服务端附件一致；测试账号、群组、消息、举报和附件均按约定保留，没有清理业务数据。
 - Android 15 `emulator-5556` 本轮重跑时受到模拟器系统级 ANR 影响，不能把该次启动失败计为产品失败或通过；此前同一真实流程的完整六项报告仍保留在 `tmp-android-report-media-results-20261015/local`，本轮 Android 11 结果用于确认当前代码和 DocumentsUI 轮询修复后的闭环。Google/Passkey、FCM、外部 AI/媒体供应商、OSS/R2 等外部条件仍不以本地结果替代。
+
+## Android 15 社交与聊天专项收口（2026-10-30）
+
+- 为聊天输入框补充稳定的 `native-chat-input` 语义标签。聊天和评论继续共用 `NativeMentionTextField`，只是测试与无障碍定位不再依赖可能未暴露的占位文字，不改变输入、提及候选或发送逻辑。
+- 使用本地 Docker API、MySQL、Redis 和 Android 15 `emulator-5556` 的独立测试包完成 `NativeLocalMainSessionTest` `1/1`、`NativeLocalSocialTest` `1/1`，均为 0 失败、0 跳过。社交专项的 7 个检查点全部通过：好友申请方向与通知已读、真实 MainActivity 发送、Socket 对端收消息、服务端持久化和自动已读、聊天搜索定位、非成员历史/上下文/搜索隔离、拉黑后现有 Socket 拒绝及解除后重新同意。
+- 首轮社交专项失败原因是测试依赖 `hasText("输入消息…")`，当前 Compose 语义树没有把共享输入框占位文字暴露给该匹配器；未将失败改写为通过，改用稳定标签后重新运行并通过。非敏感报告和三张现场截图保存在 `tmp-android-social-results-20261030`；测试账号、好友关系、会话、消息和通知按约定保留，报告标记 `testDataRemoved=false`、`productionTested=false`。
+- 测试结束后已卸载独立本地包、清空 Android 15 的 `3000/3001` ADB reverse 并停止本地 Web；随后重新构建并安装默认生产地址 Debug 包，BuildConfig 确认为 `https://5200918.xyz/api` / `https://5200918.xyz`，冷启动无 FATAL、ANR、输入超时或 WebView 错误。本轮源码/文档修改已完成静态差异检查，仍不把本地结果扩大为 Google/Passkey 成功流程、FCM 到达、生产 WebRTC、外部 AI/媒体供应商或 OSS/R2 的真实验收。

@@ -100,7 +100,7 @@ class NativeLocalSocialTest {
             .setData(Uri.parse("${BuildConfig.PORTAL_BASE_URL}/messages?conversation=${conversation.id}")))
         waitFor(hasContentDescription("聊天已连接"))
         val ownBody = "$marker from-main-activity"
-        compose.onNode(hasSetTextAction() and hasText("输入消息…")).performClick().performTextReplacement(ownBody)
+        compose.onNodeWithTag("native-chat-input").performClick().performTextReplacement(ownBody)
         // 输入法展开后标题和连接状态仍需可见，不能由系统把整个页面平移到屏幕上方。
         assertKeyboardLayout()
         record("real-keyboard-keeps-header-composer-and-send-button-visible")
@@ -237,7 +237,7 @@ class NativeLocalSocialTest {
             }
             if (!keyboardVisible) return@waitUntil false
             val title = compose.onNodeWithText("在线聊天").fetchSemanticsNode().boundsInWindow
-            val composer = compose.onNode(hasSetTextAction() and isEnabled()).fetchSemanticsNode().boundsInWindow
+            val composer = compose.onNodeWithTag("native-chat-input").fetchSemanticsNode().boundsInWindow
             val send = compose.onNodeWithContentDescription("发送").fetchSemanticsNode().boundsInWindow
             title.height > 0 && composer.height > 0 && send.height > 0 && title.top >= 0 &&
                 composer.top >= title.bottom && composer.bottom <= keyboardTop + 1 && send.bottom <= keyboardTop + 1

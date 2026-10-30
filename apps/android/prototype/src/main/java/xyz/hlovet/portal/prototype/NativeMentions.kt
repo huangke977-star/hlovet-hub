@@ -125,7 +125,7 @@ internal class NativeMentionPopupPosition(private val caret: Rect, private val g
     }
 }
 
-/** 聊天和评论共用的提及输入框；candidates/loading 由所在页面按权限查询，placeholder 为当前动作提示。 */
+/** 聊天和评论共用的提及输入框；candidates/loading 由所在页面按权限查询，placeholder 为当前动作提示，semanticTag 用于稳定定位输入控件。 */
 @Composable
 internal fun NativeMentionTextField(
     value: TextFieldValue,
@@ -135,6 +135,7 @@ internal fun NativeMentionTextField(
     placeholder: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    semanticTag: String = "native-mention-input",
 ) {
     // 输入和菜单共享原文字形、焦点及候选选中索引；没有候选时保留原生键盘行为。
     val active = nativeActiveMention(value)
@@ -166,6 +167,7 @@ internal fun NativeMentionTextField(
                 if (next.text.length <= 2000) onValueChange(next)
             },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .testTag(semanticTag)
                 .onFocusChanged { focused = it.isFocused }
                 .onPreviewKeyEvent { event ->
                     // 候选仅在显示且加载完成时拦截导航；组合输入期间不抢回车。
