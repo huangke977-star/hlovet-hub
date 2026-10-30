@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -187,7 +188,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.moreEntryGroup(
 @Composable
 private fun NativeMoreEntryRow(entry: NativeMoreEntry, onClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 11.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("native-more-${entry.key}")
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(entry.icon, contentDescription = null, tint = HlovetUi.accent, modifier = Modifier.size(22.dp))

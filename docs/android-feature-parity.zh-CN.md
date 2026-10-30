@@ -3036,4 +3036,4 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 
 - `:prototype:compileDebugKotlin` 通过；`:prototype:testDebugUnitTest` 全量 `331/331` 通过；`:prototype:assembleDebug` 通过。文案测试同时确认显示值为 `Discover`，内部路由值仍为 `文章`。
 - 当前生产地址 Debug APK 已安装到 Android 15 `emulator-5556` 和 Android 11 `emulator-5562`。两台设备均冷启动进入 `MainActivity`，未发现 `FATAL EXCEPTION`、ANR、输入超时或 WebView 错误。
-- Android 15 真实 UI 冒烟确认默认发现页、发现筛选芯片、底部五个入口、更多页新增入口、匿名话题页及返回发现均可见并可操作；测试没有登录、发布、修改账户或写入生产业务数据。
+- Android 15 真实 UI 冒烟确认默认发现页、发现筛选芯片、底部五个入口、更多页新增入口、匿名话题页及返回发现均可见并可操作；新增 `NativeMoreNavigationTest` 设备回归为 `1/1`，覆盖八个入口的显示/滚动和专题、合集、公告、导航、工具、反馈、建议、资源中心的分发回调。测试没有登录、发布、修改账户或写入生产业务数据。
