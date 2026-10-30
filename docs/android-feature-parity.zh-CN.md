@@ -55,6 +55,13 @@
 - 设备报告为 `tmp-android15-clean-main-session-20261029.json`，只记录本地 API 来源、测试夹具 ID、随机测试用户名和通过项，不包含密码、令牌或 API Key；本地业务测试数据按约定保留，没有清理数据库。
 - 测试结束已卸载独立测试包、移除临时 ADB reverse，并重新构建安装默认生产地址 Debug 包；该轮没有修改生产服务、代理配置或业务数据。
 
+## Android 15 内容主流程当前源码复验（2026-10-30）
+
+- 使用当前源码以独立包名 `xyz.hlovet.portal.paritytest`、本地 API `http://127.0.0.1:3001` 和本地网页 `http://127.0.0.1:3000` 在 Android 15 `emulator-5556` 执行内容套件，真实 `MainActivity` 仪器测试结果为 `3/3`，耗时约 65.7 秒，0 失败、0 错误、0 跳过。
+- 主会话、合集和富文本三个专项均实际通过：合集 9 个检查点覆盖持久化顺序、可见性、订阅/取消订阅和删除边界；富文本 8 个检查点覆盖任务列表、撤销/重做、代码语言、复杂 HTML 保存重开和预览回读。
+- 无敏感信息的报告保存在 `tmp-android-content-suite-results-20261030/`；动态测试账号、文章、合集、订阅和审计记录按约定保留，没有清理数据库。测试期间未发现应用 FATAL/ANR。
+- 测试结束已卸载独立测试包、移除 ADB reverse，并重新构建安装默认生产地址 Debug 包；生产包冷启动前台为 `MainActivity`，本轮没有修改生产服务、代理配置或业务数据。
+
 ## 本地内容主流程补充复验（2026-10-29）
 
 - 使用当前源码重新构建本地 API 地址 Debug/AndroidTest 包，在 Android 11 `emulator-5562` 通过真实 `MainActivity`、本地 Docker API/MySQL/Redis 和动态测试账号执行 `NativeLocalContentSuiteTest`，结果为 `3/3`、0 失败、0 跳过，耗时约 61 秒。
