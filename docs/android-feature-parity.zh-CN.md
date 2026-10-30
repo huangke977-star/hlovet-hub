@@ -3044,3 +3044,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 每台设备的 9 项检查全部通过：创建两个匿名话题并保存创建者身份、公开搜索/排序/分页、页面搜索并打开指定话题、发送正文并服务端回读、点赞并核对计数、multipart 附件元数据、收藏并持久化访客状态、创建者关闭/重开、清除本地身份后用密码恢复创建者身份。
 - 本轮创建的话题、消息和附件数据保留，报告标记 `testDataRemoved=false`、`productionTested=false`；当前结果文件位于 `apps/android/prototype/build/outputs/connected_android_test_additional_output/debugAndroidTest/connected/`，XML 结果位于 `apps/android/prototype/build/outputs/androidTest-results/connected/debug/`。测试期间的 ADB reverse 已移除。
 - 本轮同步确认底部导航对外显示为“发现 / 匿名 / 更多 / 消息 / 我的”，文章流筛选对外显示为“发现”（英文 `Discover`），内部 `文章` 模式值和旧路由保持不变。Google/Passkey、FCM、生产 WebRTC、外部 AI/媒体供应商以及 OSS/R2 仍需各自的外部条件验收。
+
+## 离线内容与媒体缓存双设备复验（2026-10-30）
+
+- 使用当前源码在 Android 11 `emulator-5562` 和 Android 15 `emulator-5556` 各执行 `NativeOfflinePersistenceTest` `9/9`，失败、错误和跳过均为 `0`。
+- 实际覆盖文章、专题和合集保存后无网络读取，媒体缓存读取与 WebView 拦截，账号隔离，20 条并发保存，旧版中断原子写恢复，媒体缓存容量淘汰，以及超限下载不留下残缺文件且不向外部媒体发送站内令牌。
+- 该专项使用设备内 MockWebServer 和隔离文件目录，不访问生产 API、不修改业务数据库；测试结束后夹具目录已清理。该结果证明当前本地离线存储/媒体缓存逻辑闭环，不替代实体网络切换、生产媒体源和 OSS/R2 远端恢复验收。
