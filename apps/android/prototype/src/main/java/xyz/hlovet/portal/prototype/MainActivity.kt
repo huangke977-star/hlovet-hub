@@ -101,6 +101,7 @@ import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MoreVert
@@ -695,7 +696,7 @@ private fun HlovetMobilePreview(
 ) {
     // 页面位置和待恢复目标只属于当前宿主，外观更新不应重建这些业务状态。
     var selectedTab by remember { mutableIntStateOf(0) }
-    var discoveryInitialMode by remember { mutableStateOf("推荐") }
+    var discoveryInitialMode by remember { mutableStateOf("文章") }
     var discoveryInitialQuery by remember { mutableStateOf("") }
     var accountInitialStatus by remember { mutableStateOf<String?>(null) }
     var accountInitialQuery by remember { mutableStateOf("") }
@@ -862,7 +863,8 @@ private fun HlovetMobilePreview(
 
     fun clearOpenTarget() {
         loginVisible = false
-        discoveryInitialMode = "推荐"
+        // 默认入口专注文章列表；推荐仍可在发现页的筛选中主动打开。
+        discoveryInitialMode = "文章"
         discoveryInitialQuery = ""
         accountInitialStatus = null
         accountInitialQuery = ""
@@ -1216,20 +1218,20 @@ private fun HlovetMobilePreview(
                         clearOpenTarget()
                         discoveryInitialMode = "专题"
                         discoveryInitialQuery = targetUri.getQueryParameter("q")?.trim().orEmpty().take(80)
-                        selectedTab = 1
+                        selectedTab = 0
                     }
                 }
                 path == "/collections" -> {
                     clearOpenTarget()
                     discoveryInitialMode = "合集"
                     discoveryInitialQuery = targetUri.getQueryParameter("q")?.trim().orEmpty().take(80)
-                    selectedTab = 1
+                    selectedTab = 0
                 }
                 path == "/articles" -> {
                     clearOpenTarget()
                     discoveryInitialMode = "文章"
                     discoveryInitialQuery = targetUri.getQueryParameter("q")?.trim().orEmpty().take(80)
-                    selectedTab = 1
+                    selectedTab = 0
                 }
                 path == "/announcements" -> {
                     clearOpenTarget()
@@ -2554,10 +2556,11 @@ private fun HlovetMobilePreview(
                         containerColor = Color.Transparent,
                         tonalElevation = 0.dp
                     ) {
+                        // 底部只保留高频主入口；低频站点功能统一进入“更多”，避免默认页面被入口卡片挤占。
                         val items = listOf(
-                            Triple(nativePhrase("首页", "Home"), Icons.Filled.Home, 0),
-                            Triple(nativePhrase("发现", "Discover"), Icons.Filled.Explore, 1),
-                            Triple(nativePhrase("写作", "Write"), Icons.Filled.AddCircleOutline, 2),
+                            Triple(nativePhrase("发现", "Discover"), Icons.Filled.Explore, 0),
+                            Triple(nativePhrase("匿名", "Anonymous"), Icons.Filled.Message, 1),
+                            Triple(nativePhrase("更多", "More"), Icons.Filled.MoreVert, 2),
                             Triple(nativePhrase("消息", "Messages"), Icons.Filled.ChatBubbleOutline, 3),
                             Triple(nativePhrase("我的", "Profile"), Icons.Filled.PersonOutline, 4)
                         )
@@ -2608,30 +2611,7 @@ private fun HlovetMobilePreview(
                 }
             ) { padding ->
                 when (selectedTab) {
-                    0 -> HomeScreen(
-                        scaffoldPadding = padding,
-                        session = session,
-                        articles = state.data.articles,
-                        onArticleClick = { openDetailTarget(DetailTarget.Article(it)) },
-                        onOpenAnnouncements = { accountTarget = AccountTarget.Announcements },
-                        onOpenAnonymousTopics = { accountTarget = AccountTarget.AnonymousTopics },
-                        onOpenSuggestions = { accountTarget = AccountTarget.Suggestions },
-                        onOpenSearch = { searchInitialQuery = ""; searchVisible = true },
-                        onOpenWrite = {
-                            if (session == null) {
-                                loginVisible = true
-                            } else {
-                                selectedTab = 2
-                                writeBackTarget = null
-                                writeTarget = NativeWriteTarget.New()
-                            }
-                        },
-                        onOpenSubscriptions = {
-                            if (session == null) loginVisible = true else accountTarget = AccountTarget.SubscriptionFeed
-                        },
-                        onLogin = { loginVisible = true },
-                    )
-                    1 -> DiscoverScreen(
+                    0 -> DiscoverScreen(
                         padding,
                         session = session,
                         initialMode = discoveryInitialMode,
@@ -2664,24 +2644,45 @@ private fun HlovetMobilePreview(
                             }
                         },
                     )
-                     2 -> NativeWriteHomeScreen(
-                         scaffoldPadding = padding,
-                         session = session,
-                         refreshToken = writeReloadKey,
-                         onLogin = { loginVisible = true },
-                          onNewArticle = {
-                              if (session == null) loginVisible = true else {
-                                  writeBackTarget = null
-                                  writeTarget = NativeWriteTarget.New()
-                              }
-                          },
-                         onOpenDraft = { id ->
-                             if (session == null) loginVisible = true else {
-                                 writeBackTarget = null
-                                 writeTarget = NativeWriteTarget.Existing(id)
-                             }
-                         },
-                     )
+                    1 -> Box(Modifier.fillMaxSize().padding(padding)) {
+                        // 匿名内容是独立信息流，返回按钮只回到发现页，不改变匿名页内部的查询和排序实现。
+                        NativeAnonymousTopicsScreen(
+                            session = session,
+                            onBack = { selectedTab = 0 },
+                        )
+                    }
+                    2 -> NativeMoreScreen(
+                        scaffoldPadding = padding,
+                        session = session,
+                        onLogin = { loginVisible = true },
+                        onOpenSearch = { searchInitialQuery = ""; searchVisible = true },
+                        onOpenWrite = {
+                            if (session == null) {
+                                loginVisible = true
+                            } else {
+                                accountTarget = null
+                                writeBackTarget = null
+                                writeTarget = NativeWriteTarget.New()
+                            }
+                        },
+                        onOpenDiscoveryMode = { mode ->
+                            // 专题/合集继续复用发现页的筛选和数据加载，切换时清除旧搜索词。
+                            accountTarget = null
+                            discoveryInitialMode = mode
+                            discoveryInitialQuery = ""
+                            selectedTab = 0
+                        },
+                        onOpenTarget = { target ->
+                            // 公开入口允许匿名打开，账号类和管理类入口仍由宿主统一检查会话。
+                            if (target == AccountTarget.Navigation || target == AccountTarget.Tools || target == AccountTarget.ResourceCenter || target == AccountTarget.Announcements || target == AccountTarget.Feedback || target == AccountTarget.Suggestions) {
+                                accountTarget = target
+                            } else if (session == null) {
+                                loginVisible = true
+                            } else {
+                                accountTarget = target
+                            }
+                        },
+                    )
                     3 -> MessagesScreen(
                         padding = padding,
                         session = session,
@@ -13625,7 +13626,7 @@ internal fun nativeArticleSortDisplayLabel(value: String?): String = when (norma
 internal fun nativeDiscoveryModeLabel(mode: String): String = when (mode) {
     "热门" -> nativePhrase("热门", "Popular")
     "最新" -> nativePhrase("最新", "Latest")
-    "文章" -> nativePhrase("文章", "Articles")
+    "文章" -> nativePhrase("发现", "Discover")
     "专题" -> nativePhrase("专题", "Topics")
     "合集" -> nativePhrase("合集", "Collections")
     else -> nativePhrase("推荐", "Recommended")

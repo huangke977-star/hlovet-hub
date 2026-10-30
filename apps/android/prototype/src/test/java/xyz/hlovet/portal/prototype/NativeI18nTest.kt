@@ -44,7 +44,7 @@ class NativeI18nTest {
     fun switchesSharedDisplayLabelsWithoutChangingRouteValues() {
         try {
             NativeI18n.applyLocale("en-US")
-            assertEquals("Articles", nativeDiscoveryModeLabel("文章"))
+            assertEquals("Discover", nativeDiscoveryModeLabel("文章"))
             assertEquals("Most saved", nativeArticleSortDisplayLabel("favorites"))
             assertEquals(
                 "Based on your reading · Popular on HLOVET",

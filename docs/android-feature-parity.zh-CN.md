@@ -3022,3 +3022,18 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用同一最新源码和独立本地测试包，在 Android 11 `emulator-5562` 通过 `NativeLocalContentSuiteTest` `3/3`，0 失败、0 跳过，耗时约 54.6 秒；主会话、合集和富文本 HTML/任务/代码/预览链路均完成真实 MainActivity 与本地 API 验证。
 - 本轮测试前发现设备残留的旧默认测试 APK 占用 DocumentsProvider authority，已只卸载旧测试 APK 后重新安装当前测试 APK；这属于设备测试环境冲突，不是产品失败。报告保存在 `tmp-android-content-suite-results-20261030/android11`，测试账号、文章和合集保留，未清除业务数据。
 - 测试结束后已清空 Android 11 的 ADB reverse、卸载独立测试包并停止本地 Web；重新安装默认生产地址 Debug 包，BuildConfig 为 `https://5200918.xyz/api` / `https://5200918.xyz`，冷启动日志没有 FATAL、ANR、输入超时或 WebView 错误。
+
+## Android 移动端信息架构初版与发现命名（2026-10-30）
+
+### 本轮调整
+
+- 底部高频导航统一为“发现 / 匿名 / 更多 / 消息 / 我的”，默认进入发现页，发现页默认加载文章列表；原有文章、专题、合集深链仍分别保留内部筛选值和返回行为。
+- 文章流筛选值内部继续使用 `文章`，以兼容排序、可见性判断和 `/articles` 深链；用户可见的筛选名称改为“发现”，英文显示为 `Discover`，不会改变接口请求或数据范围。
+- “更多”集中承载低频入口：专题、合集、站点公告、站内导航、工具中心、问题反馈、意见建议和资源中心；写作、我的文章、订阅、离线阅读、AI 助手及管理员入口按既有登录态和权限分组展示。
+- 问题反馈、意见建议继续交给已有页面处理登录门槛；资源中心允许匿名浏览公开资源，积分和兑换等个人操作仍由页面复核会话。
+
+### 验证结果
+
+- `:prototype:compileDebugKotlin` 通过；`:prototype:testDebugUnitTest` 全量 `331/331` 通过；`:prototype:assembleDebug` 通过。文案测试同时确认显示值为 `Discover`，内部路由值仍为 `文章`。
+- 当前生产地址 Debug APK 已安装到 Android 15 `emulator-5556` 和 Android 11 `emulator-5562`。两台设备均冷启动进入 `MainActivity`，未发现 `FATAL EXCEPTION`、ANR、输入超时或 WebView 错误。
+- Android 15 真实 UI 冒烟确认默认发现页、发现筛选芯片、底部五个入口、更多页新增入口、匿名话题页及返回发现均可见并可操作；测试没有登录、发布、修改账户或写入生产业务数据。
