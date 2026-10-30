@@ -3037,3 +3037,10 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - `:prototype:compileDebugKotlin` 通过；`:prototype:testDebugUnitTest` 全量 `331/331` 通过；`:prototype:assembleDebug` 通过。文案测试同时确认显示值为 `Discover`，内部路由值仍为 `文章`。
 - 当前生产地址 Debug APK 已安装到 Android 15 `emulator-5556` 和 Android 11 `emulator-5562`。两台设备均冷启动进入 `MainActivity`，未发现 `FATAL EXCEPTION`、ANR、输入超时或 WebView 错误。
 - Android 15 真实 UI 冒烟确认默认发现页、发现筛选芯片、底部五个入口、更多页新增入口、匿名话题页及返回发现均可见并可操作；新增 `NativeMoreNavigationTest` 设备回归为 `1/1`，覆盖八个入口的显示/滚动和专题、合集、公告、导航、工具、反馈、建议、资源中心的分发回调。测试没有登录、发布、修改账户或写入生产业务数据。
+
+## 匿名话题 Android 真实闭环复验（2026-10-30）
+
+- 使用本地 Docker API、MySQL、Redis 和真实 `MainActivity`，在 Android 11 `emulator-5562` 与 Android 15 `emulator-5556` 各执行 `NativeLocalAnonymousTopicTest` `1/1`，失败、错误和跳过均为 `0`。
+- 每台设备的 9 项检查全部通过：创建两个匿名话题并保存创建者身份、公开搜索/排序/分页、页面搜索并打开指定话题、发送正文并服务端回读、点赞并核对计数、multipart 附件元数据、收藏并持久化访客状态、创建者关闭/重开、清除本地身份后用密码恢复创建者身份。
+- 本轮创建的话题、消息和附件数据保留，报告标记 `testDataRemoved=false`、`productionTested=false`；当前结果文件位于 `apps/android/prototype/build/outputs/connected_android_test_additional_output/debugAndroidTest/connected/`，XML 结果位于 `apps/android/prototype/build/outputs/androidTest-results/connected/debug/`。测试期间的 ADB reverse 已移除。
+- 本轮同步确认底部导航对外显示为“发现 / 匿名 / 更多 / 消息 / 我的”，文章流筛选对外显示为“发现”（英文 `Discover`），内部 `文章` 模式值和旧路由保持不变。Google/Passkey、FCM、生产 WebRTC、外部 AI/媒体供应商以及 OSS/R2 仍需各自的外部条件验收。

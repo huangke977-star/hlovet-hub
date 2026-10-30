@@ -66,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -80,24 +81,29 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** 区分公开讨论和管理员审核入口，权限不足时不得退回公开模式。 */
 internal enum class NativeAnonymousTopicAccess {
     Public,
     Management,
     Denied,
 }
 
+/** 根据 management 请求和 isAdministrator 权限返回入口类型，Denied 表示不可加载管理数据。 */
 internal fun nativeAnonymousTopicAccess(management: Boolean, isAdministrator: Boolean): NativeAnonymousTopicAccess = when {
+    // 公开入口不因当前账号有管理权限而自动升级为审核模式。
     !management -> NativeAnonymousTopicAccess.Public
     isAdministrator -> NativeAnonymousTopicAccess.Management
     else -> NativeAnonymousTopicAccess.Denied
 }
 
+/** 展示 session 对应的匿名列表与讨论弹窗；management 仅用于审核入口，onBack 返回宿主。 */
 @Composable
 internal fun NativeAnonymousTopicsScreen(
     session: NativeSession?,
     management: Boolean = false,
     onBack: () -> Unit,
 ) {
+    // 话题、编辑草稿和匿名身份留在本页面，公开与管理请求沿用同一套组件及服务端权限。
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val access = nativeAnonymousTopicAccess(
@@ -128,6 +134,7 @@ internal fun NativeAnonymousTopicsScreen(
     var messageDraft by remember { mutableStateOf("") }
     var pendingFiles by remember { mutableStateOf<List<NativeUploadFile>>(emptyList()) }
 
+    // 系统多选文件返回后统一检查数量和总大小，拒绝时保留现有附件与正文。
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         if (nativeAttachmentSelectionExceedsLimit(pendingFiles.size, uris.size)) {
@@ -157,7 +164,9 @@ internal fun NativeAnonymousTopicsScreen(
         }
     }
 
+    /** 按 reset 重读第一页或追加下一页，仅请求当前公开/管理范围内的话题。 */
     fun loadTopics(reset: Boolean = true) {
+        // 列表请求互斥；管理权限拒绝不能降级成公开列表。
         if (loading) return
         if (managementDenied) {
             error = nativePhrase("需要管理员权限才能打开匿名话题管理。", "Administrator access is required to manage anonymous topics.")
@@ -167,6 +176,7 @@ internal fun NativeAnonymousTopicsScreen(
         loading = true
         error = null
         val targetPage = if (reset) 1 else page + 1
+        // 网络在 IO 线程执行，成功后以稳定编号合并；失败保留当前列表并反馈原因。
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -185,12 +195,15 @@ internal fun NativeAnonymousTopicsScreen(
         }
     }
 
+    /** 读取 id 的最新消息，或按 beforeSequence 前插历史，失败不清空正在阅读的内容。 */
     fun loadTopic(id: Int, beforeSequence: Int? = null) {
+        // 详情与列表使用相同角色范围，管理权限不足时不请求任何详情。
         if (managementDenied) {
             error = nativePhrase("需要管理员权限才能打开匿名话题管理。", "Administrator access is required to manage anonymous topics.")
             return
         }
         topicLoading = true
+        // 历史消息按服务端编号去重，最新窗口由服务端重新核对可见性。
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -210,11 +223,13 @@ internal fun NativeAnonymousTopicsScreen(
         }
     }
 
+    // 搜索输入短暂防抖；筛选和会话变化时重新读取真实列表。
     LaunchedEffect(query, sort, visibility, manager, management, session?.accessToken) {
         delay(if (query.isBlank()) 0 else 220)
         loadTopics()
     }
 
+    // 仅详情打开时定期同步，页面销毁后由 Compose 取消轮询。
     LaunchedEffect(topic?.summary?.id, manager, management, session?.accessToken) {
         val id = topic?.summary?.id ?: return@LaunchedEffect
         while (true) {
@@ -223,17 +238,23 @@ internal fun NativeAnonymousTopicsScreen(
         }
     }
 
+    /** 打开全新的创建草稿，同时清理前一次操作的错误反馈。 */
     fun openCreate() {
+        // 每次发起都从空草稿开始，不带入其它话题的昵称和密码。
         titleDraft = ""
         nicknameDraft = ""
         passwordDraft = ""
+        error = null
         createOpen = true
     }
 
+    /** 提交当前话题草稿，成功后保存创建者身份并打开详情；失败保留弹窗输入。 */
     fun createTopic() {
+        // 防止重复创建和无效草稿进入网络请求。
         if (saving || titleDraft.isBlank() || nicknameDraft.isBlank() || passwordDraft.length < 6) return
         saving = true
         error = null
+        // 只有服务端创建成功才绑定新身份，不能在失败时丢失用户输入。
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) { NativeAnonymousTopicApi.create(context, titleDraft, nicknameDraft, passwordDraft) }
@@ -248,10 +269,14 @@ internal fun NativeAnonymousTopicsScreen(
         }
     }
 
+    /** 通过当前话题密码创建或恢复昵称，成功才覆盖该话题的本地身份。 */
     fun claimIdentity() {
+        // 本地身份只属于当前话题，重复提交期间不得启动第二次恢复。
         val current = topic ?: return
         if (saving || identityPassword.length < 6) return
         saving = true
+        error = null
+        // 失败将具体错误保留在身份弹窗，成功后清除本次密码草稿。
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -273,10 +298,14 @@ internal fun NativeAnonymousTopicsScreen(
         }
     }
 
+    /** 发送正文及待上传附件，服务端接受后才清空输入并刷新消息。 */
     fun sendMessage() {
+        // 空消息和重复提交不触发上传；错误时保留正文与附件以便重试。
         val current = topic ?: return
         if (saving || (messageDraft.isBlank() && pendingFiles.isEmpty())) return
         saving = true
+        error = null
+        // 使用该话题的匿名凭据发言，登录账号本身不等于匿名创建者身份。
         scope.launch {
             runCatching {
                 val identity = NativeAnonymousTopicApi.readIdentity(context, current.summary.id)
@@ -293,7 +322,10 @@ internal fun NativeAnonymousTopicsScreen(
         }
     }
 
+    /** 对 message 执行 value 点赞/踩切换，以服务端计数替换同编号消息。 */
     fun react(message: NativeAnonymousTopicMessage, value: String) {
+        // 服务端负责单访客反应互斥，本地不自行叠加计数。
+        error = null
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) { NativeAnonymousTopicApi.react(context, message.id, value) }
@@ -304,7 +336,10 @@ internal fun NativeAnonymousTopicsScreen(
         }
     }
 
+    /** 切换 item 的访客喜欢状态，同步列表和已打开详情的计数。 */
     fun favorite(item: NativeAnonymousTopicSummary) {
+        // 接口确认结果后再更新，避免失败被误显示为已喜欢。
+        error = null
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) { NativeAnonymousTopicApi.favorite(context, item.id) }
@@ -318,15 +353,19 @@ internal fun NativeAnonymousTopicsScreen(
         }
     }
 
+    /** 由创建者或当前管理入口切换话题关闭状态，不把普通登录身份当作权限。 */
     fun changeTopicStatus() {
+        // 权限取决于管理入口或该话题创建者凭据，与是否登录无关。
         val current = topic ?: return
         val nextStatus = if (current.summary.status == "active") "closed" else "active"
         val identity = NativeAnonymousTopicApi.readIdentity(context, current.summary.id)
-        if (session?.accessToken.isNullOrBlank() && !identity?.isCreator.orFalse()) {
+        if (!manager && identity?.isCreator != true) {
             error = nativePhrase("只有话题创建者或管理员可以操作话题状态。", "Only the topic creator or an administrator can change its status.")
             return
         }
         saving = true
+        error = null
+        // 管理员走登录鉴权，创建者走话题凭据；服务端确认后保留访客收藏状态。
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -337,18 +376,22 @@ internal fun NativeAnonymousTopicsScreen(
                     }
                 }
             }.onSuccess { updated ->
-                topic = topic?.copy(summary = updated)
+                topic = topic?.let { currentTopic -> currentTopic.copy(summary = updated.copy(favorited = currentTopic.summary.favorited)) }
                 loadTopics()
             }.onFailure { error = it.message ?: "话题状态更新失败。" }
             saving = false
         }
     }
 
+    /** 管理员切换当前话题可见性，失败保留详情和现有审核状态。 */
     fun toggleTopicHidden() {
+        // 公开模式即使有登录令牌也不能调用审核写接口。
         val current = topic ?: return
         val token = session?.accessToken
         if (!manager || token.isNullOrBlank()) return
         saving = true
+        error = null
+        // 隐藏/恢复由服务端执行，返回后刷新列表对应的筛选范围。
         scope.launch {
             runCatching { withContext(Dispatchers.IO) { NativeAnonymousTopicApi.updateTopic(token, current.summary.id, isHidden = !current.summary.isHidden) } }
                 .onSuccess { updated -> topic = topic?.copy(summary = updated); loadTopics() }
@@ -357,10 +400,14 @@ internal fun NativeAnonymousTopicsScreen(
         }
     }
 
+    /** 管理员切换 message 可见性并刷新话题列表计数，使用稳定消息编号匹配。 */
     fun toggleMessageHidden(message: NativeAnonymousTopicMessage) {
+        // 无管理员令牌时直接拒绝，不把公开身份传给管理接口。
         val token = session?.accessToken
         if (!manager || token.isNullOrBlank()) return
         saving = true
+        error = null
+        // 成功替换目标行，失败在当前详情内反馈而不是悄悄修改本地状态。
         scope.launch {
             runCatching { withContext(Dispatchers.IO) { NativeAnonymousTopicApi.updateMessage(token, message.id, !message.isHidden) } }
                 .onSuccess { updated -> topic = topic?.copy(messages = topic!!.messages.map { if (it.id == updated.id) updated else it }); loadTopics() }
@@ -369,6 +416,7 @@ internal fun NativeAnonymousTopicsScreen(
         }
     }
 
+    // 列表和全部弹窗共用同一错误状态，错误必须出现在用户当前操作的最上层。
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
@@ -378,7 +426,7 @@ internal fun NativeAnonymousTopicsScreen(
                 actions = {
                     if (!managementDenied) {
                         IconButton(onClick = { loadTopics() }, enabled = !loading && !saving) { Icon(Icons.Filled.Refresh, contentDescription = nativePhrase("刷新", "Refresh")) }
-                        IconButton(onClick = ::openCreate, enabled = !saving) { Icon(Icons.Filled.Add, contentDescription = nativePhrase("发起匿名话题", "Create anonymous topic")) }
+                        IconButton(onClick = ::openCreate, enabled = !saving, modifier = Modifier.testTag("anonymous-topic-create")) { Icon(Icons.Filled.Add, contentDescription = nativePhrase("发起匿名话题", "Create anonymous topic")) }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
@@ -399,7 +447,7 @@ internal fun NativeAnonymousTopicsScreen(
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it.take(120) },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().testTag("anonymous-topic-search"),
                         singleLine = true,
                         label = { Text(nativePhrase("搜索匿名话题", "Search anonymous topics")) },
                         leadingIcon = { Icon(Icons.Filled.Message, contentDescription = null) },
@@ -449,12 +497,13 @@ internal fun NativeAnonymousTopicsScreen(
             title = { Text(nativePhrase("发起匿名话题", "Create anonymous topic")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(titleDraft, { titleDraft = it.take(120) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(nativePhrase("话题", "Topic")) }, colors = loginFieldColors())
-                    OutlinedTextField(nicknameDraft, { nicknameDraft = it.take(32) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(nativePhrase("昵称", "Nickname")) }, colors = loginFieldColors())
-                    OutlinedTextField(passwordDraft, { passwordDraft = it.take(128) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(nativePhrase("密码（至少 6 位，用于恢复昵称）", "Password (at least 6 characters, used to restore the nickname)")) }, colors = loginFieldColors())
+                    OutlinedTextField(titleDraft, { titleDraft = it.take(120) }, modifier = Modifier.fillMaxWidth().testTag("anonymous-topic-create-title"), singleLine = true, label = { Text(nativePhrase("话题", "Topic")) }, colors = loginFieldColors())
+                    OutlinedTextField(nicknameDraft, { nicknameDraft = it.take(32) }, modifier = Modifier.fillMaxWidth().testTag("anonymous-topic-create-nickname"), singleLine = true, label = { Text(nativePhrase("昵称", "Nickname")) }, colors = loginFieldColors())
+                    OutlinedTextField(passwordDraft, { passwordDraft = it.take(128) }, modifier = Modifier.fillMaxWidth().testTag("anonymous-topic-create-password"), singleLine = true, label = { Text(nativePhrase("密码（至少 6 位，用于恢复昵称）", "Password (at least 6 characters, used to restore the nickname)")) }, colors = loginFieldColors())
+                    if (!error.isNullOrBlank()) Text(error!!, color = HlovetUi.secondaryAccent, fontSize = 12.sp, modifier = Modifier.testTag("anonymous-create-error"))
                 }
             },
-            confirmButton = { TextButton(onClick = ::createTopic, enabled = !saving && titleDraft.isNotBlank() && nicknameDraft.isNotBlank() && passwordDraft.length >= 6) { Text(if (saving) nativePhrase("创建中…", "Creating...") else nativePhrase("创建并进入", "Create and open")) } },
+            confirmButton = { TextButton(onClick = ::createTopic, enabled = !saving && titleDraft.isNotBlank() && nicknameDraft.isNotBlank() && passwordDraft.length >= 6, modifier = Modifier.testTag("anonymous-topic-create-submit")) { Text(if (saving) nativePhrase("创建中…", "Creating...") else nativePhrase("创建并进入", "Create and open")) } },
             dismissButton = { TextButton(onClick = { createOpen = false }, enabled = !saving) { Text(nativePhrase("取消", "Cancel")) } },
         )
     }
@@ -471,10 +520,11 @@ internal fun NativeAnonymousTopicsScreen(
                         Text(nativePhrase("创建新昵称", "Create a new nickname"), fontSize = 12.sp)
                     }
                     if (identityCreate) OutlinedTextField(identityNickname, { identityNickname = it.take(32) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(nativePhrase("昵称", "Nickname")) }, colors = loginFieldColors())
-                    OutlinedTextField(identityPassword, { identityPassword = it.take(128) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(nativePhrase("密码", "Password")) }, colors = loginFieldColors())
+                    OutlinedTextField(identityPassword, { identityPassword = it.take(128) }, modifier = Modifier.fillMaxWidth().testTag("anonymous-identity-password"), singleLine = true, label = { Text(nativePhrase("密码", "Password")) }, colors = loginFieldColors())
+                    if (!error.isNullOrBlank()) Text(error!!, color = HlovetUi.secondaryAccent, fontSize = 12.sp, modifier = Modifier.testTag("anonymous-identity-error"))
                 }
             },
-            confirmButton = { TextButton(onClick = ::claimIdentity, enabled = !saving && identityPassword.length >= 6 && (!identityCreate || identityNickname.isNotBlank())) { Text(if (saving) nativePhrase("处理中…", "Working...") else nativePhrase("确认", "Confirm")) } },
+            confirmButton = { TextButton(onClick = ::claimIdentity, enabled = !saving && identityPassword.length >= 6 && (!identityCreate || identityNickname.isNotBlank()), modifier = Modifier.testTag("anonymous-identity-submit")) { Text(if (saving) nativePhrase("处理中…", "Working...") else nativePhrase("确认", "Confirm")) } },
             dismissButton = { TextButton(onClick = { identityOpen = false }, enabled = !saving) { Text(nativePhrase("取消", "Cancel")) } },
         )
     }
@@ -488,6 +538,7 @@ internal fun NativeAnonymousTopicsScreen(
             saving = saving,
             message = messageDraft,
             pendingFiles = pendingFiles,
+            error = error,
             onMessageChange = { messageDraft = it },
             onClose = { topic = null; identityOpen = false; pendingFiles = emptyList() },
             onLoadOlder = { selected.messages.firstOrNull()?.sequence?.let { loadTopic(selected.summary.id, it) } },
@@ -496,6 +547,7 @@ internal fun NativeAnonymousTopicsScreen(
                 identityCreate = false
                 identityNickname = identity?.nickname.orEmpty()
                 identityPassword = ""
+                error = null
                 identityOpen = true
             },
             onPickFiles = { filePicker.launch(arrayOf("image/*", "video/*", "audio/*", "text/*", "application/*")) },
@@ -515,9 +567,9 @@ private fun AnonymousTopicListRow(
     onOpen: () -> Unit,
     onFavorite: () -> Unit,
 ) {
-    GlassCard(modifier = Modifier.fillMaxWidth(), shape = HlovetUi.rowShape) {
+    GlassCard(modifier = Modifier.fillMaxWidth().testTag("anonymous-topic-${item.id}"), shape = HlovetUi.rowShape) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).clickable(onClick = onOpen), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(Modifier.weight(1f).clickable(onClick = onOpen).testTag("anonymous-topic-open-${item.id}"), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(item.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
                     buildString {
@@ -533,7 +585,7 @@ private fun AnonymousTopicListRow(
                 )
                 item.topLikedMessage?.let { Text("👍 #${it.sequence}: ${it.body}", color = HlovetUi.accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
-            IconButton(onClick = onFavorite, modifier = Modifier.size(38.dp)) {
+            IconButton(onClick = onFavorite, modifier = Modifier.size(38.dp).testTag("anonymous-topic-favorite-${item.id}")) {
                 Icon(if (item.favorited) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, contentDescription = if (item.favorited) nativePhrase("取消喜欢", "Unfavorite") else nativePhrase("喜欢话题", "Favorite topic"), tint = if (item.favorited) HlovetUi.secondaryAccent else HlovetUi.muted, modifier = Modifier.size(18.dp))
             }
             Text("${item.favoriteCount}", color = HlovetUi.muted, fontSize = 10.sp)
@@ -550,6 +602,7 @@ private fun AnonymousTopicDialog(
     saving: Boolean,
     message: String,
     pendingFiles: List<NativeUploadFile>,
+    error: String?,
     onMessageChange: (String) -> Unit,
     onClose: () -> Unit,
     onLoadOlder: () -> Unit,
@@ -564,7 +617,7 @@ private fun AnonymousTopicDialog(
 ) {
     val identity = NativeAnonymousTopicApi.readIdentity(context, topic.summary.id)
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(modifier = Modifier.fillMaxWidth(.94f).heightIn(min = 420.dp, max = 730.dp), shape = HlovetUi.cardShape, color = HlovetUi.glassFallback) {
+        Surface(modifier = Modifier.fillMaxWidth(.94f).heightIn(min = 420.dp, max = 730.dp).testTag("anonymous-topic-dialog-${topic.summary.id}"), shape = HlovetUi.cardShape, color = HlovetUi.glassFallback) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Message, contentDescription = null, tint = HlovetUi.accent, modifier = Modifier.size(20.dp))
@@ -584,12 +637,15 @@ private fun AnonymousTopicDialog(
                         IconButton(onClick = onToggleTopicHidden, enabled = !saving, modifier = Modifier.size(32.dp)) { Icon(if (topic.summary.isHidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, contentDescription = if (topic.summary.isHidden) nativePhrase("恢复话题", "Restore topic") else nativePhrase("隐藏话题", "Hide topic"), modifier = Modifier.size(17.dp)) }
                     }
                     if (manager || identity?.isCreator == true) {
-                        IconButton(onClick = onChangeTopicStatus, enabled = !saving, modifier = Modifier.size(32.dp)) { Icon(if (topic.summary.status == "active") Icons.Filled.Lock else Icons.Filled.LockOpen, contentDescription = if (topic.summary.status == "active") nativePhrase("关闭话题", "Close topic") else nativePhrase("重新开放话题", "Reopen topic"), modifier = Modifier.size(17.dp)) }
+                        IconButton(onClick = onChangeTopicStatus, enabled = !saving, modifier = Modifier.size(32.dp).testTag("anonymous-topic-status")) { Icon(if (topic.summary.status == "active") Icons.Filled.Lock else Icons.Filled.LockOpen, contentDescription = if (topic.summary.status == "active") nativePhrase("关闭话题", "Close topic") else nativePhrase("重新开放话题", "Reopen topic"), modifier = Modifier.size(17.dp)) }
                     }
-                    IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) { Icon(Icons.Filled.Close, contentDescription = nativePhrase("关闭", "Close"), modifier = Modifier.size(18.dp)) }
+                    IconButton(onClick = onClose, modifier = Modifier.size(32.dp).testTag("anonymous-topic-close")) { Icon(Icons.Filled.Close, contentDescription = nativePhrase("关闭", "Close"), modifier = Modifier.size(18.dp)) }
+                }
+                if (!error.isNullOrBlank()) {
+                    Text(error!!, color = HlovetUi.secondaryAccent, fontSize = 12.sp, modifier = Modifier.testTag("anonymous-topic-error"))
                 }
                 if (identity == null) {
-                    TextButton(onClick = onOpenIdentity, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+                    TextButton(onClick = onOpenIdentity, modifier = Modifier.testTag("anonymous-topic-identity-open"), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
                         Icon(Icons.Filled.Visibility, contentDescription = null, modifier = Modifier.size(15.dp))
                         Spacer(Modifier.width(4.dp))
                         Text(nativePhrase("获取昵称后可在其他设备恢复", "Restore this nickname on another device"), fontSize = 11.sp)
@@ -611,8 +667,8 @@ private fun AnonymousTopicDialog(
                 }
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     IconButton(onClick = onPickFiles, enabled = !saving, modifier = Modifier.size(38.dp)) { Icon(Icons.Filled.AttachFile, contentDescription = nativePhrase("添加附件", "Add attachment"), tint = HlovetUi.muted) }
-                    OutlinedTextField(value = message, onValueChange = onMessageChange, modifier = Modifier.weight(1f), minLines = 1, maxLines = 4, label = { Text(nativePhrase("说点什么", "Say something"), fontSize = 11.sp) }, colors = loginFieldColors())
-                    IconButton(onClick = onSend, enabled = !saving && (message.isNotBlank() || pendingFiles.isNotEmpty()), modifier = Modifier.size(40.dp)) { Icon(if (saving) Icons.Filled.Done else Icons.Filled.Send, contentDescription = nativePhrase("发送", "Send"), tint = HlovetUi.accent) }
+                    OutlinedTextField(value = message, onValueChange = onMessageChange, modifier = Modifier.weight(1f).testTag("anonymous-topic-message-input"), minLines = 1, maxLines = 4, label = { Text(nativePhrase("说点什么", "Say something"), fontSize = 11.sp) }, colors = loginFieldColors())
+                    IconButton(onClick = onSend, enabled = !saving && (message.isNotBlank() || pendingFiles.isNotEmpty()), modifier = Modifier.size(40.dp).testTag("anonymous-topic-send")) { Icon(if (saving) Icons.Filled.Done else Icons.Filled.Send, contentDescription = nativePhrase("发送", "Send"), tint = HlovetUi.accent) }
                 }
             }
         }
@@ -626,7 +682,7 @@ private fun AnonymousMessageRow(
     onReact: (NativeAnonymousTopicMessage, String) -> Unit,
     onToggleHidden: (NativeAnonymousTopicMessage) -> Unit,
 ) {
-    GlassCard(modifier = Modifier.fillMaxWidth(), shape = HlovetUi.rowShape) {
+    GlassCard(modifier = Modifier.fillMaxWidth().testTag("anonymous-message-${message.id}"), shape = HlovetUi.rowShape) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("#${message.sequence}", color = HlovetUi.accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -642,7 +698,7 @@ private fun AnonymousMessageRow(
                 message.attachments.forEach { attachment -> AnonymousAttachmentRow(attachment) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = { onReact(message, "up") }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Icon(Icons.Filled.ThumbUp, contentDescription = nativePhrase("点赞", "Like"), modifier = Modifier.size(14.dp)); Spacer(Modifier.width(3.dp)); Text(message.likeCount.toString(), fontSize = 10.sp) }
+                TextButton(onClick = { onReact(message, "up") }, modifier = Modifier.testTag("anonymous-message-like-${message.id}"), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Icon(Icons.Filled.ThumbUp, contentDescription = nativePhrase("点赞", "Like"), modifier = Modifier.size(14.dp)); Spacer(Modifier.width(3.dp)); Text(message.likeCount.toString(), fontSize = 10.sp) }
                 TextButton(onClick = { onReact(message, "down") }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Icon(Icons.Filled.ThumbDown, contentDescription = nativePhrase("踩", "Dislike"), modifier = Modifier.size(14.dp)); Spacer(Modifier.width(3.dp)); Text(message.dislikeCount.toString(), fontSize = 10.sp) }
             }
         }
