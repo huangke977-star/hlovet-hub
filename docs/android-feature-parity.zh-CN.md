@@ -3008,3 +3008,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用包含最新聊天输入语义标签的独立本地测试包，在 Android 15 `emulator-5556` 通过 `NativeLocalContentSuiteTest` `3/3`，0 失败、0 跳过，耗时约 48.5 秒。主会话 6 个检查点、合集 9 个检查点、富文本 8 个检查点全部通过。
 - 合集专项实际覆盖创建、箭头排序持久化、编辑、增删文章、私有/登录可见/公开权限、订阅/取消订阅/重复订阅、删除合集不删除文章和拒绝会话恢复；富文本专项覆盖 Android 输入任务列表、撤销/重做、代码语言与桥接插入、复杂 HTML 保存重开、代码/表格/任务预览和无修改预览不污染草稿状态。
 - 非敏感证据保存在 `tmp-android-content-suite-results-20261030`，本轮账号、文章、合集和审计记录保留，未测试生产数据。测试结束后已卸载独立包、清空 ADB reverse、停止本地 Web，并重新安装默认生产地址 Debug 包；BuildConfig 为 `https://5200918.xyz/api` / `https://5200918.xyz`，冷启动没有 FATAL、ANR 或 WebView 错误。
+
+## Android 11 内容主流程复验（2026-10-30）
+
+- 使用同一最新源码和独立本地测试包，在 Android 11 `emulator-5562` 通过 `NativeLocalContentSuiteTest` `3/3`，0 失败、0 跳过，耗时约 54.6 秒；主会话、合集和富文本 HTML/任务/代码/预览链路均完成真实 MainActivity 与本地 API 验证。
+- 本轮测试前发现设备残留的旧默认测试 APK 占用 DocumentsProvider authority，已只卸载旧测试 APK 后重新安装当前测试 APK；这属于设备测试环境冲突，不是产品失败。报告保存在 `tmp-android-content-suite-results-20261030/android11`，测试账号、文章和合集保留，未清除业务数据。
+- 测试结束后已清空 Android 11 的 ADB reverse、卸载独立测试包并停止本地 Web；重新安装默认生产地址 Debug 包，BuildConfig 为 `https://5200918.xyz/api` / `https://5200918.xyz`，冷启动日志没有 FATAL、ANR、输入超时或 WebView 错误。
