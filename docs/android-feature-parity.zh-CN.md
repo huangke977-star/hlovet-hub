@@ -3220,3 +3220,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 测试 APK 的 FileProvider authority 改为使用 `${applicationId}.editor-files`，测试 Activity 和 URI 构造同步依据当前测试包名生成，避免多套 AndroidTest 包在同一设备上使用固定 authority 时发生冲突；合并 Manifest 已核对为 `xyz.hlovet.portal.localtest.test.editor-files`。
 - 使用 Android 15 `emulator-5556` 以本地测试包构建并安装成功；普通文字系统粘贴用例 `1/1` 通过，确认正文中的尖括号会按编辑器规则转义且不会误触发文件上传。图片剪贴板用例因宿主共享剪贴板将图片 MIME 替换为 `text/plain`，按测试设计标记为环境不可验证；系统菜单/跨窗口拖放用例因外部窗口抢占焦点未形成有效结果，不能扩大表述为通过。
 - 验证结束后已卸载本地测试包，重新构建并安装默认生产地址 Debug APK 到在线模拟器；`xyz.hlovet.portal.prototype/.MainActivity` 可冷启动，未清理业务数据或既有 `tmp-*` 证据。
+
+## Android 系统文件输入四项闭环复验（2026-11-03）
+
+- 在暂时关闭 Android 15 `emulator-5556` 的宿主剪贴板共享后，使用当前 authority 隔离修复重新执行四个定向用例，结果为 `4/4`，失败、错误和跳过均为 `0`：图片剪贴板按真实字节上传、系统长按粘贴菜单、普通文字粘贴、跨窗口拖放临时只读授权与释放。
+- 图片用例核对 PNG MIME、服务端接收字节、64×32 图像尺寸和旧 URI grant 回收；拖放用例核对跨 UID 读取权限、禁止写权限、消费完成后的释放以及文件内容。测试没有派发伪造 DOM paste/drop 事件，也没有写入真实文章或账号数据。
+- 测试完成后已恢复模拟器原来的宿主剪贴板共享开关，关闭扩展控制窗口，卸载本地测试包，重新构建并安装默认生产地址 Debug APK；两台在线模拟器的生产包均保持 `xyz.hlovet.portal.prototype`，未清理业务数据或历史 `tmp-*` 证据。
