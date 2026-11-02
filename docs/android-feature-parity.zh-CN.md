@@ -15,6 +15,13 @@
 - 本轮修复原生会话刷新在多 Activity 切换账号时的迟到结果覆盖：刷新完成保存前会复核设备中的账号和 refresh token，旧结果不能覆盖新会话；好友状态展示同时按服务端 `status=accepted` 和兼容方向值渲染。
 - 测试结束已移除 `emulator-5554` 的 `3000/3001` ADB reverse；测试账号、文章、合集、好友关系、消息请求和拉黑记录按约定保留，设备私有报告标记 `testDataRemoved=false`、`completed=true`。
 
+## Android/PC 对齐持续校验（2026-11-03）
+
+- 在公开主页修复提交后重新执行路由与接口审计：PC 用户路由 `70/70`、后台入口 `24/24` 均有 Android 分发映射；PC 的 `27/27` 个 API 模块得到 `388` 个精确/跨模块匹配、`21` 个有意别名、`11` 个动态解析候选，`0` 个确认缺失候选。
+- 使用 JDK 17 执行 `:prototype:compileDebugKotlin`、`:prototype:testDebugUnitTest` 和 `:prototype:assembleDebug`，均成功；当前源码级校验没有发现本轮会话稳定性修复引入的编译或 JVM 回归。
+- 新增 `.github/workflows/android-parity.yml`，在 `main` 的推送和 PR 上自动执行上述路由/API 对齐检查及 Android JVM 测试，避免新增 PC 页面或接口后只更新 Android 单端。
+- 该持续校验仍不替代 Google/Passkey 成功授权、FCM 真推送、生产双设备 WebRTC、外部 AI/OCR/语音/图片服务、OSS/R2 和物理断网等外部条件验收；这些边界仍按上方门槛单独记录。
+
 ## 资源兑换异常交付真实复验（2026-10-28）
 
 - 在本地 Docker API、MySQL、Redis 和 Android 15 `emulator-5554` 上，沿用已保留的读者 `373/native_restore_*` 与文章 `226/native_resource_20261015_*`，重新执行资源兑换异常交付闭环。业务数据、兑换记录、积分流水和审计记录均保留，没有重置数据库或删除测试账号。

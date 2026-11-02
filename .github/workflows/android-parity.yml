@@ -1,0 +1,34 @@
+name: Android parity checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Check PC and Android route mappings
+        run: node apps/android/tools/check-route-parity.mjs
+
+      - name: Check PC and Android API mappings
+        run: node apps/android/tools/check-api-parity.mjs
+
+      - name: Run Android JVM tests
+        working-directory: apps/android
+        run: ./gradlew :prototype:compileDebugKotlin :prototype:testDebugUnitTest --no-daemon
