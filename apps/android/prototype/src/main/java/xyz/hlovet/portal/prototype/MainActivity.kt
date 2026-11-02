@@ -6365,9 +6365,10 @@ private fun DiscoverScreen(
             val showCollections = visibility.showCollections
             val showArticles = visibility.showArticles
             item {
+                // 发现流的展示标题跟随导航文案，内部仍用稳定的“文章”模式值请求服务端数据。
                 SectionHeading(
                     when (discoveryMode) {
-                        "文章", "热门", "最新" -> if (discoveryMode == "热门") nativePhrase("热门文章", "Popular articles") else if (discoveryMode == "最新") nativePhrase("最新文章", "Latest articles") else nativePhrase("文章", "Articles")
+                        "文章", "热门", "最新" -> if (discoveryMode == "热门") nativePhrase("热门文章", "Popular articles") else if (discoveryMode == "最新") nativePhrase("最新文章", "Latest articles") else nativePhrase("发现", "Discover")
                         "专题" -> nativePhrase("专题", "Topics")
                         "合集" -> nativePhrase("合集", "Collections")
                         else -> nativePhrase("专题与合集", "Topics and collections")

@@ -3146,3 +3146,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 补齐认证、AI、文章、社区、发现、专题、资源、举报、搜索、社交、模板、个人资料、离线和预览接口的默认错误与空数据文案；英文界面使用英文兜底，中文界面继续使用中文，不改 API 路径、状态值、发现内部 `文章` 模式值或文章业务名称。
 - 发现页底部导航和文章流筛选继续显示“发现 / Discover”；文章详情、文章管理、统计和举报等上下文仍保留“文章 / Article(s)”，避免把内容类型误改成导航名称。
 - 本轮重新执行 `:prototype:compileDebugKotlin`、`:prototype:testDebugUnitTest`、`:prototype:assembleDebug`，构建成功，JVM 单元测试保持 `333/333`；路由对齐 `70/70`、后台入口 `24/24`、API 对齐审计 `27/27`，`git diff --check` 通过。
+
+## Android 发现标题双设备冷启动复验（2026-11-03）
+
+- 发现页列表标题原先在英文界面仍显示 `Articles`，与底部导航和筛选芯片的 `Discover` 不一致；现已统一发现流展示标题为“发现 / Discover”。内部 `文章` 模式值、搜索结果中的文章类型、文章详情与文章管理名称保持不变。
+- 重新构建并安装 Debug APK 到 Android 15 `emulator-5554` 和 Android 11 `emulator-5562`，两台设备冷启动后前台均为 `MainActivity`；UI 自动化树均出现发现页标题、发现筛选和底部 `Discover`，不再出现发现流标题 `Articles`，没有清除应用数据。
+- 本轮静态和构建验证为：JVM `333/333`（63 个 XML，失败/错误/跳过均为 `0`）、PC 路由 `70/70`、后台入口 `24/24`、API 对齐 `27/27` 且确认缺失 `0`；`git diff --check` 通过。
