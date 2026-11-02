@@ -3250,3 +3250,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 举报评论、举报文章、聊天举报、AI 对话历史、AI 草稿标签、AI 图片尺寸、群聊页签、人员页签和个人外观选择中的筛选芯片已补齐无边框处理；通用控件改用 `HlovetUi.filterChipColors()`，群聊/人员/外观的既有强调色继续保留。
 - 发现页继续以“发现 / Discover”作为用户可见入口，内部 `文章` 模式值、文章排序、`/articles` 深链和文章管理页面名称保持不变；本轮没有修改筛选、排序、权限或请求参数。
 - `:prototype:testDebugUnitTest` 全量 `333/333`、`:prototype:assembleDebug`、PC 路由 `70/70`、后台入口 `24/24`、API 对齐 `27/27` 均通过；Debug 包已增量安装到 Android 15 `emulator-5556` 和 Android 11 `emulator-5562` 并冷启动到 `MainActivity`，未清除应用数据。
+
+## Android 双设备公开导航复验（2026-11-03）
+
+- 使用同一生产地址 Debug 包在 Android 15 `emulator-5556` 和 Android 11 `emulator-5562` 逐项点击底部“发现 / 匿名 / 更多 / 消息 / 我的”，两台设备均完成页面切换并保持 `MainActivity` 前台；未登录入口按设计显示登录门槛，没有执行业务写操作。
+- Android 15 English 页面显示 `Discover / Anonymous / More / Messages / Profile`；“更多”页可见 `Announcements / Tools / Navigation`。Android 11 中文页面显示“发现 / 匿名 / 更多 / 消息 / 我的”；“更多”页可见“公告 / 工具 / 导航”和登录提示。发现页筛选对外显示 `Discover`，没有回退为 `Articles`。
+- 本轮未清除应用数据、未改账号或业务记录；该结果关闭的是公开导航和多语言入口的设备回归，不替代登录后写操作、Google/Passkey、FCM、双设备生产通话、外部 AI/媒体供应商或 OSS/R2 验收。
