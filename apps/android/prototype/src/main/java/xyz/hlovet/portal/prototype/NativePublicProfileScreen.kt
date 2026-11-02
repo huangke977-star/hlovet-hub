@@ -49,13 +49,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -86,21 +91,40 @@ internal fun NativePublicProfileScreen(
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(username, session?.accessToken) {
+        // 记录本次请求的会话来源，避免匿名请求或旧令牌的迟到响应覆盖已登录关系状态。
+        val requestAccessToken = session?.accessToken
         loading = true
         error = null
-        runCatching {
-            withContext(Dispatchers.IO) {
-                val loadedProfile = NativeProfileApi.loadPublic(session?.accessToken, username)
-                val loadedShowcase = NativeProfileApi.loadShowcase(session?.accessToken, username)
-                val loadedArticles = NativeArticleApi.listByAuthor(session?.accessToken, username)
+        try {
+            // 同时读取主页、代表内容和公开文章，三个结果必须来自同一查看身份。
+            val loaded = withContext(Dispatchers.IO) {
+                var loadedProfile = NativeProfileApi.loadPublic(requestAccessToken, username)
+                // 已登录但既不能发起好友申请、又没有关系记录时，复核一次避免会话切换瞬间的旧响应覆盖关系状态。
+                if (!requestAccessToken.isNullOrBlank() && !loadedProfile.isSelf && loadedProfile.relationship == null && !loadedProfile.canRequestFriend) {
+                    loadedProfile = NativeProfileApi.loadPublic(requestAccessToken, username)
+                }
+                val loadedShowcase = NativeProfileApi.loadShowcase(requestAccessToken, username)
+                val loadedArticles = NativeArticleApi.listByAuthor(requestAccessToken, username)
                 Triple(loadedProfile, loadedShowcase, loadedArticles)
             }
-        }.onSuccess { (loadedProfile, loadedShowcase, loadedArticles) ->
-            profile = loadedProfile
-            showcase = loadedShowcase
-            articles = loadedArticles
-            }.onFailure { error = it.message ?: nativePhrase("用户主页暂时无法查看。", "This profile is temporarily unavailable.") }
-        loading = false
+            // 网络请求可能在取消后才返回，先确认协程仍有效，再提交页面状态。
+            currentCoroutineContext().ensureActive()
+            if (requestAccessToken != session?.accessToken) return@LaunchedEffect
+            profile = loaded.first
+            showcase = loaded.second
+            articles = loaded.third
+        } catch (cancelled: CancellationException) {
+            // 会话或目标用户变化时保留新请求接管页面，不能把取消当成错误提示。
+            throw cancelled
+        } catch (failure: Exception) {
+            // 只有当前会话仍然有效时才展示本次请求的错误，避免旧请求污染新页面。
+            if (requestAccessToken == session?.accessToken) {
+                error = failure.message ?: nativePhrase("用户主页暂时无法查看。", "This profile is temporarily unavailable.")
+            }
+        } finally {
+            // 加载状态同样按当前会话归属更新，旧请求结束不能提前关闭新请求的加载提示。
+            if (requestAccessToken == session?.accessToken) loading = false
+        }
     }
 
     fun requireToken(): String? {
@@ -393,11 +417,24 @@ private fun PublicProfileHeader(
                     ProfileActionButton(if (profile.subscribed) nativePhrase("已订阅", "Subscribed") else nativePhrase("订阅", "Subscribe"), Icons.Filled.RssFeed, profile.subscribed, !acting, Modifier.weight(1f), onSubscribe)
                     when {
                         profile.relationship?.direction == "incoming" -> {
-                            IconButton(onClick = onAcceptFriend, enabled = !acting) { Icon(Icons.Filled.Check, nativePhrase("接受好友申请", "Accept friend request"), tint = HlovetUi.accent) }
-                            IconButton(onClick = onDeclineFriend, enabled = !acting) { Icon(Icons.Filled.Close, nativePhrase("拒绝好友申请", "Decline friend request"), tint = HlovetUi.secondaryAccent) }
+                            IconButton(
+                                onClick = onAcceptFriend,
+                                enabled = !acting,
+                                modifier = Modifier.semantics {
+                                    contentDescription = nativePhrase("接受好友申请", "Accept friend request")
+                                },
+                            ) { Icon(Icons.Filled.Check, contentDescription = null, tint = HlovetUi.accent) }
+                            IconButton(
+                                onClick = onDeclineFriend,
+                                enabled = !acting,
+                                modifier = Modifier.semantics {
+                                    contentDescription = nativePhrase("拒绝好友申请", "Decline friend request")
+                                },
+                            ) { Icon(Icons.Filled.Close, contentDescription = null, tint = HlovetUi.secondaryAccent) }
                         }
                         profile.relationship?.direction == "outgoing" -> Text(nativePhrase("等待确认", "Pending"), color = HlovetUi.muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                        profile.relationship?.direction == "accepted" -> Text(nativePhrase("已是好友", "Friends"), color = HlovetUi.accent, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                        // 已接受关系以服务端 status 为准，direction 仅作为兼容旧接口返回的辅助字段。
+                        profile.relationship?.status == "accepted" || profile.relationship?.direction == "accepted" -> Text(nativePhrase("已是好友", "Friends"), color = HlovetUi.accent, fontSize = 11.sp, modifier = Modifier.weight(1f))
                         profile.canRequestFriend -> ProfileActionButton(nativePhrase("加好友", "Add friend"), Icons.Filled.PersonAdd, false, !acting, Modifier.weight(1f), onFriend)
                     }
                 }
@@ -406,7 +443,13 @@ private fun PublicProfileHeader(
                         "conversation" -> ProfileActionButton(nativePhrase("发消息", "Message"), Icons.Filled.ChatBubbleOutline, false, !acting, Modifier.weight(1f), onMessage)
                         "request" -> ProfileActionButton(nativePhrase("消息请求", "Message request"), Icons.Filled.Send, false, !acting, Modifier.weight(1f), onMessageRequest)
                     }
-                    IconButton(onClick = onBlock, enabled = !acting) { Icon(Icons.Filled.Block, nativePhrase("加入黑名单", "Block user"), tint = HlovetUi.secondaryAccent) }
+                    IconButton(
+                        onClick = onBlock,
+                        enabled = !acting,
+                        modifier = Modifier.semantics {
+                            contentDescription = nativePhrase("加入黑名单", "Block user")
+                        },
+                    ) { Icon(Icons.Filled.Block, contentDescription = null, tint = HlovetUi.secondaryAccent) }
                 }
             } else {
                 ProfileActionButton(nativePhrase("站外订阅", "External feed"), Icons.Filled.Link, false, !acting, Modifier.fillMaxWidth(), onOpenExternalFeed)
