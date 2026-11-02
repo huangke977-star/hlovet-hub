@@ -5013,6 +5013,8 @@ private fun ArticleDetailScreen(
                             onClick = { reportReason = value },
                             label = { Text(nativeArticleReportReasonLabel(value), fontSize = 12.sp) },
                             modifier = Modifier.fillMaxWidth(),
+                            border = null,
+                            colors = HlovetUi.filterChipColors(),
                         )
                     }
                     OutlinedTextField(
@@ -5104,6 +5106,8 @@ private fun NativeArticleReportDialog(
                             selected = reason == value,
                             onClick = { onReasonChange(value) },
                             label = { Text(nativeArticleReportReasonLabel(value), fontSize = 11.sp) },
+                            border = null,
+                            colors = HlovetUi.filterChipColors(),
                         )
                     }
                 }
@@ -9463,6 +9467,8 @@ private fun ConversationScreen(
                                 selected = reportReason == value,
                                 onClick = { reportReason = value },
                                 label = { Text(label, fontSize = 11.sp) },
+                                border = null,
+                                colors = HlovetUi.filterChipColors(),
                             )
                         }
                     }

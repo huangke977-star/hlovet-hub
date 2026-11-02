@@ -3244,3 +3244,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 新增 `HlovetUi.filterChipColors()` 共享选中色板，并将群聊管理、反馈管理、积分调整、群聊创建和专题编辑中仍使用 Material 默认边框/选中色的筛选芯片改为无边框统一样式；筛选值、状态更新和接口请求逻辑保持不变。
 - 当前 Material 3 依赖只提供筛选芯片的选中颜色参数，因此普通/禁用态继续由统一主题提供，避免为了样式升级依赖版本或改变其它组件行为。
 - `:prototype:testDebugUnitTest`、`:prototype:assembleDebug`、PC 路由 `70/70`、后台入口 `24/24`、API 对齐 `27/27` 均通过，`git diff --check` 通过；本轮没有写入业务数据。
+
+## Android 剩余筛选芯片收口复核（2026-11-03）
+
+- 举报评论、举报文章、聊天举报、AI 对话历史、AI 草稿标签、AI 图片尺寸、群聊页签、人员页签和个人外观选择中的筛选芯片已补齐无边框处理；通用控件改用 `HlovetUi.filterChipColors()`，群聊/人员/外观的既有强调色继续保留。
+- 发现页继续以“发现 / Discover”作为用户可见入口，内部 `文章` 模式值、文章排序、`/articles` 深链和文章管理页面名称保持不变；本轮没有修改筛选、排序、权限或请求参数。
+- `:prototype:testDebugUnitTest` 全量 `333/333`、`:prototype:assembleDebug`、PC 路由 `70/70`、后台入口 `24/24`、API 对齐 `27/27` 均通过；Debug 包已增量安装到 Android 15 `emulator-5556` 和 Android 11 `emulator-5562` 并冷启动到 `MainActivity`，未清除应用数据。

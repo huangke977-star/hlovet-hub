@@ -686,6 +686,7 @@ private fun GroupTab(label: String, selected: Boolean, onClick: () -> Unit) {
             selectedContainerColor = HlovetUi.accentSoft,
             selectedLabelColor = HlovetUi.accent,
         ),
+        border = null,
     )
 }
 

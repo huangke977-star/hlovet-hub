@@ -512,6 +512,7 @@ private fun AppearanceEditorCard(
                             selectedContainerColor = HlovetUi.accentSoft,
                             selectedLabelColor = HlovetUi.foreground,
                         ),
+                        border = null,
                     )
                 }
             }
@@ -701,6 +702,7 @@ private fun ChoiceChips(
                     selectedContainerColor = HlovetUi.accentSoft,
                     selectedLabelColor = HlovetUi.foreground,
                 ),
+                border = null,
             )
         }
     }

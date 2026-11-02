@@ -173,6 +173,7 @@ internal fun NativePeopleScreen(
                             selectedContainerColor = HlovetUi.accentSoft,
                             selectedLabelColor = HlovetUi.accent,
                         ),
+                        border = null,
                     )
                 }
             }

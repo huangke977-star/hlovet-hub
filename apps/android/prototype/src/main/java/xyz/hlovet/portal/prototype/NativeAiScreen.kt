@@ -554,7 +554,8 @@ internal fun NativeAiScreen(
                             onClick = { loadConversation(conversation.id) },
                             label = { Text(conversation.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp) },
                             modifier = Modifier.widthIn(max = 190.dp),
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = HlovetUi.accentSoft),
+                            border = null,
+                            colors = HlovetUi.filterChipColors(),
                         )
                     }
                 }
@@ -745,6 +746,8 @@ internal fun NativeAiScreen(
                                         },
                                         label = { Text("#$tag", fontSize = 11.sp) },
                                         leadingIcon = if (selected) ({ Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(13.dp)) }) else null,
+                                        border = null,
+                                        colors = HlovetUi.filterChipColors(),
                                     )
                                 }
                             }
@@ -830,6 +833,8 @@ internal fun NativeAiScreen(
                                             selected = mediaSize == size,
                                             onClick = { mediaSize = size },
                                             label = { Text(size.replace("x", " × "), fontSize = 11.sp) },
+                                            border = null,
+                                            colors = HlovetUi.filterChipColors(),
                                         )
                                     }
                                 }
