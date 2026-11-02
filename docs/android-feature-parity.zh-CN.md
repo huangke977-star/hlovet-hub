@@ -13,6 +13,12 @@
 - 随后在 Android 15 `emulator-5556` 使用本地 `3000/3001` 回环地址重跑公开主页专项，测试在注册前置条件处停止：Android 端读取到 `registrationEmailVerificationEnabled=true`、`turnstile.registrationEnabled=true`，而宿主直接访问同一 API 返回均为 `false`。
 - 本轮没有创建账号、文章、关系或消息，也没有把该次结果计入通过；测试结束已移除 ADB reverse，重新安装默认生产地址 Debug 包，两台设备均冷启动进入 `MainActivity`。该差异仍需继续核对本地服务/设备测试链路，不能用历史成功报告替代当前复核。
 
+## Android 本地公开主页专项回环链路复核（2026-11-03）
+
+- 针对上方首轮策略读数异常，重新为 Android 15 `emulator-5556` 和 Android 11 `emulator-5562` 建立仅限本地测试的 `3000/3001` ADB reverse，并使用 `http://127.0.0.1:3001`、`http://127.0.0.1:3000` 构建测试包；宿主直接访问 API 返回的注册邮箱验证和 Turnstile 配置均为关闭状态，测试设备读取结果一致。
+- `NativeLocalPublicProfileTest#realPublicProfileContentAndSocialActions` 通过直接 instrumentation 在 Android 15 和 Android 11 各执行 `1/1`，合计 `2/2`，0 失败、0 错误、0 跳过；覆盖公开主页内容、订阅/取消订阅、好友申请与接受、陌生消息请求、拉黑后的不可见校验、合集详情和文章详情入口。
+- 测试数据和测试账号按既定约定保留；结束后重新构建并安装默认生产 API Debug 包，两台设备均冷启动到 `MainActivity`，最近 Logcat 未发现应用 `FATAL EXCEPTION` 或 ANR，并移除了本轮 `3000/3001` ADB reverse。首轮异常保留为测试链路历史记录，不再作为当前代码失败结论。
+
 ## Android 安装版本页与文章评论筛选复验（2026-11-03）
 
 - 原生 `/install` 深链在默认生产地址 Debug 包中完成双设备核对：Android 15 `emulator-5554` 和 Android 11 `emulator-5562` 均进入 `NativeInstallScreen`，展示当前客户端版本、服务器最新版状态、无发布 APK 时的空状态，以及 PWA 诊断入口；两台设备均未发现应用崩溃或 ANR。
