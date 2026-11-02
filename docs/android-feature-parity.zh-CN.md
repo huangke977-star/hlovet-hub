@@ -44,6 +44,12 @@
 - 沿用本轮保留的 `native_restore_*` 本地读者会话执行 `NativeLocalRichEditorTest#realEditorSavesAndReopensTaskSplitWithComplexHtml`，实际通过 `1/1`；覆盖真实富文本/WebView 编辑、任务列表回车拆分、撤销/重做、多语言代码块、保存按钮持久化、关闭重开、预览渲染和服务端回读，测试文章及报告按约定保留。
 - 首次 Gradle 聚合任务因同时发现三台模拟器且只有 5554 建立 reverse，未把连接失败计入业务结果；随后在同一 APK 和同一设备上直接执行 instrumentation，两个专项均 `OK (1 test)`。测试结束已卸载临时测试包、移除 `3000/3001` reverse，恢复默认生产地址 Debug 包并完成 `MainActivity` 冷启动，未清除服务器业务数据。
 
+## Android 本地内容套件双设备复核（2026-11-03）
+
+- 在 Android 11 `emulator-5562` 上以独立本地测试包执行 `NativeLocalContentSuiteTest`，最终 `OK (3 tests)`，用时约 52.7 秒；会话持久化、专题/合集创建编辑排序与可见范围、订阅/取消订阅，以及富文本任务列表、多语言代码块、撤销/重做、保存重开和预览回读均通过。
+- Android 15 `emulator-5554` 的同一套件已先完成会话和合集两项 `2/3`，第三项开始后设备从 ADB 消失，未将掉线结果计入产品失败；富文本专项此前已在该设备单独 `OK (1 test)`，本轮在 Android 11 套件中再次获得完整通过证据。
+- 测试结束已卸载临时测试包、移除 `3000/3001` reverse，保留设备原有 `18010` 转发；Android 11 已恢复默认生产地址 Debug 包并冷启动到 `MainActivity`，服务器测试数据和历史证据均未清理。
+
 ## 公开主页双设备本地真实回归（2026-11-03）
 
 - 本地 API 健康检查返回 HTTP 200，数据库和 Redis 均正常；使用本地构建参数与 `3000/3001` ADB reverse，在 Android 15 `emulator-5554` 通过 `NativeLocalPublicProfileTest#realPublicProfileContentAndSocialActions` 完成 `1/1`，在 Android 11 `emulator-5562` 通过同一测试完成 `OK (1 test)`。
