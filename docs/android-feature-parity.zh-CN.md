@@ -3104,3 +3104,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 在本地 Docker API/门户和 Android 15 `emulator-5554` 上执行 `NativeLocalArticleScheduleTest`，结果为 `1/1`，失败、错误和跳过均为 `0`，耗时约 262 秒。
 - 通过真实编辑器核对日期选择器取消、仅下线时间校验、合法发布时间/下线时间保存、Activity 重开回显、清除计划，以及服务端自然任务触发发布和下线；测试没有修改系统时间、数据库时间或手动调用生命周期接口。
 - 私有测试文章和审计证据按既有约定保留；测试后移除 `3000/3001` ADB reverse，重新构建并安装默认生产地址 Debug APK，BuildConfig 为 `https://5200918.xyz/api` 与 `https://5200918.xyz`，冷启动前台为 `MainActivity`。本轮不扩大为生产文章或外部服务验收。
+
+## Android 15 文章附件本地真实 API 复验（2026-11-02）
+
+- 在本地 Docker API/门户和 Android 15 `emulator-5554` 上执行 `NativeLocalArticleAttachmentTest`，结果为 `1/1`，失败、错误和跳过均为 `0`。
+- 使用保留的本地测试账号上传图片、文本和 WAV 音频，核对服务端附件类型、文章保存后重新读取、带登录令牌下载原始字节，以及未登录下载返回 `404`；同时在 Android `MediaStore.Downloads` 中准备了图片和文本文件供系统选择器链路继续使用。
+- 测试文章、附件、系统下载目录文件和报告按既有约定保留；测试后移除 `3000/3001` ADB reverse，重新构建并安装默认生产地址 Debug APK，BuildConfig 为 `https://5200918.xyz/api` 与 `https://5200918.xyz`，冷启动前台为 `MainActivity`。OSS/R2 远端存储和生产账号上传仍需外部条件验收。
