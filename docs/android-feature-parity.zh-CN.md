@@ -3214,3 +3214,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 在本地 Docker API/门户和真实编辑器中，新增跨日期专项 `realSchedulePersistsAcrossLocalDate`；Android 15 `emulator-5554` 与 Android 11 `emulator-5562` 各为 `1/1`，失败、错误和跳过均为 `0`，耗时分别约 28 秒和 32 秒。
 - 测试实际选择设备本地“明天”的发布时间和下线时间，直接核对服务端 UTC 入库值、计划列表的本地时间显示、Activity 完全重开后的日期/分钟回显，并清除两个时间后核对服务端计划和列表均已取消；未修改系统时间、数据库时钟或手动触发生命周期。
 - 本地 refresh token 失效时，专项通过正常注册接口创建独立普通读者夹具；不使用管理员权限、不绕过认证、不删除既有文章和账号。跨日期测试文章与报告按既有约定保留，证据文件为 `tmp-native-local-article-schedule-cross-date-android15-20261103-final.txt` 和 `tmp-native-local-article-schedule-cross-date-android11-20261103-final.txt`。
+
+## Android 系统文件输入测试 authority 隔离复验（2026-11-03）
+
+- 测试 APK 的 FileProvider authority 改为使用 `${applicationId}.editor-files`，测试 Activity 和 URI 构造同步依据当前测试包名生成，避免多套 AndroidTest 包在同一设备上使用固定 authority 时发生冲突；合并 Manifest 已核对为 `xyz.hlovet.portal.localtest.test.editor-files`。
+- 使用 Android 15 `emulator-5556` 以本地测试包构建并安装成功；普通文字系统粘贴用例 `1/1` 通过，确认正文中的尖括号会按编辑器规则转义且不会误触发文件上传。图片剪贴板用例因宿主共享剪贴板将图片 MIME 替换为 `text/plain`，按测试设计标记为环境不可验证；系统菜单/跨窗口拖放用例因外部窗口抢占焦点未形成有效结果，不能扩大表述为通过。
+- 验证结束后已卸载本地测试包，重新构建并安装默认生产地址 Debug APK 到在线模拟器；`xyz.hlovet.portal.prototype/.MainActivity` 可冷启动，未清理业务数据或既有 `tmp-*` 证据。

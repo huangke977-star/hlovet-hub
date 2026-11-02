@@ -197,7 +197,7 @@ class NativeEditorSystemFileInputTest {
     /** 返回 name 对应独立测试提供器地址，不包含读取权限。 */
     private fun fixtureUri(name: String): Uri {
         // 名称仅用于隔离本用例的文件，不能访问来源其它私有路径。
-        return Uri.parse("content://xyz.hlovet.portal.prototype.test.editor-files/$name")
+        return Uri.parse("content://${context.packageName}.test.editor-files/$name")
     }
 
     /** 为 mode 和 name 构造来源应用入口，不使用任何 URI 读取或写入授权标志。 */

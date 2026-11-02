@@ -86,7 +86,7 @@ class NativeLocalEditorSystemDropTest {
             "html", "随笔", "",
         ))
         val name = "native_system_local_$suffix.txt"
-        val uri = Uri.parse("content://xyz.hlovet.portal.prototype.test.editor-files/$name")
+        val uri = Uri.parse("content://${context.packageName}.test.editor-files/$name")
         report.put("articleId", draft.id).put("articleSlug", draft.slug).put("title", draft.title).put("fileName", name)
         assertReadDenied(uri)
         activity = ActivityScenario.launch(Intent(context, MainActivity::class.java).setAction(Intent.ACTION_VIEW)

@@ -41,7 +41,8 @@ public final class NativeEditorFileSourceActivity extends Activity {
                     bitmap.recycle();
                 } else output.write(("Actual cross-app system file " + name + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
-            Uri uri = Uri.parse("content://xyz.hlovet.portal.prototype.test.editor-files/" + name);
+            // 测试 Activity 的包名已经包含 .test 后缀，直接拼出与 Manifest 一致的来源 authority。
+            Uri uri = Uri.parse("content://" + getPackageName() + ".editor-files/" + name);
             ClipData clip = ClipData.newUri(getContentResolver(), "Editor system fixture", uri);
             if ("clipboard".equals(mode)) {
                 // 用户真实点击后才写入剪贴板，确保来源有前台焦点，不依赖 onCreate 的窗口时序。
