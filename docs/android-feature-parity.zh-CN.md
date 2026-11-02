@@ -7,6 +7,13 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## Android 安装版本页与文章评论筛选复验（2026-11-03）
+
+- 原生 `/install` 深链在默认生产地址 Debug 包中完成双设备核对：Android 15 `emulator-5554` 和 Android 11 `emulator-5562` 均进入 `NativeInstallScreen`，展示当前客户端版本、服务器最新版状态、无发布 APK 时的空状态，以及 PWA 诊断入口；两台设备均未发现应用崩溃或 ANR。
+- Android 15 的英文账号语言展示 `Install and version`、`Latest server release`、`No release available` 和 `Open web diagnostics`；Android 11 的中文账号语言展示对应中文文案。原始 UI dump 保存在 `tmp-native-install-results-20261103/emulator-5554.xml` 和 `tmp-native-install-results-20261103/emulator-5562.xml`，测试没有清除应用数据、会话或业务数据。
+- 新增 `NativeAdminArticlesDeviceTest#commentFiltersExposeReportedAndPendingRows`，在 Android 15 `emulator-5554` 的隔离 MockWebServer 设备环境执行 `1/1` 通过。真实页面操作覆盖文章管理页、评论与回复页签、全部/有举报/待处理筛选；夹具包含 3 条评论（全部 3 条、有举报 2 条、待处理 1 条），顶部举报计数按文章与评论两个来源合计为 2，并核对了文章、评论、汇总接口请求均实际发出。
+- 该测试不写入真实数据库或账号。首次运行中发现两个测试选择器问题：顶部计数不保证在当前视口，以及“待处理”文本在语义树中存在两个匹配；已改为存在性断言和精确节点集合选择后重新执行通过。测试结束后已重新构建并覆盖安装默认生产地址 Debug 包，恢复 5554 的生产深链环境。
+
 ## 原生公开主页与发现导航复验（2026-11-03）
 
 - 底部主导航的显示名称统一为“发现”，英文显示为 `Discover`；发现页内部仍保留稳定的 `文章` 模式键，用于筛选参数、深链和服务端接口，不把显示文案改动扩散到业务协议。
