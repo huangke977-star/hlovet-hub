@@ -3062,3 +3062,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用本地 API `http://127.0.0.1:39871` 和隔离回调夹具，在 Android 11 `emulator-5562` 与 Android 15 `emulator-5556` 各执行 `NativeOAuthCallbackDeviceTest` `2/2`，合计 `4/4`，失败、错误和跳过均为 `0`。
 - 测试覆盖授权成功回调直接进入首页且不短暂显示登录表单，以及授权拒绝回调返回登录页并展示供应商错误。成功回调期间使用独立 `oauthProcessing` 状态承接跳转，不把中间认证页面作为首页过渡画面。
 - 该轮是回调状态机与页面路由的隔离验证，不等于真实 Google 授权、真实账号绑定或生产 OAuth 凭据验收；真实 Google、Passkey、FCM 到达、生产 WebRTC、外部 AI/媒体供应商和 OSS/R2 仍需各自的外部条件。
+
+## Android 15 后台配置专项当前源码复验（2026-11-02）
+
+- 在 Android 15 `emulator-5554` 使用当前源码和设备内隔离 MockWebServer，分别执行 `NativeAdminOperationsTest` `17/17`、`NativeAdminBackupTest` `15/15`、`NativeAdminSecurityDeviceTest` `24/24`、`NativeAdminSettingsDeviceTest` `17/17`，合计 `73/73`，失败、错误和跳过均为 `0`。
+- 运营与质量专项覆盖告警确认/解决、失败重试、压测参数与运行详情、恢复演练阻塞、审计策略、权限撤销和浏览器验收状态；备份专项覆盖数据库/媒体策略、分页筛选、批量删除、恢复预检/重试、媒体任务轮询和权限丢失；安全与站点设置专项覆盖普通管理员只读边界、超级管理员配置保存、敏感字段清理、失败恢复、角色/分类/标签/背景配置和账号切换隔离。
+- 该轮验证的是当前原生页面、请求边界、权限状态和失败恢复，不写入线上数据库，也不把隔离夹具结果扩大为生产管理员交互、OSS/R2 真实读写或外部服务验收；Google/Passkey 成功凭据、FCM 到达、生产 WebRTC、外部 AI/媒体供应商和 OSS/R2 仍按外部条件单独保留。
