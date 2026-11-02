@@ -3086,3 +3086,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 在同一套本地 Docker API/门户和 Android 15 `emulator-5554` 上，使用当前源码执行 `NativeLocalSocialTest`，结果为 `1/1`，失败、错误和跳过均为 `0`，测试耗时约 11.8 秒。
 - 真实 MainActivity 与本地数据库/Socket.IO 完成好友申请方向、通知已读、共享会话、双向消息收发、服务器持久化、聊天搜索定位、非成员历史/上下文/搜索隔离，以及拉黑后即时拒绝和解除拉黑后重新建立关系。
 - 测试账号、好友关系、会话、消息和通知按既有约定保留；测试后已移除 `3000/3001` ADB reverse，重新构建并安装默认生产地址 Debug APK，BuildConfig 为 `https://5200918.xyz/api` 与 `https://5200918.xyz`，冷启动前台为 `MainActivity`。本轮不扩大为双设备生产通话、FCM 到达或外部服务验收。
+
+## Android 15 AI 助手隔离回归（2026-11-02）
+
+- 使用设备内 MockWebServer 和当前源码在 Android 15 `emulator-5554` 执行 `NativeAiAssistantDeviceTest`，两项用例均通过，结果为 `2/2`，失败、错误和跳过均为 `0`。
+- 真实 Compose 页面覆盖站内问答发送与回答展示、受控工具列表，以及“描述文章 → 生成草稿预览 → 点击确认后写入”的确认边界；接口请求全部由隔离夹具响应，不调用外部 AI 模型，不写入真实文章或账号数据。
+- 测试后已停止设备内 MockWebServer，重新构建并安装默认生产地址 Debug APK；BuildConfig 确认为 `https://5200918.xyz/api` 与 `https://5200918.xyz`，冷启动前台为 `MainActivity`。真实供应商问答、OCR、语音转文字和图片生成仍需对应模型或外部服务配置后验收。
