@@ -3165,3 +3165,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 发现页列表标题原先在英文界面仍显示 `Articles`，与底部导航和筛选芯片的 `Discover` 不一致；现已统一发现流展示标题为“发现 / Discover”。内部 `文章` 模式值、搜索结果中的文章类型、文章详情与文章管理名称保持不变。
 - 重新构建并安装 Debug APK 到 Android 15 `emulator-5554` 和 Android 11 `emulator-5562`，两台设备冷启动后前台均为 `MainActivity`；UI 自动化树均出现发现页标题、发现筛选和底部 `Discover`，不再出现发现流标题 `Articles`，没有清除应用数据。
 - 本轮静态和构建验证为：JVM `333/333`（63 个 XML，失败/错误/跳过均为 `0`）、PC 路由 `70/70`、后台入口 `24/24`、API 对齐 `27/27` 且确认缺失 `0`；`git diff --check` 通过。
+
+## Android 文章跨日期定时计划双设备复验（2026-11-03）
+
+- 在本地 Docker API/门户和真实编辑器中，新增跨日期专项 `realSchedulePersistsAcrossLocalDate`；Android 15 `emulator-5554` 与 Android 11 `emulator-5562` 各为 `1/1`，失败、错误和跳过均为 `0`，耗时分别约 28 秒和 32 秒。
+- 测试实际选择设备本地“明天”的发布时间和下线时间，直接核对服务端 UTC 入库值、计划列表的本地时间显示、Activity 完全重开后的日期/分钟回显，并清除两个时间后核对服务端计划和列表均已取消；未修改系统时间、数据库时钟或手动触发生命周期。
+- 本地 refresh token 失效时，专项通过正常注册接口创建独立普通读者夹具；不使用管理员权限、不绕过认证、不删除既有文章和账号。跨日期测试文章与报告按既有约定保留，证据文件为 `tmp-native-local-article-schedule-cross-date-android15-20261103-final.txt` 和 `tmp-native-local-article-schedule-cross-date-android11-20261103-final.txt`。

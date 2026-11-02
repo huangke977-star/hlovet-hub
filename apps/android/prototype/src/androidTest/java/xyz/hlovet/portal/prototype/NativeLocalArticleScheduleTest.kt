@@ -15,9 +15,11 @@ import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import java.io.File
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
@@ -47,19 +49,21 @@ class NativeLocalArticleScheduleTest {
     @Before fun prepare() {
         // 来源检查早于任何写入，生产或设备内隔离来源不允许执行真实专项。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:3001" && BuildConfig.PORTAL_BASE_URL == "http://127.0.0.1:3000")
+        // 只有本地注册策略允许且不要求外部验证时，失效会话才可以由正常注册流程补充测试夹具。
+        val policy = NativeAuthApi.registrationPolicy()
+        assumeTrue("Requires local registration without external verification", policy.registrationOpen && !policy.emailVerificationEnabled && !policy.turnstileEnabled)
         val saved = NativeSessionStore.load(context)
-        // 没有本地会话的设备只跳过真实写入，避免把环境前置条件误报为定时发布失败。
-        assumeTrue("Requires a retained local test session", saved != null)
-        val current = requireNotNull(saved)
-        // 只使用本地真实注册的普通读者，不能复制其它设备会话或使用固定历史用户编号。
-        check(current.username.startsWith("native_restore_"))
-        // 复用应用内刷新协调器，避免专项准备阶段消费后又覆盖应用正在使用的轮换令牌。
-        session = runBlocking { NativeSessionCoordinator.refresh(context, current) }
-        check(requireNotNull(session).userId == current.userId && NativeSessionStore.save(context, requireNotNull(session)))
-        check(!requireNotNull(session).isAdministrator && !requireNotNull(session).isSuperAdmin)
+        // 优先复用当前设备的普通读者会话；令牌失效或没有会话时，通过产品注册接口创建独立夹具。
+        val refreshed = saved
+            ?.takeIf { !it.isAdministrator && !it.isSuperAdmin }
+            ?.let { current -> runCatching { runBlocking { NativeSessionCoordinator.refresh(context, current) } }.getOrNull() }
+        session = refreshed ?: registerReaderFixture()
+        // 刷新或注册后再次确认权限边界，测试文章不能由管理员账号创建。
+        assumeTrue("Requires a retained non-admin reader session after refresh or registration", !requireNotNull(session).isAdministrator && !requireNotNull(session).isSuperAdmin)
+        check(NativeSessionStore.save(context, requireNotNull(session)))
         oldLocale = NativeI18n.locale
         InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale("zh-CN") }
-        report.put("readerId", current.userId).put("serverClockModified", false).put("lifecycleInvokedManually", false)
+        report.put("readerId", requireNotNull(session).userId).put("serverClockModified", false).put("lifecycleInvokedManually", false)
     }
 
     /** 即使失败也保存现场和部分检查点，恢复原读者，不清理文章、通知或本地证据。 */
@@ -83,9 +87,6 @@ class NativeLocalArticleScheduleTest {
 
     /** 真实时间框完成取消/错误/重开/清除，最后由服务端自身任务自然发布并下线同一篇私有文章。 */
     @Test fun realSchedulePersistsCancelsPublishesAndUnpublishesNaturally() {
-        // 系统选择器本轮只输入同一日期的小时和分钟，临近 UTC 日界时跳过以免把跨日误报为业务失败。
-        val testNow = LocalDateTime.now()
-        assumeTrue("Requires a same-day picker window", testNow.plusMinutes(12).toLocalDate() == testNow.toLocalDate())
         // 独立私有草稿不会广播到公开发现页，不覆盖既有文章或修改作者权限。
         val reader = requireNotNull(session)
         val category = NativeSiteSettingsApi.loadWriterSettings().categories.firstOrNull()?.name ?: "随笔"
@@ -188,6 +189,66 @@ class NativeLocalArticleScheduleTest {
         record("natural-unpublication-retains-article-and-clears-consumed-plan-after-reopen")
     }
 
+    /** 真实选择跨本地日期的发布时间和下线时间，核对 UTC 转换、重开回显和清除计划。 */
+    @Test fun realSchedulePersistsAcrossLocalDate() {
+        // 独立私有草稿只用于验证日期边界，不出现在公开发现页，也不修改既有文章。
+        val reader = requireNotNull(session)
+        val category = NativeSiteSettingsApi.loadWriterSettings().categories.firstOrNull()?.name ?: "随笔"
+        val article = NativeArticleApi.createArticle(reader.accessToken, NativeDraftInput(
+            // marker 已经包含唯一后缀，不能再追加文字而触发站点标题长度截断，导致页面等待条件失真。
+            title = marker, summary = "Android cross-date schedule acceptance",
+            content = "<p>保留的跨日期文章定时计划验收正文。</p>", contentFormat = "html",
+            category = category, tags = "", visibility = "private",
+        ))
+        articleId = article.id
+        report.put("crossDateArticleId", article.id).put("crossDateArticleSlug", article.slug)
+        assertTrue(NativeArticleApi.publishCheck(reader.accessToken, articleId).valid)
+        openEditor()
+        openSchedule()
+
+        // 目标固定为设备本地明天上午，避免测试运行时接近午夜或上午时间导致目标已经过去。
+        val tomorrow = LocalDate.now().plusDays(1).atTime(9, 15)
+        val tomorrowUnpublish = tomorrow.plusHours(2)
+        selectTime("article-schedule-publish-at", tomorrow)
+        selectTime("article-schedule-unpublish-at", tomorrowUnpublish)
+        confirmSchedule()
+        waitText("文章发布计划已保存")
+
+        // 直接核对服务端原始 UTC 字符串，确保跨日期不是只在界面状态中成立。
+        assertSchedule(tomorrow, tomorrowUnpublish)
+        assertEquals(localText(tomorrow), NativeArticleApi.listMySchedules(reader.accessToken).single { it.id == articleId }.publishAt)
+        record("cross-date-picker-persists-device-local-values-as-exact-utc")
+
+        // 完全关闭并重新打开编辑页，确认服务端时间转换回设备本地日期和分钟没有偏移。
+        openEditor()
+        openSchedule()
+        assertField("article-schedule-publish-at", localText(tomorrow))
+        assertField("article-schedule-unpublish-at", localText(tomorrowUnpublish))
+        capture("cross-date-reopened")
+        record("cross-date-plan-restores-after-activity-reopen-without-timezone-shift")
+
+        // 清除两个时间并核对计划列表，避免跨日测试留下仍会触发的未来任务。
+        clearTime("article-schedule-publish-at")
+        clearTime("article-schedule-unpublish-at")
+        confirmSchedule()
+        waitText("文章发布计划已取消")
+        assertSchedule(null, null)
+        assertTrue(NativeArticleApi.listMySchedules(reader.accessToken).none { it.id == articleId })
+        record("cross-date-plan-clears-from-server-and-schedule-list")
+    }
+
+    /** 通过产品注册接口创建本地普通读者夹具，确保 refresh token 失效时专项仍可重复执行。 */
+    private fun registerReaderFixture(): NativeSession {
+        // 使用随机账号避免覆盖既有测试用户，账号和文章都保留供后续网页复查。
+        val username = "native_sched_" + UUID.randomUUID().toString().replace("-", "").take(10)
+        val password = "Local!" + UUID.randomUUID().toString() + "_9"
+        val result = NativeAuthApi.register(username, "Android schedule reader", "$username@example.invalid", password, null, null)
+        val registered = (result as? NativeAuthResult.Authenticated)?.session ?: error("本地定时发布读者夹具注册失败。")
+        // 完成正常引导，避免首次登录提示覆盖编辑页并把 UI 等待误判成定时功能失败。
+        NativeDiscoveryApi.completeOnboarding(registered.accessToken, emptyList(), emptyList())
+        return registered
+    }
+
     /** 打开当前 articleId 的真实编辑页面，等待服务端加载和保存操作可用。 */
     private fun openEditor() {
         // 每次冷启动前从加密会话存储读取最新 refresh token，避免前一次冷启动轮换令牌后测试继续使用旧令牌。
@@ -239,18 +300,44 @@ class NativeLocalArticleScheduleTest {
         assertFalse(UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).hasObject(By.res("android", "datePicker")))
     }
 
-    /** 用真实系统选择器设置 tag 对应的 target；日期由业务前置限制为当前日期。 */
+    /** 用真实系统选择器设置 tag 对应的 target；日期跨月时通过系统控件切换到目标月份。 */
     private fun selectTime(tag: String, target: LocalDateTime) {
-        // 不将默认日期的小时/分钟输入当作跨日、多时区的系统日期交互验收。
-        check(target.toLocalDate() == LocalDateTime.now().toLocalDate())
+        // 空字段打开选择器时，产品默认以当前时间后一小时作为初始日期；跨日测试从这个真实初始日期计算月份差。
+        val pickerInitialDate = LocalDateTime.now().plusHours(1).toLocalDate()
         compose.onNodeWithTag(tag).performNativeStableClick(compose)
         systemControl("datePicker")
+        selectCalendarDate(pickerInitialDate, target.toLocalDate())
         systemControl("button1").click()
         systemControl("toggle_mode").click()
         systemControl("input_hour").text = target.hour.toString()
         systemControl("input_minute").text = target.minute.toString()
         systemControl("button1").click()
         assertField(tag, localText(target))
+    }
+
+    /** 在系统日期选择器中向前切换到目标月份，并点击目标日期单元格。 */
+    private fun selectCalendarDate(initial: LocalDate, target: LocalDate) {
+        // 仅允许未来日期，防止测试辅助方法在月份方向错误时静默选择了其它日期。
+        val monthDelta = ChronoUnit.MONTHS.between(initial.withDayOfMonth(1), target.withDayOfMonth(1))
+        check(monthDelta in 0..12) { "The schedule test only supports a future date within twelve months" }
+        // 使用系统日期选择器的下一月控件，不调用 DatePicker 的业务回调或反射接口。
+        repeat(monthDelta.toInt()) {
+            systemControl("next").click()
+        }
+        // 优先从日期选择器内部查找目标日期，排除弹窗标题中的同数字文本。
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val picker = systemControl("datePicker")
+        val monthView = device.findObject(By.res("android", "month_view"))
+        val monthBounds = monthView?.visibleBounds
+        val candidates = device.findObjects(By.text(target.dayOfMonth.toString())).filter { candidate ->
+            val bounds = candidate.visibleBounds
+            monthBounds == null || monthBounds.contains(bounds.centerX(), bounds.centerY())
+        }
+        val day = candidates.minByOrNull { it.visibleBounds.top } ?: picker.findObject(By.text(target.dayOfMonth.toString()))
+        day?.click() ?: run {
+            device.dumpWindowHierarchy(File(context.filesDir, "$marker-date-picker-failure.xml"))
+            throw AssertionError("Target date ${target.dayOfMonth} was not displayed by the system picker")
+        }
     }
 
     /** 查找 Android 系统 id 的控件，失败保留本轮系统层级，不直接调用时间选择业务回调。 */
