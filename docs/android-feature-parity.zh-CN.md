@@ -3068,3 +3068,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 在 Android 15 `emulator-5554` 使用当前源码和设备内隔离 MockWebServer，分别执行 `NativeAdminOperationsTest` `17/17`、`NativeAdminBackupTest` `15/15`、`NativeAdminSecurityDeviceTest` `24/24`、`NativeAdminSettingsDeviceTest` `17/17`，合计 `73/73`，失败、错误和跳过均为 `0`。
 - 运营与质量专项覆盖告警确认/解决、失败重试、压测参数与运行详情、恢复演练阻塞、审计策略、权限撤销和浏览器验收状态；备份专项覆盖数据库/媒体策略、分页筛选、批量删除、恢复预检/重试、媒体任务轮询和权限丢失；安全与站点设置专项覆盖普通管理员只读边界、超级管理员配置保存、敏感字段清理、失败恢复、角色/分类/标签/背景配置和账号切换隔离。
 - 该轮验证的是当前原生页面、请求边界、权限状态和失败恢复，不写入线上数据库，也不把隔离夹具结果扩大为生产管理员交互、OSS/R2 真实读写或外部服务验收；Google/Passkey 成功凭据、FCM 到达、生产 WebRTC、外部 AI/媒体供应商和 OSS/R2 仍按外部条件单独保留。
+
+## Passkey 无凭据双设备回退复验（2026-11-02）
+
+- 在 Android 11 与 Android 15 上分别执行无已注册 Passkey 的登录回退用例，各为 `1/1`，失败、错误和跳过均为 `0`；Android 15 当前恢复实例为 `emulator-5554`，Android 11 单独复验使用既有 `emulator-5562`。
+- 两台设备在系统没有可用凭据时都能回到账号密码登录路径，不会卡在 Passkey 弹窗或崩溃。此前两台设备并行启动时 Android 11 曾在进入登录页前超时，单独重跑后通过，该次启动资源竞争不计为产品失败。
+- 本轮只证明“无凭据时的回退”边界，尚未用已注册 Passkey 完成真实成功登录；真实 Google 授权、Passkey 成功凭据、FCM 到达、生产 WebRTC、外部 AI/媒体供应商和 OSS/R2 仍需独立验收。
