@@ -7,6 +7,12 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## Android 本地注册策略链路差异复核（2026-11-03）
+
+- 为避免认证页读取旧配置，`NativeAuthApi` 的策略类 GET 请求已关闭 HTTP 缓存，并发送 `Cache-Control: no-cache, no-store`；提交 `f629949` 已推送。
+- 随后在 Android 15 `emulator-5556` 使用本地 `3000/3001` 回环地址重跑公开主页专项，测试在注册前置条件处停止：Android 端读取到 `registrationEmailVerificationEnabled=true`、`turnstile.registrationEnabled=true`，而宿主直接访问同一 API 返回均为 `false`。
+- 本轮没有创建账号、文章、关系或消息，也没有把该次结果计入通过；测试结束已移除 ADB reverse，重新安装默认生产地址 Debug 包，两台设备均冷启动进入 `MainActivity`。该差异仍需继续核对本地服务/设备测试链路，不能用历史成功报告替代当前复核。
+
 ## Android 安装版本页与文章评论筛选复验（2026-11-03）
 
 - 原生 `/install` 深链在默认生产地址 Debug 包中完成双设备核对：Android 15 `emulator-5554` 和 Android 11 `emulator-5562` 均进入 `NativeInstallScreen`，展示当前客户端版本、服务器最新版状态、无发布 APK 时的空状态，以及 PWA 诊断入口；两台设备均未发现应用崩溃或 ANR。
