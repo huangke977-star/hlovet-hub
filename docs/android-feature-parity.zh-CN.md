@@ -38,6 +38,12 @@
 - 当前 APK 覆盖安装到 Android 15 `emulator-5554` 后冷启动 `MainActivity` 成功；UI 树确认主标题、底部主导航和发现筛选均显示英文 `Discover`，搜索入口和发现内容正常呈现。清空 Logcat 后未发现 `FATAL EXCEPTION`，未清除应用数据、会话或业务数据。
 - 本轮仍只证明源码映射、构建和冷启动边界；Google/Passkey 成功授权、FCM 真推送、生产双设备 WebRTC、外部 AI/OCR/语音/图片服务、OSS/R2 和物理断网仍按外部验收门槛处理。
 
+## Android 本地会话与富文本编辑真实回归（2026-11-03）
+
+- 在本地 Docker API、网页、MySQL、Redis 和 Android 15 `emulator-5554` 上，以独立测试包和 `3000/3001` ADB reverse 执行 `NativeLocalMainSessionTest#realUiLoginPersistsEncryptedSessionAndSurvivesActivityRecreation`，实际通过 `1/1`；覆盖动态注册、密码登录、兴趣引导跳过、加密会话保存、备份目录隔离和 Activity 重建后的会话恢复。
+- 沿用本轮保留的 `native_restore_*` 本地读者会话执行 `NativeLocalRichEditorTest#realEditorSavesAndReopensTaskSplitWithComplexHtml`，实际通过 `1/1`；覆盖真实富文本/WebView 编辑、任务列表回车拆分、撤销/重做、多语言代码块、保存按钮持久化、关闭重开、预览渲染和服务端回读，测试文章及报告按约定保留。
+- 首次 Gradle 聚合任务因同时发现三台模拟器且只有 5554 建立 reverse，未把连接失败计入业务结果；随后在同一 APK 和同一设备上直接执行 instrumentation，两个专项均 `OK (1 test)`。测试结束已卸载临时测试包、移除 `3000/3001` reverse，恢复默认生产地址 Debug 包并完成 `MainActivity` 冷启动，未清除服务器业务数据。
+
 ## 公开主页双设备本地真实回归（2026-11-03）
 
 - 本地 API 健康检查返回 HTTP 200，数据库和 Redis 均正常；使用本地构建参数与 `3000/3001` ADB reverse，在 Android 15 `emulator-5554` 通过 `NativeLocalPublicProfileTest#realPublicProfileContentAndSocialActions` 完成 `1/1`，在 Android 11 `emulator-5562` 通过同一测试完成 `OK (1 test)`。
