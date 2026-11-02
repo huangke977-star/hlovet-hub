@@ -381,6 +381,10 @@ internal object NativeAuthApi {
             requestMethod = "GET"
             connectTimeout = 12_000
             readTimeout = 12_000
+            // 注册与安全策略可在后台即时修改，认证页不能继续使用旧的代理或设备缓存结果。
+            useCaches = false
+            setRequestProperty("Cache-Control", "no-cache, no-store")
+            setRequestProperty("Pragma", "no-cache")
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", USER_AGENT)
         }
