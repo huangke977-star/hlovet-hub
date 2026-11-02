@@ -195,7 +195,7 @@ internal fun NativeAdminFeedbackScreen(
         item {
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 nativeFeedbackStatuses.forEach { value ->
-                    FilterChip(selected = status == value, onClick = { status = value; page = 1 }, label = { Text(nativeFeedbackStatus(value), fontSize = 10.sp) })
+                    FilterChip(selected = status == value, onClick = { status = value; page = 1 }, label = { Text(nativeFeedbackStatus(value), fontSize = 10.sp) }, border = null, colors = HlovetUi.filterChipColors())
                 }
             }
         }
@@ -230,7 +230,7 @@ internal fun NativeAdminFeedbackScreen(
                     Text(current.content, fontSize = 12.sp, lineHeight = 19.sp)
                     Text(nativePhrase("处理状态", "Status"), color = HlovetUi.muted, fontSize = 10.sp)
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        nativeFeedbackStatuses.drop(1).forEach { value -> FilterChip(selected = current.summary.status == value, onClick = { updateStatus(value) }, enabled = !saving, label = { Text(nativeFeedbackStatus(value), fontSize = 10.sp) }) }
+                        nativeFeedbackStatuses.drop(1).forEach { value -> FilterChip(selected = current.summary.status == value, onClick = { updateStatus(value) }, enabled = !saving, label = { Text(nativeFeedbackStatus(value), fontSize = 10.sp) }, border = null, colors = HlovetUi.filterChipColors()) }
                     }
                     Text(nativePhrase("回复记录 · ${current.replies.size}", "Replies · ${current.replies.size}"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     if (current.replies.isEmpty()) Text(nativePhrase("暂无回复。", "No replies."), color = HlovetUi.muted, fontSize = 11.sp)

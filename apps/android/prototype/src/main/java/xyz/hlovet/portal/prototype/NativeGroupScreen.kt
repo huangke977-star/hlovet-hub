@@ -432,8 +432,8 @@ private fun NativeGroupContent(
                         Text(nativePhrase("临时群聊（创建后可设置有效期）", "Temporary group (expiration can be configured after creation)"), fontSize = 13.sp)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = createJoinMode == "approval", onClick = { createJoinMode = "approval" }, label = { Text(nativePhrase("允许申请", "Allow requests")) })
-                        FilterChip(selected = createJoinMode == "invite_only", onClick = { createJoinMode = "invite_only" }, label = { Text(nativePhrase("仅限邀请", "Invitation only")) })
+                        FilterChip(selected = createJoinMode == "approval", onClick = { createJoinMode = "approval" }, label = { Text(nativePhrase("允许申请", "Allow requests")) }, border = null, colors = HlovetUi.filterChipColors())
+                        FilterChip(selected = createJoinMode == "invite_only", onClick = { createJoinMode = "invite_only" }, label = { Text(nativePhrase("仅限邀请", "Invitation only")) }, border = null, colors = HlovetUi.filterChipColors())
                     }
                 }
             },

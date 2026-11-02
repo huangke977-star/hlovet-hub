@@ -13,6 +13,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -97,6 +98,13 @@ internal object HlovetUi {
         focusedLabelColor = focusedLabelColor,
         unfocusedLabelColor = unfocusedLabelColor,
         cursorColor = cursorColor,
+    )
+
+    /** 返回当前 Material 版本支持的筛选芯片选中色板，普通与禁用态继续沿用主题基础色。 */
+    @Composable
+    fun filterChipColors() = FilterChipDefaults.filterChipColors(
+        selectedContainerColor = accentSoft,
+        selectedLabelColor = foreground,
     )
 
     fun applyAppearance(appearance: PreviewAppearance) {

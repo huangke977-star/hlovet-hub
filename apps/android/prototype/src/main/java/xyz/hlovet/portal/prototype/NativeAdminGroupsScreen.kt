@@ -247,12 +247,12 @@ private fun NativeAdminGroupsContent(session: NativeSession?, onBack: () -> Unit
         }
         item {
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                FilterChip(selected = tab == NativeAdminGroupsTab.Groups, onClick = { tab = NativeAdminGroupsTab.Groups }, label = { Text(nativePhrase("群聊", "Groups"), fontSize = 10.sp) })
-                FilterChip(selected = tab == NativeAdminGroupsTab.Reports, onClick = { tab = NativeAdminGroupsTab.Reports }, label = { Text(nativePhrase("举报", "Reports") + if (reportStatus == "pending") " ${reports.size}" else "", fontSize = 10.sp) })
+                FilterChip(selected = tab == NativeAdminGroupsTab.Groups, onClick = { tab = NativeAdminGroupsTab.Groups }, label = { Text(nativePhrase("群聊", "Groups"), fontSize = 10.sp) }, border = null, colors = HlovetUi.filterChipColors())
+                FilterChip(selected = tab == NativeAdminGroupsTab.Reports, onClick = { tab = NativeAdminGroupsTab.Reports }, label = { Text(nativePhrase("举报", "Reports") + if (reportStatus == "pending") " ${reports.size}" else "", fontSize = 10.sp) }, border = null, colors = HlovetUi.filterChipColors())
                 if (tab == NativeAdminGroupsTab.Reports) {
-                    FilterChip(selected = reportStatus == "pending", onClick = { reportStatus = "pending" }, label = { Text(nativePhrase("待处理", "Pending"), fontSize = 10.sp) })
-                    FilterChip(selected = reportStatus == "resolved", onClick = { reportStatus = "resolved" }, label = { Text(nativePhrase("已处理", "Resolved"), fontSize = 10.sp) })
-                    FilterChip(selected = reportStatus == "rejected", onClick = { reportStatus = "rejected" }, label = { Text(nativePhrase("已驳回", "Rejected"), fontSize = 10.sp) })
+                    FilterChip(selected = reportStatus == "pending", onClick = { reportStatus = "pending" }, label = { Text(nativePhrase("待处理", "Pending"), fontSize = 10.sp) }, border = null, colors = HlovetUi.filterChipColors())
+                    FilterChip(selected = reportStatus == "resolved", onClick = { reportStatus = "resolved" }, label = { Text(nativePhrase("已处理", "Resolved"), fontSize = 10.sp) }, border = null, colors = HlovetUi.filterChipColors())
+                    FilterChip(selected = reportStatus == "rejected", onClick = { reportStatus = "rejected" }, label = { Text(nativePhrase("已驳回", "Rejected"), fontSize = 10.sp) }, border = null, colors = HlovetUi.filterChipColors())
                 }
             }
         }
@@ -299,7 +299,7 @@ private fun NativeAdminGroupsContent(session: NativeSession?, onBack: () -> Unit
                             }
                             IconButton(onClick = { if (busyKey.isBlank()) banTarget = null }, modifier = Modifier.size(32.dp)) { Icon(Icons.Filled.Close, contentDescription = nativePhrase("关闭", "Close"), modifier = Modifier.size(17.dp)) }
                         }
-                        FilterChip(selected = permanent, onClick = { permanent = !permanent }, label = { Text(nativePhrase("永久限制", "Permanent restriction"), fontSize = 11.sp) })
+                        FilterChip(selected = permanent, onClick = { permanent = !permanent }, label = { Text(nativePhrase("永久限制", "Permanent restriction"), fontSize = 11.sp) }, border = null, colors = HlovetUi.filterChipColors())
                         if (!permanent) OutlinedTextField(durationMinutes, { durationMinutes = it.filter(Char::isDigit).take(6) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(nativePhrase("临时限制时长（分钟）", "Temporary duration (minutes)")) }, colors = nativeAdminGroupsFieldColors())
                         OutlinedTextField(reason, { reason = it.take(300) }, modifier = Modifier.fillMaxWidth(), minLines = 3, maxLines = 6, label = { Text(nativePhrase("处理原因", "Reason")) }, colors = nativeAdminGroupsFieldColors())
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {

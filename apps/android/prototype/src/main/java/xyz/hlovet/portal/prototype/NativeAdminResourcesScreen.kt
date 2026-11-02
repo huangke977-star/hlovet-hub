@@ -348,8 +348,8 @@ internal fun NativeAdminResourcesScreen(
                     }
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                            FilterChip(selected = adjustmentKind == NativeAdminAdjustmentKind.TopUp, enabled = !busy, onClick = { adjustmentKind = NativeAdminAdjustmentKind.TopUp }, label = { Text(nativePhrase("补发积分", "Top up points"), fontSize = 11.sp) })
-                            FilterChip(selected = adjustmentKind == NativeAdminAdjustmentKind.Violation, enabled = !busy, onClick = { adjustmentKind = NativeAdminAdjustmentKind.Violation }, label = { Text(nativePhrase("违规扣分", "Violation penalty"), fontSize = 11.sp) })
+                            FilterChip(selected = adjustmentKind == NativeAdminAdjustmentKind.TopUp, enabled = !busy, onClick = { adjustmentKind = NativeAdminAdjustmentKind.TopUp }, label = { Text(nativePhrase("补发积分", "Top up points"), fontSize = 11.sp) }, border = null, colors = HlovetUi.filterChipColors())
+                            FilterChip(selected = adjustmentKind == NativeAdminAdjustmentKind.Violation, enabled = !busy, onClick = { adjustmentKind = NativeAdminAdjustmentKind.Violation }, label = { Text(nativePhrase("违规扣分", "Violation penalty"), fontSize = 11.sp) }, border = null, colors = HlovetUi.filterChipColors())
                         }
                         OutlinedTextField(username, { username = it.take(80) }, enabled = !busy, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(nativePhrase("目标 @username", "Target @username")) }, placeholder = { Text("例如 @nice3 / e.g. @nice3") }, colors = nativeAdminResourcesFieldColors())
                         OutlinedTextField(points, { points = it.filter(Char::isDigit).take(9) }, enabled = !busy, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(nativePhrase("积分数量", "Point amount")) }, colors = nativeAdminResourcesFieldColors())

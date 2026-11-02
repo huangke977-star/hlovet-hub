@@ -3238,3 +3238,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 修复 MainActivity 历史 `Card` 适配层：未指定背景或显式使用站点默认 `surface` 的卡片现在统一读取 `HlovetUi.glassFallback`，因此首页、发现流及复用旧卡片的页面会跟随账号卡片透明度；专题强调色、提示色等明确背景仍保持原有层级。
 - 新增 `resolveNativeCardContainerColor` 纯函数测试，覆盖默认背景、站点 surface 和明确强调色三种分支；`NativeI18nTest` 与 `NativeRouteNormalizationTest` 定向测试通过，完整 `:prototype:testDebugUnitTest` 通过，JVM 结果仍为 `333/333`。
 - `:prototype:assembleDebug`、PC 路由 `70/70`、后台入口 `24/24`、API 对齐 `27/27` 均通过，`git diff --check` 通过；本次未改 API、路由、文章内部模式值或业务数据。
+
+## Android 筛选芯片样式统一复核（2026-11-03）
+
+- 新增 `HlovetUi.filterChipColors()` 共享选中色板，并将群聊管理、反馈管理、积分调整、群聊创建和专题编辑中仍使用 Material 默认边框/选中色的筛选芯片改为无边框统一样式；筛选值、状态更新和接口请求逻辑保持不变。
+- 当前 Material 3 依赖只提供筛选芯片的选中颜色参数，因此普通/禁用态继续由统一主题提供，避免为了样式升级依赖版本或改变其它组件行为。
+- `:prototype:testDebugUnitTest`、`:prototype:assembleDebug`、PC 路由 `70/70`、后台入口 `24/24`、API 对齐 `27/27` 均通过，`git diff --check` 通过；本轮没有写入业务数据。

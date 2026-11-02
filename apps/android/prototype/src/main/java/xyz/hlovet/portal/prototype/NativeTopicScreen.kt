@@ -510,7 +510,7 @@ private fun TopicChoiceRow(label: String, options: List<Pair<String, String>>, s
         Text(label, color = HlovetUi.muted, fontSize = 12.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             options.forEach { (value, text) ->
-                FilterChip(selected = selected == value, onClick = { onSelected(value) }, label = { Text(text, fontSize = 11.sp) })
+                FilterChip(selected = selected == value, onClick = { onSelected(value) }, label = { Text(text, fontSize = 11.sp) }, border = null, colors = HlovetUi.filterChipColors())
             }
         }
     }
