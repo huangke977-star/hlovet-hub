@@ -50,6 +50,11 @@
 - Android 15 `emulator-5554` 的同一套件已先完成会话和合集两项 `2/3`，第三项开始后设备从 ADB 消失，未将掉线结果计入产品失败；富文本专项此前已在该设备单独 `OK (1 test)`，本轮在 Android 11 套件中再次获得完整通过证据。
 - 测试结束已卸载临时测试包、移除 `3000/3001` reverse，保留设备原有 `18010` 转发；Android 11 已恢复默认生产地址 Debug 包并冷启动到 `MainActivity`，服务器测试数据和历史证据均未清理。
 
+## Android 当前 JVM 回归复核（2026-11-03）
+
+- 使用 JDK 17 在当前源码上执行 `:prototype:testDebugUnitTest`，实际统计为 `333/333`，失败、错误、跳过均为 `0`；覆盖认证、发现、文章编辑、社交、通话状态、AI 配置、离线缓存、管理入口和安全边界等原生逻辑。
+- 本轮没有把 JVM 单测扩大解释为 Google/Passkey 成功授权、FCM 真推送、生产双设备 WebRTC、外部 AI/OCR/语音/图片服务、OSS/R2 或物理断网验收；这些仍按外部条件表单独保留。
+
 ## 公开主页双设备本地真实回归（2026-11-03）
 
 - 本地 API 健康检查返回 HTTP 200，数据库和 Redis 均正常；使用本地构建参数与 `3000/3001` ADB reverse，在 Android 15 `emulator-5554` 通过 `NativeLocalPublicProfileTest#realPublicProfileContentAndSocialActions` 完成 `1/1`，在 Android 11 `emulator-5562` 通过同一测试完成 `OK (1 test)`。
