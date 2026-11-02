@@ -31,6 +31,13 @@
 - 修复 FCM 与前台轮询通知在标题/正文为空时固定显示中文的问题；通知频道名称、描述和正文兜底现在都跟随账号保存的语言，新增 `NativeI18nTest#notificationFallbacksFollowTheSelectedLocale`，并随 `testDebugUnitTest` 与 Debug 构建通过。
 - 该持续校验仍不替代 Google/Passkey 成功授权、FCM 真推送、生产双设备 WebRTC、外部 AI/OCR/语音/图片服务、OSS/R2 和物理断网等外部条件验收；这些边界仍按上方门槛单独记录。
 
+## Android 当前源码与冷启动复核（2026-11-03）
+
+- 使用当前 `main` 再次执行 `node apps/android/tools/check-route-parity.mjs` 和 `node apps/android/tools/check-api-parity.mjs`：PC 用户路由 `70/70`、后台入口 `24/24`、PC API 模块 `27/27` 均通过，审计结果为 `0` 个确认缺失候选。
+- 在指定 JDK 17 和 Android SDK 环境中执行 `:prototype:compileDebugKotlin`、`:prototype:testDebugUnitTest`、`:prototype:assembleDebug`，Gradle `BUILD SUCCESSFUL`；Debug APK 生成于 `apps/android/prototype/build/outputs/apk/debug/prototype-debug.apk`。
+- 当前 APK 覆盖安装到 Android 15 `emulator-5554` 后冷启动 `MainActivity` 成功；UI 树确认主标题、底部主导航和发现筛选均显示英文 `Discover`，搜索入口和发现内容正常呈现。清空 Logcat 后未发现 `FATAL EXCEPTION`，未清除应用数据、会话或业务数据。
+- 本轮仍只证明源码映射、构建和冷启动边界；Google/Passkey 成功授权、FCM 真推送、生产双设备 WebRTC、外部 AI/OCR/语音/图片服务、OSS/R2 和物理断网仍按外部验收门槛处理。
+
 ## Android 公开主页双设备复跑（2026-11-03）
 
 - 使用本地 Docker API、MySQL、Redis 和当前源码 Debug 测试包，先后在 Android 15 `emulator-5554` 与 Android 11 `emulator-5562` 执行 `NativeLocalPublicProfileTest#realPublicProfileContentAndSocialActions`，最终各 `1/1`，合计 `2/2`，失败、错误和跳过均为 `0`。
