@@ -11,9 +11,10 @@
 
 - 底部主导航的显示名称统一为“发现”，英文显示为 `Discover`；发现页内部仍保留稳定的 `文章` 模式键，用于筛选参数、深链和服务端接口，不把显示文案改动扩散到业务协议。
 - `NativeLocalPublicProfileTest#realPublicProfileContentAndSocialActions` 在本地 Docker API、MySQL、Redis 和 Android 15 `emulator-5554` 上实际执行 `1/1`，测试数据没有清除，读者会话已恢复。
+- 在本轮提交后的最新回归中，同一测试在 Android 15 `emulator-5554` 与 Android 11 `emulator-5562` 各执行 `1/1`，共 `2/2`，0 跳过、0 失败；Gradle XML 分别记录测试耗时约 56 秒和 38 秒。
 - 真实路径覆盖作者公开文章/合集及代表内容、订阅和取消订阅、好友申请及备注、作者端接受好友申请、重新打开已接受好友主页、陌生人消息请求、拉黑后的不可见校验、合集详情入口和文章详情入口，共 12 个检查点全部通过。
 - 本轮修复原生会话刷新在多 Activity 切换账号时的迟到结果覆盖：刷新完成保存前会复核设备中的账号和 refresh token，旧结果不能覆盖新会话；好友状态展示同时按服务端 `status=accepted` 和兼容方向值渲染。
-- 测试结束已移除 `emulator-5554` 的 `3000/3001` ADB reverse；测试账号、文章、合集、好友关系、消息请求和拉黑记录按约定保留，设备私有报告标记 `testDataRemoved=false`、`completed=true`。
+- 测试结束已移除两台设备的 `3000/3001` ADB reverse，重新构建并安装默认生产 API Debug 包；测试账号、文章、合集、好友关系、消息请求和拉黑记录按约定保留，设备私有报告标记 `testDataRemoved=false`、`completed=true`。
 
 ## Android/PC 对齐持续校验（2026-11-03）
 
