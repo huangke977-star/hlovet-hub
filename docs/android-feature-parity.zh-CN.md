@@ -3134,3 +3134,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 在 Android 15 `emulator-5554` 使用显式本地 API/门户地址构建并安装测试 APK，`NativeLocalPrivacyDeviceTest` 完整运行 `2/2`，`NativeLocalMainPrivacyTest` 运行 `1/1`，失败、错误和跳过均为 `0`。真实 Compose 页面覆盖密码验证错误提示、密码验证后修改邮箱/密码并保持当前会话、TOTP 绑定、六位验证码、恢复码和解除双因素认证。
 - TOTP 流程最初因 API 缺少 `BACKUP_ENCRYPTION_KEY` 而无法继续；加载本地专用密钥后单测和整类复跑均通过，确认问题是测试环境密钥缺失，不是验证弹窗关闭逻辑。该密钥文件保存在已忽略的 `output/android/local-api-testing/credential.env`，后续本地 Compose 重建必须继续复用，不能轮换，否则已有本地加密测试数据可能无法读取。
 - 测试结束后已移除 Android 15 的 `3000/3001` ADB reverse，并恢复安装默认生产地址 Debug APK；正式 BuildConfig 为 `https://5200918.xyz/api` 与 `https://5200918.xyz`。本轮没有清理测试账号、审计记录、TOTP 测试数据或历史证据。
+
+## Android 多语言与发现入口收口（2026-11-03）
+
+- 发现页底部导航和文章流筛选继续对外显示“发现”（英文 `Discover`），内部仍保留 `文章` 模式值，以兼容既有排序、可见性判断和 `/articles` 深链；“文章管理”等业务页面名称不做语义替换。
+- 修正 Android 安装包管理接口的上传失败、请求失败和响应格式错误兜底，英文界面不再直接显示中文错误；举报队列的“评论举报/文章举报”来源名称也统一复用当前语言文案。
+- `:prototype:compileDebugKotlin`、`:prototype:testDebugUnitTest`、`:prototype:assembleDebug` 全部通过；JVM 单元测试为 `333/333`，失败、错误和跳过均为 `0`。路由对齐为 `70/70`，后台入口对齐为 `24/24`，API 对齐审计为 `27/27` 模块、`0` 个确认缺失；`git diff --check` 通过。

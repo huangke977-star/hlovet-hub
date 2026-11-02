@@ -663,10 +663,7 @@ private fun NativeAdminArticleToolbar(
                                         text = {
                                             Column {
                                                 Text(
-                                                    nativePhrase(
-                                                        "${if (report.source == "comment") "评论" else "文章"}举报 · ${report.article?.title.orEmpty()}",
-                                                        "${if (report.source == "comment") "Comment" else "Article"} report · ${report.article?.title.orEmpty()}",
-                                                    ),
+                                                    "${nativeAdminArticleReportSourceLabel(report.source)} · ${report.article?.title.orEmpty()}",
                                                     fontSize = 11.sp,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,

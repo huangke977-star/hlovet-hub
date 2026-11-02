@@ -37,7 +37,9 @@ internal object NativeAdminAndroidApi {
 
     fun list(accessToken: String): List<NativeAndroidRelease> = request("/android-releases", accessToken).toReleases()
 
+    /** 上传 Android 安装包并返回服务端保存的版本记录；网络失败时返回跟随当前界面的本地化提示。 */
     fun upload(accessToken: String, file: NativeUploadFile, versionName: String, versionCode: Int, channel: String, notes: String, activate: Boolean): NativeAndroidRelease {
+        // 以 multipart 发送安装包和版本元数据，保持服务端现有上传协议不变。
         val boundary = "----HlovetAndroidRelease${System.currentTimeMillis()}"
         val connection = (URL(baseUrl + "/android-releases").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -64,7 +66,7 @@ internal object NativeAdminAndroidApi {
                 output.write(file.bytes)
                 output.write("\r\n--$boundary--\r\n".toByteArray())
             }
-            parseObjectResponse(connection, "安装包上传失败") .toRelease()
+            parseObjectResponse(connection, nativePhrase("安装包上传失败", "Package upload failed")) .toRelease()
         } finally {
             connection.disconnect()
         }
@@ -85,7 +87,9 @@ internal object NativeAdminAndroidApi {
         output.write("\r\n".toByteArray())
     }
 
+    /** 调用 Android 版本管理接口并解析 JSON；失败时保留 HTTP 状态供页面反馈。 */
     private fun request(path: String, accessToken: String?, method: String = "GET", body: JSONObject? = null): Any {
+        // 统一设置认证和 JSON 请求头，避免列表、激活、删除接口各自维护一套连接逻辑。
         val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 12_000
@@ -102,18 +106,22 @@ internal object NativeAdminAndroidApi {
         }
         return try {
             if (body != null) connection.outputStream.bufferedWriter().use { it.write(body.toString()) }
-            parseResponse(connection, "安装包请求失败")
+            parseResponse(connection, nativePhrase("安装包请求失败", "Package request failed"))
         } finally {
             connection.disconnect()
         }
     }
 
+    /** 将响应限定为 JSON 对象，防止错误的数据形状进入版本记录解析。 */
     private fun parseObjectResponse(connection: HttpURLConnection, fallback: String): JSONObject {
+        // 上传成功必须返回对象，数组或空响应都属于协议错误。
         val result = parseResponse(connection, fallback)
-        return result as? JSONObject ?: throw IllegalStateException("服务器返回的安装包数据格式不正确。")
+        return result as? JSONObject ?: throw IllegalStateException(nativePhrase("服务器返回的安装包数据格式不正确。", "The server returned an invalid package response."))
     }
 
+    /** 读取 HTTP 响应并按根节点形状解析 JSON；非 2xx 响应优先使用服务端消息。 */
     private fun parseResponse(connection: HttpURLConnection, fallback: String): Any {
+        // 先选择成功或错误流，再统一处理状态码和响应体，避免吞掉服务端诊断信息。
         val status = connection.responseCode
         val stream = if (status in 200..299) connection.inputStream else connection.errorStream
         val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()

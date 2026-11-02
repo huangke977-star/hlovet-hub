@@ -71,4 +71,21 @@ class NativeI18nTest {
             NativeI18n.applyLocale("zh-CN")
         }
     }
+
+    /** Android 版本管理的网络兜底文案应跟随当前界面语言，不能在英文页面混入中文。 */
+    @Test
+    fun androidReleaseFallbacksFollowTheSelectedLocale() {
+        try {
+            NativeI18n.applyLocale("zh-CN")
+            assertEquals("安装包上传失败", nativePhrase("安装包上传失败", "Package upload failed"))
+            assertEquals("安装包请求失败", nativePhrase("安装包请求失败", "Package request failed"))
+            assertEquals("服务器返回的安装包数据格式不正确。", nativePhrase("服务器返回的安装包数据格式不正确。", "The server returned an invalid package response."))
+            NativeI18n.applyLocale("en-US")
+            assertEquals("Package upload failed", nativePhrase("安装包上传失败", "Package upload failed"))
+            assertEquals("Package request failed", nativePhrase("安装包请求失败", "Package request failed"))
+            assertEquals("The server returned an invalid package response.", nativePhrase("服务器返回的安装包数据格式不正确。", "The server returned an invalid package response."))
+        } finally {
+            NativeI18n.applyLocale("zh-CN")
+        }
+    }
 }
