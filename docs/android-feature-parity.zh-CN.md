@@ -3080,3 +3080,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 在本地 Docker API `http://127.0.0.1:3001`、门户 `http://127.0.0.1:3000` 和 Android 15 `emulator-5554` 上，使用当前源码执行 `NativeLocalMainSessionTest`，结果为 `1/1`，失败、错误和跳过均为 `0`，测试耗时约 12 秒。
 - 测试通过真实 `MainActivity` 完成动态注册、密码登录、首次兴趣引导跳过、个人页用户名回显、加密会话文件位置与内容检查，以及 `ActivityScenario.recreate()` 后的登录态恢复。测试账号和会话按既有约定保留，没有清理业务数据。
 - 测试后已移除 Android 15 的 `3000/3001` ADB reverse，重新构建并安装默认生产地址 Debug APK；BuildConfig 确认为 `https://5200918.xyz/api` 与 `https://5200918.xyz`，冷启动前台为 `MainActivity`。本轮不扩大为 Google/Passkey 成功凭据、FCM、生产 WebRTC、外部 AI/媒体供应商或 OSS/R2 验收。
+
+## Android 15 双账号社交与聊天复验（2026-11-02）
+
+- 在同一套本地 Docker API/门户和 Android 15 `emulator-5554` 上，使用当前源码执行 `NativeLocalSocialTest`，结果为 `1/1`，失败、错误和跳过均为 `0`，测试耗时约 11.8 秒。
+- 真实 MainActivity 与本地数据库/Socket.IO 完成好友申请方向、通知已读、共享会话、双向消息收发、服务器持久化、聊天搜索定位、非成员历史/上下文/搜索隔离，以及拉黑后即时拒绝和解除拉黑后重新建立关系。
+- 测试账号、好友关系、会话、消息和通知按既有约定保留；测试后已移除 `3000/3001` ADB reverse，重新构建并安装默认生产地址 Debug APK，BuildConfig 为 `https://5200918.xyz/api` 与 `https://5200918.xyz`，冷启动前台为 `MainActivity`。本轮不扩大为双设备生产通话、FCM 到达或外部服务验收。
