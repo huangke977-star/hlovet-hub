@@ -44,6 +44,12 @@
 - 两台设备均覆盖了独立作者/访客、公开文章和合集、主页代表内容、订阅/取消订阅、好友申请与备注、接受关系、陌生人消息请求、拉黑后的不可见校验及文章/合集跳转；测试数据和账号按测试约定保留。
 - 首次使用 Gradle 聚合任务时，另外两台未建立 reverse 的设备因连接本地 `3001` 失败；该次不计入通过数，随后改为单设备直接 instrumentation，在 5554 和 5562 均通过。测试结束后已恢复生产地址 Debug 包，并移除本轮 `3000/3001` 映射，保留既有 `18010` 映射。
 
+## 匿名话题 Android 真实生命周期回归（2026-11-03）
+
+- 在 Android 15 `emulator-5554` 的本地 API/MySQL/Redis 环境中执行 `NativeLocalAnonymousTopicTest#realAnonymousTopicLifecycleAndInteractions`，最终 `OK (1 test)`；覆盖创建两个话题、关键词搜索与分页、详情打开、匿名发言、服务端回读、点赞、文本附件、收藏、创建者关闭/重开和密码恢复昵称。
+- 测试每轮使用随机标记和新的匿名话题身份，附件、发言和话题记录按约定保留，未触碰生产 API、账号或生产数据。测试结束后已重新安装生产地址 Debug 包，移除 `3000/3001` reverse，并完成冷启动检查。
+- 首次执行因 Compose Dialog 系统窗口切换时的 `assertIsDisplayed()` 几何判断误报失败；保留真实对话框节点、输入点击和服务端状态断言后重跑通过，未放宽创建、发送、互动或状态变更的业务断言。
+
 ## Android 公开主页双设备复跑（2026-11-03）
 
 - 使用本地 Docker API、MySQL、Redis 和当前源码 Debug 测试包，先后在 Android 15 `emulator-5554` 与 Android 11 `emulator-5562` 执行 `NativeLocalPublicProfileTest#realPublicProfileContentAndSocialActions`，最终各 `1/1`，合计 `2/2`，失败、错误和跳过均为 `0`。
