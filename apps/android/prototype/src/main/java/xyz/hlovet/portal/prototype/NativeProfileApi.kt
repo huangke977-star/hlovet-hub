@@ -195,7 +195,7 @@ internal object NativeProfileApi {
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) throw IllegalStateException(errorMessage(body, status, "头像上传失败"))
+        if (status !in 200..299) throw IllegalStateException(errorMessage(body, status, nativePhrase("头像上传失败", "Avatar upload failed")))
             parseAccount(JSONObject(body))
         } finally {
             connection.disconnect()
@@ -238,7 +238,7 @@ internal object NativeProfileApi {
         val relationship = response.optJSONObject("relationship")
         return NativePublicProfile(
             id = response.optInt("id"),
-            nickname = response.optString("nickname", response.optString("username", "站内用户")),
+            nickname = response.optString("nickname", response.optString("username", nativePhrase("站内用户", "Site user"))),
             username = response.optString("username"),
             bio = response.optString("profileBio").takeIf { it.isNotBlank() && it != "null" },
             avatarUrl = response.optString("avatarUrl").takeIf { it.isNotBlank() && it != "null" },
@@ -335,7 +335,7 @@ internal object NativeProfileApi {
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val responseBody = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) throw IllegalStateException(errorMessage(responseBody, status, "个人资料请求失败"))
+        if (status !in 200..299) throw IllegalStateException(errorMessage(responseBody, status, nativePhrase("个人资料请求失败", "Profile request failed")))
             JSONObject(responseBody)
         } finally {
             connection.disconnect()
@@ -359,7 +359,7 @@ internal object NativeProfileApi {
                 val message = runCatching { JSONObject(responseBody).optString("message") }
                     .getOrNull()
                     ?.takeIf { it.isNotBlank() }
-                    ?: "个人资料加载失败（HTTP $status）"
+                    ?: nativePhrase("个人资料加载失败（HTTP $status）", "Failed to load profile (HTTP $status)")
                 throw IllegalStateException(message)
             }
             JSONObject(responseBody)

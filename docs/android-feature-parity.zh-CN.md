@@ -3140,3 +3140,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 发现页底部导航和文章流筛选继续对外显示“发现”（英文 `Discover`），内部仍保留 `文章` 模式值，以兼容既有排序、可见性判断和 `/articles` 深链；“文章管理”等业务页面名称不做语义替换。
 - 修正 Android 安装包管理接口的上传失败、请求失败和响应格式错误兜底，英文界面不再直接显示中文错误；举报队列的“评论举报/文章举报”来源名称也统一复用当前语言文案。
 - `:prototype:compileDebugKotlin`、`:prototype:testDebugUnitTest`、`:prototype:assembleDebug` 全部通过；JVM 单元测试为 `333/333`，失败、错误和跳过均为 `0`。路由对齐为 `70/70`，后台入口对齐为 `24/24`，API 对齐审计为 `27/27` 模块、`0` 个确认缺失；`git diff --check` 通过。
+
+## Android 英文兜底与发现文案复核（2026-11-03）
+
+- 补齐认证、AI、文章、社区、发现、专题、资源、举报、搜索、社交、模板、个人资料、离线和预览接口的默认错误与空数据文案；英文界面使用英文兜底，中文界面继续使用中文，不改 API 路径、状态值、发现内部 `文章` 模式值或文章业务名称。
+- 发现页底部导航和文章流筛选继续显示“发现 / Discover”；文章详情、文章管理、统计和举报等上下文仍保留“文章 / Article(s)”，避免把内容类型误改成导航名称。
+- 本轮重新执行 `:prototype:compileDebugKotlin`、`:prototype:testDebugUnitTest`、`:prototype:assembleDebug`，构建成功，JVM 单元测试保持 `333/333`；路由对齐 `70/70`、后台入口 `24/24`、API 对齐审计 `27/27`，`git diff --check` 通过。

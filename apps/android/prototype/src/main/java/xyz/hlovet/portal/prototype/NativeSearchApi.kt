@@ -147,7 +147,7 @@ internal object NativeSearchApi {
     }
 
     fun deleteHistory(accessToken: String, id: Int) {
-        require(id > 0) { "搜索记录编号无效。" }
+        require(id > 0) { nativePhrase("搜索记录编号无效。", "The search record ID is invalid.") }
         requestMutation("/search/history/$id", "DELETE", accessToken)
     }
 
@@ -160,7 +160,7 @@ internal object NativeSearchApi {
             setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
             if (!accessToken.isNullOrBlank()) setRequestProperty("Authorization", "Bearer $accessToken")
         }
-        return readResponse(connection, "搜索失败")
+        return readResponse(connection, nativePhrase("搜索失败", "Search failed"))
     }
 
     private fun requestMutation(path: String, method: String, accessToken: String, body: JSONObject? = null): JSONObject {
@@ -175,7 +175,7 @@ internal object NativeSearchApi {
             if (body != null) setRequestProperty("Content-Type", "application/json")
         }
         if (body != null) connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-        return readResponse(connection, "搜索历史操作失败")
+        return readResponse(connection, nativePhrase("搜索历史操作失败", "Search history operation failed"))
     }
 
     private fun readResponse(connection: HttpURLConnection, fallback: String): JSONObject {
@@ -332,7 +332,7 @@ internal object NativeSearchApi {
                 NativeSearchChatGroup(
                     id = value.optInt("id"),
                     conversationId = value.optInt("conversationId"),
-                    name = value.optString("name", "群聊"),
+                    name = value.optString("name", nativePhrase("群聊", "Group chat")),
                     announcement = value.optString("announcement"),
                     memberCount = value.optInt("memberCount"),
                     joinMode = value.optString("joinMode", "approval"),

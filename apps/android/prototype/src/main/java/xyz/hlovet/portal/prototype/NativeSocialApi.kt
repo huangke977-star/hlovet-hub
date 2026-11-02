@@ -372,7 +372,7 @@ internal object NativeSocialApi {
         pushEnabled: Boolean? = null,
         digestEnabled: Boolean? = null,
     ): NativeNotificationChannelState {
-        require(pushEnabled != null || digestEnabled != null) { "至少需要更新一项通知设置。" }
+            require(pushEnabled != null || digestEnabled != null) { nativePhrase("至少需要更新一项通知设置。", "At least one notification setting must be changed.") }
         val body = JSONObject().apply {
             pushEnabled?.let { put("pushEnabled", it) }
             digestEnabled?.let { put("digestEnabled", it) }
@@ -478,7 +478,7 @@ internal object NativeSocialApi {
         requestGet("/social/conversations/$conversationId/messages/$messageId/context", accessToken)
             .optJSONObject("message")
             ?.let(::parseChatMessage)
-            ?: throw IllegalStateException("消息不存在或当前不可见。")
+            ?: throw IllegalStateException(nativePhrase("消息不存在或当前不可见。", "The message does not exist or is not visible."))
 
     fun listPinnedMessages(accessToken: String, conversationId: Int): List<NativeChatMessage> =
         requestGet("/social/conversations/$conversationId/pinned", accessToken)
@@ -550,7 +550,7 @@ internal object NativeSocialApi {
         conversationId: Int,
         files: List<NativeUploadFile>,
     ): List<NativeChatAttachmentPreview> {
-        require(files.isNotEmpty()) { "请选择需要上传的附件。" }
+        require(files.isNotEmpty()) { nativePhrase("请选择需要上传的附件。", "Select at least one attachment to upload.") }
         val boundary = "----HlovetAndroidChat${System.currentTimeMillis()}"
         val connection = (URL("$baseUrl/social/conversations/$conversationId/attachments").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -581,7 +581,7 @@ internal object NativeSocialApi {
             if (status !in 200..299) {
                 val message = runCatching { JSONObject(body).optString("message") }.getOrNull()
                     ?.takeIf(String::isNotBlank)
-                    ?: "聊天附件上传失败（HTTP $status）"
+                    ?: nativePhrase("聊天附件上传失败（HTTP $status）", "Chat attachment upload failed (HTTP $status)")
                 throw IllegalStateException(message)
             }
             val attachments = runCatching { JSONArray(body) }.getOrNull()
@@ -613,7 +613,7 @@ internal object NativeSocialApi {
                 if (status !in 200..299) {
                     val message = runCatching { JSONObject(body).optString("message") }.getOrNull()
                         ?.takeIf { it.isNotBlank() }
-                        ?: "消息加载失败（HTTP $status）"
+                        ?: nativePhrase("消息加载失败（HTTP $status）", "Failed to load messages (HTTP $status)")
                     throw NativeSocialHttpException(status, message)
                 }
                 return JSONObject(body)
@@ -648,7 +648,7 @@ internal object NativeSocialApi {
             if (status !in 200..299) {
                 val message = runCatching { JSONObject(body).optString("message") }.getOrNull()
                     ?.takeIf { it.isNotBlank() }
-                    ?: "会话已读状态更新失败（HTTP $status）"
+                    ?: nativePhrase("会话已读状态更新失败（HTTP $status）", "Failed to update conversation read state (HTTP $status)")
                 throw IllegalStateException(message)
             }
             if (body.isBlank()) JSONObject() else JSONObject(body)
@@ -676,7 +676,7 @@ internal object NativeSocialApi {
             if (status !in 200..299) {
                 val message = runCatching { JSONObject(body).optString("message") }.getOrNull()
                     ?.takeIf { it.isNotBlank() }
-                    ?: "通知操作失败（HTTP $status）"
+                    ?: nativePhrase("通知操作失败（HTTP $status）", "Notification operation failed (HTTP $status)")
                 throw IllegalStateException(message)
             }
             if (body.isBlank()) JSONObject() else JSONObject(body)
@@ -710,7 +710,7 @@ internal object NativeSocialApi {
                 val message = runCatching { JSONObject(responseBody).optString("message") }
                     .getOrNull()
                     ?.takeIf { it.isNotBlank() }
-                    ?: "通知设置更新失败（HTTP $status）"
+                    ?: nativePhrase("通知设置更新失败（HTTP $status）", "Failed to update notification settings (HTTP $status)")
                 throw IllegalStateException(message)
             }
             if (responseBody.isBlank()) JSONObject() else JSONObject(responseBody)
@@ -728,13 +728,13 @@ internal object NativeSocialApi {
             val title = group?.optString("name")?.takeIf { it.isNotBlank() }
                 ?: user?.optString("nickname")?.takeIf { it.isNotBlank() }
                 ?: user?.optString("username")?.takeIf { it.isNotBlank() }
-                ?: "未命名会话"
+                ?: nativePhrase("未命名会话", "Untitled conversation")
             val initials = (group?.optString("name") ?: user?.optString("nickname") ?: title).takeLast(2)
             val lastMessage = value.optJSONObject("lastMessage")
             val body = lastMessage?.optString("body")?.takeIf { it.isNotBlank() }
                 ?: when (lastMessage?.optString("type")) {
-                    "attachment", "mixed" -> "附件消息"
-                    else -> "暂无消息"
+                    "attachment", "mixed" -> nativePhrase("附件消息", "Attachment message")
+                    else -> nativePhrase("暂无消息", "No messages")
                 }
             add(
                 NativeConversationPreview(
@@ -758,12 +758,12 @@ internal object NativeSocialApi {
         val title = group?.optString("name")?.takeIf { it.isNotBlank() }
             ?: user?.optString("nickname")?.takeIf { it.isNotBlank() }
             ?: user?.optString("username")?.takeIf { it.isNotBlank() }
-            ?: "聊天会话"
+            ?: nativePhrase("聊天会话", "Chat conversation")
         val lastMessage = optJSONObject("lastMessage")
         val body = lastMessage?.optString("body")?.takeIf { it.isNotBlank() }
             ?: when (lastMessage?.optString("type")) {
-                "attachment", "mixed" -> "附件消息"
-                else -> "暂无消息"
+                "attachment", "mixed" -> nativePhrase("附件消息", "Attachment message")
+                else -> nativePhrase("暂无消息", "No messages")
             }
         return NativeConversationPreview(
             id = optInt("id"),
@@ -818,7 +818,7 @@ internal object NativeSocialApi {
             val nonBlank = { raw: String? -> raw?.takeIf { it.isNotBlank() && it != "null" } }
             return NativeNotificationPreview(
                 id = value.optInt("id"),
-                title = value.optString("title", "系统通知"),
+                title = value.optString("title", nativePhrase("系统通知", "System notification")),
                 body = value.optString("body").ifBlank { value.optString("bodyEn") },
                 groupName = nonBlank(group?.optString("name")),
                 requestNote = nonBlank(context?.optString("requestNote")),
@@ -890,7 +890,7 @@ internal object NativeSocialApi {
                     id = value.optInt("id"),
                     conversationId = value.optInt("conversationId"),
                     kind = value.optString("kind", "file"),
-                    name = value.optString("originalName", "附件"),
+                    name = value.optString("originalName", nativePhrase("附件", "Attachment")),
                     mimeType = value.optString("mimeType", "application/octet-stream"),
                     sizeBytes = value.optLong("sizeBytes"),
                     downloadUrl = value.optString("downloadUrl"),
@@ -910,7 +910,7 @@ internal object NativeSocialApi {
             sender?.optString("nickname").orEmpty()
         }.ifBlank {
             sender?.optString("username").orEmpty()
-        }.ifBlank { "站内用户" }
+        }.ifBlank { nativePhrase("站内用户", "Site user") }
         // 时间格式和附件顺序保持既有聊天语义，仅补齐举报展示需要的发送者头像。
         return NativeChatMessage(
             id = value.optInt("id"),
@@ -924,7 +924,7 @@ internal object NativeSocialApi {
                 NativeChatQuote(
                     id = it.optInt("id"),
                     body = it.optString("body"),
-                    senderName = it.optString("senderDisplayName").ifBlank { "站内用户" },
+                    senderName = it.optString("senderDisplayName").ifBlank { nativePhrase("站内用户", "Site user") },
                     available = it.optBoolean("available", true),
                 )
             },

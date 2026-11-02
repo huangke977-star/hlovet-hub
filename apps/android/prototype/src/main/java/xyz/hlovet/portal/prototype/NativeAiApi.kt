@@ -127,7 +127,7 @@ internal object NativeAiApi {
 
     fun listConversations(accessToken: String): List<NativeAiConversationSummary> {
         val response = requestJson("GET", "/ai/conversations", accessToken)
-            as? JSONObject ?: throw IllegalStateException("AI 对话列表格式无法识别。")
+            as? JSONObject ?: throw IllegalStateException(nativePhrase("AI 对话列表格式无法识别。", "The AI conversation list has an invalid format."))
         val items = response.optJSONArray("items") ?: JSONArray()
         return buildList {
             for (index in 0 until items.length()) {
@@ -135,7 +135,7 @@ internal object NativeAiApi {
                 add(
                     NativeAiConversationSummary(
                         id = item.optInt("id"),
-                        title = item.optString("title").ifBlank { "新对话" },
+                        title = item.optString("title").ifBlank { nativePhrase("新对话", "New conversation") },
                         messageCount = item.optJSONObject("_count")?.optInt("messages") ?: 0,
                         updatedAt = item.optString("updatedAt"),
                     ),
@@ -146,18 +146,18 @@ internal object NativeAiApi {
 
     fun getConversation(accessToken: String, id: Int): NativeAiConversation {
         val response = requestJson("GET", "/ai/conversations/$id", accessToken)
-            as? JSONObject ?: throw IllegalStateException("AI 对话格式无法识别。")
+            as? JSONObject ?: throw IllegalStateException(nativePhrase("AI 对话格式无法识别。", "The AI conversation has an invalid format."))
         val messages = response.optJSONArray("messages") ?: JSONArray()
         return NativeAiConversation(
             id = response.optInt("id", id),
-            title = response.optString("title").ifBlank { "新对话" },
+            title = response.optString("title").ifBlank { nativePhrase("新对话", "New conversation") },
             messages = messages.toMessages(),
         )
     }
 
     fun listTools(accessToken: String): List<NativeAiTool> {
         val response = requestJson("GET", "/ai/tools", accessToken) as? JSONArray
-            ?: throw IllegalStateException("AI 工具列表格式无法识别。")
+            ?: throw IllegalStateException(nativePhrase("AI 工具列表格式无法识别。", "The AI tool list has an invalid format."))
         return buildList {
             for (index in 0 until response.length()) {
                 val item = response.optJSONObject(index) ?: continue
@@ -187,11 +187,11 @@ internal object NativeAiApi {
             .put("locale", if (locale == "en-US") "en-US" else "zh-CN")
         if (conversationId != null) payload.put("conversationId", conversationId)
         val response = requestJson("POST", "/ai/chat", accessToken, payload) as? JSONObject
-            ?: throw IllegalStateException("AI 回答格式无法识别。")
+            ?: throw IllegalStateException(nativePhrase("AI 回答格式无法识别。", "The AI response has an invalid format."))
         return NativeAiChatResult(
             conversationId = response.optInt("conversationId"),
             messageId = response.optInt("messageId"),
-            title = response.optString("title").ifBlank { "新对话" },
+            title = response.optString("title").ifBlank { nativePhrase("新对话", "New conversation") },
             text = response.optString("text"),
             sources = response.optJSONArray("sources").toSources(),
             durationMs = response.optInt("durationMs"),
@@ -220,7 +220,7 @@ internal object NativeAiApi {
                 .put("category", category)
                 .put("tags", tags)
                 .put("locale", if (locale == "en-US") "en-US" else "zh-CN"),
-        ) as? JSONObject ?: throw IllegalStateException("文章助手结果格式无法识别。")
+        ) as? JSONObject ?: throw IllegalStateException(nativePhrase("文章助手结果格式无法识别。", "The article assistant result has an invalid format."))
         val usage = response.optJSONObject("usage")
         return NativeAiArticleAssistantResult(
             text = response.optString("text"),
@@ -256,7 +256,7 @@ internal object NativeAiApi {
         val payload = JSONObject().put("input", JSONObject(input))
         if (conversationId != null) payload.put("conversationId", conversationId)
         val response = requestJson("POST", "/ai/tools/${java.net.URLEncoder.encode(name, "UTF-8")}", accessToken, payload) as? JSONObject
-            ?: throw IllegalStateException("AI 工具结果格式无法识别。")
+            ?: throw IllegalStateException(nativePhrase("AI 工具结果格式无法识别。", "The AI tool result has an invalid format."))
         return NativeAiToolResult(
             invocationId = response.optInt("invocationId"),
             status = response.optString("status"),
@@ -279,19 +279,19 @@ internal object NativeAiApi {
             JSONObject()
                 .put("confirmationToken", confirmationToken)
                 .put("selectedSuggestedTags", JSONArray(selectedSuggestedTags)),
-        ) as? JSONObject ?: throw IllegalStateException("文章草稿确认结果格式无法识别。")
+        ) as? JSONObject ?: throw IllegalStateException(nativePhrase("文章草稿确认结果格式无法识别。", "The article draft confirmation has an invalid format."))
         val article = response.optJSONObject("article")
-            ?: throw IllegalStateException("文章草稿创建结果缺少文章信息。")
+            ?: throw IllegalStateException(nativePhrase("文章草稿创建结果缺少文章信息。", "The article draft result is missing article information."))
         return NativeAiConfirmedArticle(
             id = article.optInt("id"),
             slug = article.optString("slug"),
-            title = article.optString("title").ifBlank { "未命名文章" },
+            title = article.optString("title").ifBlank { nativePhrase("未命名文章", "Untitled article") },
         )
     }
 
     fun listMediaCapabilities(accessToken: String): List<NativeAiMediaCapability> {
         val response = requestJson("GET", "/ai/media-capabilities", accessToken) as? JSONObject
-            ?: throw IllegalStateException("AI 媒体能力格式无法识别。")
+            ?: throw IllegalStateException(nativePhrase("AI 媒体能力格式无法识别。", "The AI media capability response has an invalid format."))
         val items = response.optJSONArray("items") ?: JSONArray()
         return buildList {
             for (index in 0 until items.length()) {
@@ -313,13 +313,13 @@ internal object NativeAiApi {
 
     fun listMediaTasks(accessToken: String): List<NativeAiMediaTaskSummary> {
         val response = requestJson("GET", "/ai/media-tasks", accessToken) as? JSONObject
-            ?: throw IllegalStateException("AI 媒体任务格式无法识别。")
+            ?: throw IllegalStateException(nativePhrase("AI 媒体任务格式无法识别。", "The AI media task has an invalid format."))
         return response.optJSONArray("items").toMediaTaskSummaries()
     }
 
     fun getMediaTask(accessToken: String, id: Int): NativeAiMediaTaskDetail {
         val response = requestJson("GET", "/ai/media-tasks/$id", accessToken) as? JSONObject
-            ?: throw IllegalStateException("AI 媒体任务详情格式无法识别。")
+            ?: throw IllegalStateException(nativePhrase("AI 媒体任务详情格式无法识别。", "The AI media task detail has an invalid format."))
         return response.toMediaTaskDetail()
     }
 
@@ -343,7 +343,7 @@ internal object NativeAiApi {
             "/ai/media/image",
             accessToken,
             JSONObject().put("prompt", prompt.trim()).put("size", size),
-        ) as? JSONObject ?: throw IllegalStateException("AI 图片任务格式无法识别。")
+        ) as? JSONObject ?: throw IllegalStateException(nativePhrase("AI 图片任务格式无法识别。", "The AI image task has an invalid format."))
         return response.toMediaTaskDetail()
     }
 
@@ -358,7 +358,7 @@ internal object NativeAiApi {
                     NativeAiSource(
                         id = id,
                         slug = slug,
-                        title = item.optString("title").ifBlank { "站内文章" },
+                        title = item.optString("title").ifBlank { nativePhrase("站内文章", "Site article") },
                         author = item.optString("author"),
                     ),
                 )
@@ -515,7 +515,7 @@ internal object NativeAiApi {
                 else -> value.toString()
             }
         }.getOrNull().orEmpty()
-        return message.ifBlank { "AI 请求失败（HTTP $status）。" }
+        return message.ifBlank { nativePhrase("AI 请求失败（HTTP $status）。", "AI request failed (HTTP $status).") }
     }
 
     private fun JSONArray.valuesAsStrings(): List<String> = buildList {

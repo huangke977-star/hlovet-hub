@@ -51,7 +51,7 @@ internal object NativeOfflineContentStore {
         val entry = NativeOfflineContentEntry(
             kind = "article",
             id = article.slug.ifBlank { article.id.toString() },
-            title = article.title.ifBlank { "未命名文章" },
+            title = article.title.ifBlank { nativePhrase("未命名文章", "Untitled article") },
             route = "/articles/${article.slug}",
             cachedAt = System.currentTimeMillis(),
             sizeBytes = file.length(),
@@ -84,7 +84,7 @@ internal object NativeOfflineContentStore {
         val entry = NativeOfflineContentEntry(
             kind = "topic",
             id = id,
-            title = topic.title.ifBlank { "未命名专题" },
+            title = topic.title.ifBlank { nativePhrase("未命名专题", "Untitled topic") },
             route = "/topics/${topic.slug.ifBlank { id }}",
             cachedAt = System.currentTimeMillis(),
             sizeBytes = file.length(),
@@ -117,7 +117,7 @@ internal object NativeOfflineContentStore {
         val entry = NativeOfflineContentEntry(
             kind = "collection",
             id = id,
-            title = collection.name.ifBlank { "未命名合集" },
+            title = collection.name.ifBlank { nativePhrase("未命名合集", "Untitled collection") },
             route = "/collections/$id",
             cachedAt = System.currentTimeMillis(),
             sizeBytes = file.length(),

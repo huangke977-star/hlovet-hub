@@ -48,7 +48,7 @@ internal object NativeTemplateApi {
             setRequestProperty("Authorization", "Bearer $accessToken")
             setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
         }
-        return readResponse(connection, "文章模板读取失败")
+        return readResponse(connection, nativePhrase("文章模板读取失败", "Failed to load article templates"))
     }
 
     private fun requestMutation(path: String, method: String, accessToken: String, body: JSONObject? = null): JSONObject {
@@ -63,7 +63,7 @@ internal object NativeTemplateApi {
             if (body != null) setRequestProperty("Content-Type", "application/json")
         }
         if (body != null) connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-        return readResponse(connection, "文章模板操作失败")
+        return readResponse(connection, nativePhrase("文章模板操作失败", "Article template operation failed"))
     }
 
     private fun readResponse(connection: HttpURLConnection, fallback: String): JSONObject {
@@ -96,7 +96,7 @@ internal object NativeTemplateApi {
 
     private fun JSONObject.toTemplate() = NativeArticleTemplate(
         id = optInt("id"),
-        name = optString("name", "未命名模板"),
+        name = optString("name", nativePhrase("未命名模板", "Untitled template")),
         title = optString("title"),
         summary = optString("summary"),
         content = optString("content"),

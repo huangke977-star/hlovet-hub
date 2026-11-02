@@ -343,7 +343,7 @@ internal object PreviewApi {
             add(
                 RemoteTopic(
                     id = item.optInt("id"),
-                    title = item.optString("title", "未命名专题"),
+                    title = item.optString("title", nativePhrase("未命名专题", "Untitled topic")),
                     description = item.optString("description"),
                     articleCount = item.optInt("articleCount", item.optJSONArray("articles")?.length() ?: 0),
                     subscriberCount = item.optInt("subscriberCount"),
@@ -369,11 +369,11 @@ internal object PreviewApi {
             add(
                 RemoteCollection(
                     id = item.optInt("id"),
-                    name = item.optString("name", "未命名合集"),
+                    name = item.optString("name", nativePhrase("未命名合集", "Untitled collection")),
                     description = item.optString("description"),
                     articleCount = item.optInt("articleCount", item.optJSONArray("articles")?.length() ?: 0),
                     subscriberCount = item.optInt("subscriberCount"),
-                    ownerName = owner?.displayName() ?: "站内作者",
+                    ownerName = owner?.displayName() ?: nativePhrase("站内作者", "Site author"),
                     articles = item.optJSONArray("articles").toRemoteArticles(),
                     coverPath = item.optString("coverPath").takeIf { it.isNotBlank() && it != "null" },
                     visibility = item.optString("visibility", "public"),
@@ -389,18 +389,18 @@ internal object PreviewApi {
         val resource = optJSONObject("resource")
         return RemoteArticle(
             id = optInt("id"),
-            title = optString("title", "未命名文章"),
+            title = optString("title", nativePhrase("未命名文章", "Untitled article")),
             slug = optString("slug"),
             summary = optString("summary"),
             content = optString("content"),
             contentFormat = optString("contentFormat", "markdown"),
-            category = optString("category", "未分类"),
+            category = optString("category", nativePhrase("未分类", "Uncategorized")),
             tags = optJSONArray("tags").toStringList(),
             viewCount = optInt("viewCount"),
             likeCount = optInt("likeCount"),
             favoriteCount = optInt("favoriteCount"),
             commentCount = optInt("commentCount"),
-            authorName = author?.displayName() ?: "站内作者",
+            authorName = author?.displayName() ?: nativePhrase("站内作者", "Site author"),
             authorUsername = author?.optString("username").orEmpty(),
             authorId = author?.optInt("id") ?: 0,
             liked = optBoolean("liked"),
@@ -421,7 +421,7 @@ internal object PreviewApi {
     }
 
     private fun JSONObject.displayName(): String =
-        optString("nickname").ifBlank { optString("username").ifBlank { "站内作者" } }
+        optString("nickname").ifBlank { optString("username").ifBlank { nativePhrase("站内作者", "Site author") } }
 
     private fun JSONArray?.toStringList(): List<String> = buildList {
         if (this@toStringList == null) return@buildList

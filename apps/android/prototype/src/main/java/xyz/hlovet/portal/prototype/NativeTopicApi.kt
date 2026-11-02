@@ -113,7 +113,7 @@ internal object NativeTopicApi {
                 output.write(file.bytes)
                 output.write("\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8))
             }
-            readResponse(connection, "专题封面上传失败（HTTP ${connection.responseCode}）").toTopic()
+            readResponse(connection, nativePhrase("专题封面上传失败（HTTP ${connection.responseCode}）", "Failed to upload topic cover (HTTP ${connection.responseCode})")).toTopic()
         } finally {
             connection.disconnect()
         }
@@ -132,7 +132,7 @@ internal object NativeTopicApi {
         }
         return try {
             if (body != null) connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            readResponse(connection, "专题操作失败（HTTP ${connection.responseCode}）")
+            readResponse(connection, nativePhrase("专题操作失败（HTTP ${connection.responseCode}）", "Topic operation failed (HTTP ${connection.responseCode})"))
         } finally {
             connection.disconnect()
         }
@@ -158,7 +158,7 @@ internal object NativeTopicApi {
 
     private fun JSONObject.toTopic(): RemoteTopic = RemoteTopic(
         id = optInt("id"),
-        title = optString("title", "未命名专题"),
+        title = optString("title", nativePhrase("未命名专题", "Untitled topic")),
         slug = optString("slug"),
         description = optString("description"),
         coverPath = optString("coverPath").takeIf { it.isNotBlank() && it != "null" },
@@ -182,18 +182,18 @@ internal object NativeTopicApi {
         val author = optJSONObject("author")
         return RemoteArticle(
             id = optInt("id"),
-            title = optString("title", "未命名文章"),
+            title = optString("title", nativePhrase("未命名文章", "Untitled article")),
             slug = optString("slug"),
             summary = optString("summary"),
             content = optString("content"),
             contentFormat = optString("contentFormat", "markdown"),
-            category = optString("category", "未分类"),
+            category = optString("category", nativePhrase("未分类", "Uncategorized")),
             tags = optJSONArray("tags").toStrings(),
             viewCount = optInt("viewCount"),
             likeCount = optInt("likeCount"),
             favoriteCount = optInt("favoriteCount"),
             commentCount = optInt("commentCount"),
-            authorName = author?.optString("nickname").orEmpty().ifBlank { "站内作者" },
+            authorName = author?.optString("nickname").orEmpty().ifBlank { nativePhrase("站内作者", "Site author") },
             authorUsername = author?.optString("username").orEmpty(),
             authorId = author?.optInt("id") ?: 0,
             status = optString("status", "published"),

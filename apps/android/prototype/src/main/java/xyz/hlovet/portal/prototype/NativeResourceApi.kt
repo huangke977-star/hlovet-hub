@@ -336,7 +336,7 @@ internal object NativeResourceApi {
             setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
             if (!accessToken.isNullOrBlank()) setRequestProperty("Authorization", "Bearer $accessToken")
         }
-        return readResponse(connection, "资源数据加载失败")
+        return readResponse(connection, nativePhrase("资源数据加载失败", "Failed to load resource data"))
     }
 
     private fun requestMutation(path: String, method: String, accessToken: String, body: JSONObject? = null): JSONObject {
@@ -352,7 +352,7 @@ internal object NativeResourceApi {
         }
         return try {
             connection.outputStream.use { it.write((body ?: JSONObject()).toString().toByteArray(Charsets.UTF_8)) }
-            readResponse(connection, "资源操作失败")
+            readResponse(connection, nativePhrase("资源操作失败", "Resource operation failed"))
         } finally {
             connection.disconnect()
         }
@@ -396,7 +396,7 @@ internal object NativeResourceApi {
         val value = this ?: JSONObject()
         return NativeReputationLevel(
             code = value.optString("code"),
-            name = value.optString("name", "新成员"),
+            name = value.optString("name", nativePhrase("新成员", "New member")),
             level = value.optInt("level"),
             minExperience = value.optInt("minExperience"),
         )
@@ -480,7 +480,7 @@ internal object NativeResourceApi {
         return NativeResourceDelivery(
             id = optInt("id"),
             articleId = optInt("articleId"),
-            articleTitle = article.optString("title", "未命名文章"),
+            articleTitle = article.optString("title", nativePhrase("未命名文章", "Untitled article")),
             articleSlug = article.optString("slug"),
             blockKey = optString("blockKey"),
             pointCost = optInt("pointCost"),
@@ -502,7 +502,7 @@ internal object NativeResourceApi {
         val value = this ?: JSONObject()
         return NativeResourcePerson(
             id = value.optInt("id"),
-            nickname = value.optString("nickname").ifBlank { value.optString("username", "站内用户") },
+            nickname = value.optString("nickname").ifBlank { value.optString("username", nativePhrase("站内用户", "Site user")) },
             username = value.optString("username"),
         )
     }
@@ -531,7 +531,7 @@ internal object NativeResourceApi {
             add(
                 NativeResourceAggregate(
                     articleId = value.optInt("articleId"),
-                    articleTitle = article.optString("title", "未命名文章"),
+                    articleTitle = article.optString("title", nativePhrase("未命名文章", "Untitled article")),
                     articleSlug = article.optString("slug"),
                     blockKey = value.optString("blockKey"),
                     redemptionCount = value.optInt("redemptionCount"),

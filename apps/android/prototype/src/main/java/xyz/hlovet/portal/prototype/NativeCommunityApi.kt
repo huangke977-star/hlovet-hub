@@ -226,7 +226,7 @@ internal object NativeCommunityApi {
             setRequestProperty("User-Agent", NativeAuthApi.USER_AGENT)
             if (!accessToken.isNullOrBlank()) setRequestProperty("Authorization", "Bearer $accessToken")
         }
-        return readResponse(connection, "内容加载失败")
+        return readResponse(connection, nativePhrase("内容加载失败", "Failed to load content"))
     }
 
     private fun requestMutation(path: String, method: String, accessToken: String, body: JSONObject? = null): JSONObject {
@@ -241,7 +241,7 @@ internal object NativeCommunityApi {
             if (body != null) setRequestProperty("Content-Type", "application/json")
         }
         if (body != null) connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-        return readResponse(connection, "操作失败")
+        return readResponse(connection, nativePhrase("操作失败", "Operation failed"))
     }
 
     /** 解析 connection 的 JSON 响应；失败保留 HTTP 状态及 fallback 对应业务错误，始终关闭连接。 */
@@ -272,7 +272,7 @@ internal object NativeCommunityApi {
 
     private fun JSONObject.toAnnouncementSummary() = NativeAnnouncementSummary(
         id = optInt("id"),
-        title = optString("title", "未命名公告"),
+        title = optString("title", nativePhrase("未命名公告", "Untitled announcement")),
         summary = optString("summary"),
         isPinned = optBoolean("isPinned"),
         viewCount = optInt("viewCount"),
@@ -297,7 +297,7 @@ internal object NativeCommunityApi {
     private fun JSONObject.toFeedbackSummary() = NativeFeedbackSummary(
         id = optInt("id"),
         category = optString("category", "other"),
-        title = optString("title", "未命名反馈"),
+        title = optString("title", nativePhrase("未命名反馈", "Untitled feedback")),
         status = optString("status", "pending"),
         user = optJSONObject("user").toCommunityUser(),
         replyCount = optInt("replyCount"),
@@ -336,7 +336,7 @@ internal object NativeCommunityApi {
 
     private fun JSONObject.toSuggestionSummary() = NativeSuggestionSummary(
         id = optInt("id"),
-        title = optString("title", "未命名建议"),
+        title = optString("title", nativePhrase("未命名建议", "Untitled suggestion")),
         status = optString("status", "pending"),
         user = optJSONObject("user").toCommunityUser(),
         reviewedBy = optJSONObject("reviewedBy")?.toCommunityUser(),

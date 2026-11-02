@@ -521,7 +521,7 @@ internal object NativeArticleApi {
         articleId: Int,
         files: List<NativeUploadFile>,
     ): List<NativeArticleAttachment> {
-        require(files.isNotEmpty()) { "请选择需要上传的文件。" }
+        require(files.isNotEmpty()) { nativePhrase("请选择需要上传的文件。", "Select at least one file to upload.") }
         val boundary = "----HlovetAndroid${System.currentTimeMillis()}"
         val connection = (URL("$baseUrl/articles/$articleId/attachments").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -553,7 +553,7 @@ internal object NativeArticleApi {
             if (status !in 200..299) {
                 val message = runCatching { JSONObject(body).optString("message") }.getOrNull()
                     ?.takeIf(String::isNotBlank)
-                    ?: "附件上传失败（HTTP $status）"
+                    ?: nativePhrase("附件上传失败（HTTP $status）", "Attachment upload failed (HTTP $status).")
                 throw IllegalStateException(message)
             }
             JSONObject(body).optJSONArray("attachments").toAttachments()
@@ -810,7 +810,7 @@ internal object NativeArticleApi {
                 val message = runCatching { JSONObject(responseBody).optString("message") }
                     .getOrNull()
                     ?.takeIf { it.isNotBlank() }
-                    ?: "评论发布失败（HTTP $status）"
+                    ?: nativePhrase("评论发布失败（HTTP $status）", "Failed to publish comment (HTTP $status).")
                 throw IllegalStateException(message)
             }
             JSONObject(responseBody).toComment()
@@ -864,7 +864,7 @@ internal object NativeArticleApi {
             .header("User-Agent", NativeAuthApi.USER_AGENT)
             .apply { if (!accessToken.isNullOrBlank()) header("Authorization", "Bearer $accessToken") }
             .build()
-        return executeJson(request, "文章加载失败")
+                return executeJson(request, nativePhrase("文章加载失败", "Failed to load article"))
     }
 
     internal fun parseNativeArticleCenterSummary(response: JSONObject): NativeArticleCenterSummary = NativeArticleCenterSummary(
@@ -895,7 +895,7 @@ internal object NativeArticleApi {
             .header("Authorization", "Bearer $accessToken")
             .header("User-Agent", NativeAuthApi.USER_AGENT)
             .build()
-        return executeJson(request, "文章操作失败")
+        return executeJson(request, nativePhrase("文章操作失败", "Article operation failed"))
     }
 
     /** 执行文章 JSON 请求并在返回前关闭响应体，HTTP 错误只暴露业务消息。 */
@@ -985,7 +985,7 @@ internal object NativeArticleApi {
             add(
                 NativeResourceIncome(
                     id = value.optInt("id"),
-                    articleTitle = article?.optString("title").orEmpty().ifBlank { "未命名文章" },
+                    articleTitle = article?.optString("title").orEmpty().ifBlank { nativePhrase("未命名文章", "Untitled article") },
                     articleSlug = article?.optString("slug").orEmpty(),
                     pointCost = value.optInt("pointCost"),
                     createdAt = formatTime(value.optString("createdAt")),
@@ -1033,7 +1033,7 @@ internal object NativeArticleApi {
             add(NativeArticleAttachment(
                 id = value.optInt("id"),
                 kind = value.optString("kind", "file"),
-                originalName = value.optString("originalName", "附件"),
+                originalName = value.optString("originalName", nativePhrase("附件", "Attachment")),
                 mimeType = value.optString("mimeType"),
                 sizeBytes = value.optLong("sizeBytes"),
                 downloadUrl = value.optString("downloadUrl"),
@@ -1130,12 +1130,12 @@ internal object NativeArticleApi {
         return NativeArticleAppeal(
             id = optInt("id"),
             articleId = article?.optInt("id") ?: optInt("articleId"),
-            articleTitle = article?.optString("title").orEmpty().ifBlank { "未命名文章" },
+            articleTitle = article?.optString("title").orEmpty().ifBlank { nativePhrase("未命名文章", "Untitled article") },
             articleSlug = article?.optString("slug").orEmpty(),
             articleStatus = article?.optString("status").orEmpty(),
             authorName = author?.optString("nickname").orEmpty()
                 .ifBlank { author?.optString("username").orEmpty() }
-                .ifBlank { "作者" },
+                .ifBlank { nativePhrase("作者", "Author") },
             authorUsername = author?.optString("username").orEmpty(),
             reason = optString("reason"),
             status = optString("status", "pending"),
@@ -1149,7 +1149,7 @@ internal object NativeArticleApi {
         val author = optJSONObject("author")
         val name = author?.optString("nickname").orEmpty()
             .ifBlank { author?.optString("username").orEmpty() }
-            .ifBlank { "站内用户" }
+            .ifBlank { nativePhrase("站内用户", "Site user") }
         return NativeArticleComment(
             id = optInt("id"),
             articleId = optInt("articleId"),
@@ -1163,7 +1163,7 @@ internal object NativeArticleApi {
                 NativeCommentQuote(
                     id = quote.optInt("id"),
                     body = quote.optString("body"),
-                    authorName = quote.optString("authorName").ifBlank { "原评论" },
+                    authorName = quote.optString("authorName").ifBlank { nativePhrase("原评论", "Original comment") },
                     available = quote.optBoolean("available", true),
                 )
             },
@@ -1181,16 +1181,16 @@ internal object NativeArticleApi {
         val author = optJSONObject("author")
         val authorName = author?.optString("nickname").orEmpty()
             .ifBlank { author?.optString("username").orEmpty() }
-            .ifBlank { "站内作者" }
+            .ifBlank { nativePhrase("站内作者", "Site author") }
         val resource = optJSONObject("resource")
         return RemoteArticle(
             id = optInt("id"),
-            title = optString("title", "未命名文章"),
+            title = optString("title", nativePhrase("未命名文章", "Untitled article")),
             slug = optString("slug"),
             summary = optString("summary"),
             content = optString("content"),
             contentFormat = optString("contentFormat", "markdown"),
-            category = optString("category", "未分类"),
+            category = optString("category", nativePhrase("未分类", "Uncategorized")),
             tags = optJSONArray("tags").toStrings(),
             viewCount = optInt("viewCount"),
             likeCount = optInt("likeCount"),

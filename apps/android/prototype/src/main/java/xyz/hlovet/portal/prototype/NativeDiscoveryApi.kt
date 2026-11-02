@@ -543,7 +543,7 @@ internal object NativeDiscoveryApi {
                 output.write(file.bytes)
                 output.write("\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8))
             }
-            readResponse(connection, "合集封面上传失败（HTTP ${connection.responseCode}）").toCollection()
+            readResponse(connection, nativePhrase("合集封面上传失败（HTTP ${connection.responseCode}）", "Failed to upload collection cover (HTTP ${connection.responseCode}).")).toCollection()
         } finally {
             connection.disconnect()
         }
@@ -580,7 +580,7 @@ internal object NativeDiscoveryApi {
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) throw IllegalStateException(errorMessage(body, "专题或合集加载失败（HTTP $status）"))
+            if (status !in 200..299) throw IllegalStateException(errorMessage(body, nativePhrase("专题或合集加载失败（HTTP $status）", "Failed to load topics or collections (HTTP $status).")))
             JSONObject(body)
         } finally {
             connection.disconnect()
@@ -603,7 +603,7 @@ internal object NativeDiscoveryApi {
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) throw IllegalStateException(errorMessage(body, "订阅操作失败（HTTP $status）"))
+            if (status !in 200..299) throw IllegalStateException(errorMessage(body, nativePhrase("订阅操作失败（HTTP $status）", "Subscription operation failed (HTTP $status).")))
             if (body.isBlank()) JSONObject() else JSONObject(body)
         } finally {
             connection.disconnect()
@@ -621,7 +621,7 @@ internal object NativeDiscoveryApi {
     private fun JSONObject.toTopic(): RemoteTopic {
         return RemoteTopic(
             id = optInt("id"),
-            title = optString("title", "未命名专题"),
+            title = optString("title", nativePhrase("未命名专题", "Untitled topic")),
             slug = optString("slug"),
             description = optString("description"),
             coverPath = optString("coverPath").takeIf { it.isNotBlank() && it != "null" },
@@ -641,7 +641,7 @@ internal object NativeDiscoveryApi {
         val owner = optJSONObject("owner")
         return RemoteCollection(
             id = optInt("id"),
-            name = optString("name", "未命名合集"),
+            name = optString("name", nativePhrase("未命名合集", "Untitled collection")),
             description = optString("description"),
             coverPath = optString("coverPath").takeIf { it.isNotBlank() && it != "null" },
             visibility = optString("visibility", "public"),
@@ -649,7 +649,7 @@ internal object NativeDiscoveryApi {
             subscriberCount = optInt("subscriberCount"),
             subscribed = optBoolean("subscribed"),
             updatedAt = optString("updatedAt"),
-            ownerName = owner?.displayName() ?: "站内作者",
+            ownerName = owner?.displayName() ?: nativePhrase("站内作者", "Site author"),
             articles = optJSONArray("articles").toArticles(),
         )
     }
@@ -692,7 +692,7 @@ internal object NativeDiscoveryApi {
             add(
                 NativeTopicSubscriptionSetting(
                     id = value.optInt("id"),
-                    title = value.optString("title", "未命名专题"),
+                    title = value.optString("title", nativePhrase("未命名专题", "Untitled topic")),
                     slug = value.optString("slug"),
                     articleCount = value.optInt("articleCount"),
                     subscriberCount = value.optInt("subscriberCount"),
@@ -710,8 +710,8 @@ internal object NativeDiscoveryApi {
             add(
                 NativeCollectionSubscriptionSetting(
                     id = value.optInt("id"),
-                    name = value.optString("name", "未命名合集"),
-                    ownerName = owner?.displayName() ?: "站内作者",
+                    name = value.optString("name", nativePhrase("未命名合集", "Untitled collection")),
+                    ownerName = owner?.displayName() ?: nativePhrase("站内作者", "Site author"),
                     articleCount = value.optInt("articleCount"),
                 ),
             )
@@ -733,7 +733,7 @@ internal object NativeDiscoveryApi {
             add(
                 NativeOnboardingTopic(
                     id = value.optInt("id"),
-                    title = value.optString("title", "未命名专题"),
+                    title = value.optString("title", nativePhrase("未命名专题", "Untitled topic")),
                     description = value.optString("description"),
                     articleCount = value.optInt("articleCount"),
                     subscriberCount = value.optInt("subscriberCount"),
@@ -751,10 +751,10 @@ internal object NativeDiscoveryApi {
             add(
                 NativeOnboardingAuthor(
                     id = value.optInt("id"),
-                    nickname = value.optString("nickname").ifBlank { value.optString("username", "站内作者") },
+                    nickname = value.optString("nickname").ifBlank { value.optString("username", nativePhrase("站内作者", "Site author")) },
                     username = value.optString("username"),
                     avatarUrl = value.optString("avatarUrl").takeIf { it.isNotBlank() && it != "null" },
-                    topCategory = value.optString("topCategory", "未分类"),
+                    topCategory = value.optString("topCategory", nativePhrase("未分类", "Uncategorized")),
                     subscribed = value.optBoolean("subscribed"),
                 ),
             )
@@ -778,7 +778,7 @@ internal object NativeDiscoveryApi {
             add(
                 NativeRecommendationTopic(
                     id = value.optInt("id"),
-                    title = value.optString("title", "未命名专题"),
+                    title = value.optString("title", nativePhrase("未命名专题", "Untitled topic")),
                     slug = value.optString("slug"),
                     description = value.optString("description"),
                     coverPath = value.optString("coverPath").takeIf { it.isNotBlank() && it != "null" },
@@ -799,7 +799,7 @@ internal object NativeDiscoveryApi {
             add(
                 NativeRecommendationCollection(
                     id = value.optInt("id"),
-                    name = value.optString("name", "未命名合集"),
+                    name = value.optString("name", nativePhrase("未命名合集", "Untitled collection")),
                     description = value.optString("description"),
                     articleCount = value.optInt("articleCount"),
                     subscriberCount = value.optInt("subscriberCount"),
@@ -820,7 +820,7 @@ internal object NativeDiscoveryApi {
                 NativeRecommendationGroup(
                     id = value.optInt("id"),
                     conversationId = value.optInt("conversationId"),
-                    name = value.optString("name", "未命名群聊"),
+                    name = value.optString("name", nativePhrase("未命名群聊", "Untitled group chat")),
                     avatarUrl = value.optString("avatarUrl").takeIf { it.isNotBlank() && it != "null" },
                     announcement = value.optString("announcement"),
                     memberCount = value.optInt("memberCount"),
@@ -840,7 +840,7 @@ internal object NativeDiscoveryApi {
             add(
                 NativeRecommendationAuthorItem(
                     author = value.toRecommendationAuthor(),
-                    topCategory = value.optString("topCategory", "未分类"),
+                    topCategory = value.optString("topCategory", nativePhrase("未分类", "Uncategorized")),
                     articleCount = value.optInt("articleCount"),
                     engagementCount = value.optInt("engagementCount"),
                     subscribed = value.optBoolean("subscribed"),
@@ -854,7 +854,7 @@ internal object NativeDiscoveryApi {
         val value = this ?: JSONObject()
         return NativeRecommendationAuthor(
             id = value.optInt("id"),
-            nickname = value.optString("nickname").ifBlank { value.optString("username", "站内作者") },
+            nickname = value.optString("nickname").ifBlank { value.optString("username", nativePhrase("站内作者", "Site author")) },
             username = value.optString("username"),
             avatarUrl = value.optString("avatarUrl").takeIf { it.isNotBlank() && it != "null" },
         )
@@ -864,18 +864,18 @@ internal object NativeDiscoveryApi {
         val author = optJSONObject("author")
         return RemoteArticle(
             id = optInt("id"),
-            title = optString("title", "未命名文章"),
+            title = optString("title", nativePhrase("未命名文章", "Untitled article")),
             slug = optString("slug"),
             summary = optString("summary"),
             content = optString("content"),
             contentFormat = optString("contentFormat", "markdown"),
-            category = optString("category", "未分类"),
+            category = optString("category", nativePhrase("未分类", "Uncategorized")),
             tags = optJSONArray("tags").toStrings(),
             viewCount = optInt("viewCount"),
             likeCount = optInt("likeCount"),
             favoriteCount = optInt("favoriteCount"),
             commentCount = optInt("commentCount"),
-            authorName = author?.displayName() ?: optString("authorName", "站内作者"),
+            authorName = author?.displayName() ?: optString("authorName", nativePhrase("站内作者", "Site author")),
             authorUsername = author?.optString("username") ?: optString("authorUsername"),
             authorId = author?.optInt("id") ?: optInt("authorId"),
             liked = optBoolean("liked"),
@@ -914,7 +914,7 @@ internal object NativeDiscoveryApi {
     }
 
     private fun JSONObject.displayName(): String =
-        optString("nickname").ifBlank { optString("username").ifBlank { "站内作者" } }
+        optString("nickname").ifBlank { optString("username").ifBlank { nativePhrase("站内作者", "Site author") } }
 
     private fun JSONArray?.toStrings(): List<String> = buildList {
         if (this@toStrings == null) return@buildList

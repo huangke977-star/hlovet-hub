@@ -342,7 +342,7 @@ internal object NativeReportsApi {
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) throw IllegalStateException(errorMessage(body, "举报记录加载失败（HTTP $status）"))
+            if (status !in 200..299) throw IllegalStateException(errorMessage(body, nativePhrase("举报记录加载失败（HTTP $status）", "Failed to load report records (HTTP $status)")))
             if (body.isBlank()) JSONObject() else JSONObject(body)
         } finally {
             connection.disconnect()
@@ -408,7 +408,7 @@ internal object NativeReportsApi {
         val value = this ?: JSONObject()
         return NativeModerationUser(
             id = value.optInt("id"),
-            nickname = value.optString("nickname").ifBlank { value.optString("username", "站内用户") },
+            nickname = value.optString("nickname").ifBlank { value.optString("username", nativePhrase("站内用户", "Site user")) },
             username = value.optString("username"),
             avatarUrl = value.optStringOrNull("avatarUrl"),
             roleName = value.optJSONObject("role")?.optString("name").orEmpty(),
@@ -417,7 +417,7 @@ internal object NativeReportsApi {
 
     private fun JSONObject.toArticle() = NativeReportArticle(
         id = optInt("id"),
-        title = optString("title", "文章内容"),
+        title = optString("title", nativePhrase("文章内容", "Article content")),
         slug = optString("slug"),
         author = optJSONObject("author").toUser(),
     )
@@ -431,7 +431,7 @@ internal object NativeReportsApi {
     private fun JSONObject.toGroup() = NativeReportGroup(
         id = optInt("id"),
         conversationId = optInt("conversationId"),
-        name = optString("name", "群聊"),
+        name = optString("name", nativePhrase("群聊", "Group chat")),
         avatarUrl = optStringOrNull("avatarUrl"),
     )
 
@@ -453,7 +453,7 @@ internal object NativeReportsApi {
     private fun JSONObject.toAttachment() = NativeReportAttachment(
         id = optInt("id"),
         kind = optString("kind", "file"),
-        originalName = optString("originalName", "附件"),
+        originalName = optString("originalName", nativePhrase("附件", "Attachment")),
         mimeType = optString("mimeType"),
         sizeBytes = optLong("sizeBytes"),
         downloadUrl = optString("downloadUrl"),

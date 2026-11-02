@@ -82,7 +82,7 @@ internal fun parseNativeAuthResponse(response: JSONObject): NativeAuthResult {
     if (response.optBoolean("oauthLinkRequired")) {
         val methods = response.optJSONObject("methods") ?: JSONObject()
         return NativeAuthResult.GoogleLinkRequired(
-            pendingToken = response.optString("pendingToken").requireNativeAuthToken("Google 关联令牌"),
+            pendingToken = response.optString("pendingToken").requireNativeAuthToken("Google 关联令牌", "Google link token"),
             email = response.optString("email"),
             methods = GoogleLinkMethods(
                 passkey = methods.optBoolean("passkey"),
@@ -96,7 +96,7 @@ internal fun parseNativeAuthResponse(response: JSONObject): NativeAuthResult {
     // 新设备验证必须保留挑战值，邮箱验证码重发也依赖该值继续当前流程。
     if (response.optBoolean("deviceVerificationRequired")) {
         return NativeAuthResult.DeviceVerification(
-            challengeToken = response.optString("challengeToken").requireNativeAuthToken("设备验证挑战值"),
+            challengeToken = response.optString("challengeToken").requireNativeAuthToken("设备验证挑战值", "device verification challenge"),
             emailHint = response.optString("emailHint"),
             retryAfterSeconds = response.optInt("retryAfterSeconds", 60).coerceAtLeast(1),
         )
@@ -105,7 +105,7 @@ internal fun parseNativeAuthResponse(response: JSONObject): NativeAuthResult {
     // TOTP 验证和设备验证一样，不能允许空挑战值进入下一步。
     if (response.optBoolean("totpVerificationRequired")) {
         return NativeAuthResult.TotpVerification(
-            response.optString("challengeToken").requireNativeAuthToken("双因素验证挑战值"),
+            response.optString("challengeToken").requireNativeAuthToken("双因素验证挑战值", "two-factor challenge"),
         )
     }
 
@@ -116,10 +116,10 @@ internal fun parseNativeAuthResponse(response: JSONObject): NativeAuthResult {
 /** 解析认证成功后的会话资料；访问令牌和用户对象缺失时拒绝建立本地会话。 */
 internal fun parseNativeSession(response: JSONObject): NativeSession {
     // 先校验服务端最小会话字段，再读取可选的个人资料和外观配置。
-    val user = response.optJSONObject("user") ?: throw IllegalStateException("登录响应缺少用户信息")
+    val user = response.optJSONObject("user") ?: throw IllegalStateException(nativePhrase("登录响应缺少用户信息", "Login response is missing user information."))
     val appearance = user.optJSONObject("appearance") ?: JSONObject()
     return NativeSession(
-        accessToken = response.optString("accessToken").requireNativeAuthToken("访问令牌"),
+        accessToken = response.optString("accessToken").requireNativeAuthToken("访问令牌", "access token"),
         refreshToken = response.optString("refreshToken"),
         userId = user.optInt("id", 0),
         username = user.optString("username", "user"),
@@ -135,8 +135,8 @@ internal fun parseNativeSession(response: JSONObject): NativeSession {
 }
 
 /** 校验需要回传服务端的认证令牌，统一拒绝空白值和无意义的空字符串。 */
-private fun String.requireNativeAuthToken(label: String): String = trim().ifBlank {
-    throw IllegalStateException("登录响应缺少$label")
+private fun String.requireNativeAuthToken(labelZh: String, labelEn: String): String = trim().ifBlank {
+    throw IllegalStateException(nativePhrase("登录响应缺少$labelZh", "Login response is missing $labelEn."))
 }
 
 internal data class NativeDeviceVerificationResend(
@@ -208,7 +208,7 @@ internal object NativeAuthApi {
 
     fun revokeSession(accessToken: String, sessionId: String): Boolean {
         val normalizedId = sessionId.trim()
-        require(normalizedId.isNotBlank()) { "登录设备标识缺失。" }
+        require(normalizedId.isNotBlank()) { nativePhrase("登录设备标识缺失。", "The sign-in device identifier is missing.") }
         val encodedId = Uri.encode(normalizedId)
         return authorizedRequest("/auth/sessions/$encodedId", "DELETE", accessToken).optBoolean("current")
     }
@@ -292,8 +292,8 @@ internal object NativeAuthApi {
     fun passkeyLoginOptions(): NativePasskeyOptions {
         val response = request("/auth/passkeys/login/options", JSONObject())
         return NativePasskeyOptions(
-            challengeToken = response.optString("challengeToken").ifBlank { throw IllegalStateException("通行密钥挑战值缺失") },
-            requestJson = response.optJSONObject("options")?.toString() ?: throw IllegalStateException("通行密钥参数缺失"),
+            challengeToken = response.optString("challengeToken").ifBlank { throw IllegalStateException(nativePhrase("通行密钥挑战值缺失", "Passkey challenge is missing.")) },
+            requestJson = response.optJSONObject("options")?.toString() ?: throw IllegalStateException(nativePhrase("通行密钥参数缺失", "Passkey options are missing.")),
         )
     }
 
@@ -319,10 +319,10 @@ internal object NativeAuthApi {
         }
         return try {
             if (connection.responseCode !in 300..399) {
-                throw IllegalStateException("Google 登录暂不可用（HTTP ${connection.responseCode}）")
+                throw IllegalStateException(nativePhrase("Google 登录暂不可用（HTTP ${connection.responseCode}）", "Google sign-in is unavailable (HTTP ${connection.responseCode})."))
             }
             connection.getHeaderField("Location")?.takeIf { it.isNotBlank() }
-                ?: throw IllegalStateException("Google 授权地址缺失")
+                ?: throw IllegalStateException(nativePhrase("Google 授权地址缺失", "Google authorization URL is missing."))
         } finally {
             connection.disconnect()
         }
@@ -334,8 +334,8 @@ internal object NativeAuthApi {
     fun googleLinkPasskeyOptions(pendingToken: String): NativePasskeyOptions {
         val response = request("/auth/google/link/passkey/options", JSONObject().apply { put("pendingToken", pendingToken) })
         return NativePasskeyOptions(
-            challengeToken = response.optString("challengeToken").ifBlank { throw IllegalStateException("Google 关联挑战值缺失") },
-            requestJson = response.optJSONObject("options")?.toString() ?: throw IllegalStateException("Google 关联参数缺失"),
+            challengeToken = response.optString("challengeToken").ifBlank { throw IllegalStateException(nativePhrase("Google 关联挑战值缺失", "Google link challenge is missing.")) },
+            requestJson = response.optJSONObject("options")?.toString() ?: throw IllegalStateException(nativePhrase("Google 关联参数缺失", "Google link options are missing.")),
         )
     }
 
@@ -349,7 +349,7 @@ internal object NativeAuthApi {
     fun requestGoogleLinkEmail(pendingToken: String): GoogleLinkEmailChallenge {
         val response = request("/auth/google/link/email", JSONObject().apply { put("pendingToken", pendingToken) })
         return GoogleLinkEmailChallenge(
-            challengeToken = response.optString("challengeToken").ifBlank { throw IllegalStateException("邮箱验证码挑战值缺失") },
+            challengeToken = response.optString("challengeToken").ifBlank { throw IllegalStateException(nativePhrase("邮箱验证码挑战值缺失", "Email verification challenge is missing.")) },
             emailHint = response.optString("emailHint"),
         )
     }
@@ -388,7 +388,7 @@ internal object NativeAuthApi {
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val responseBody = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) throw NativeAuthHttpException(status, "请求接口失败（HTTP $status）")
+            if (status !in 200..299) throw NativeAuthHttpException(status, nativePhrase("请求接口失败（HTTP $status）", "Request failed (HTTP $status)."))
             JSONObject(responseBody)
         } finally {
             connection.disconnect()
@@ -419,7 +419,7 @@ internal object NativeAuthApi {
             if (status !in 200..299) {
                 val message = runCatching { JSONObject(responseBody).optString("message") }.getOrNull()
                     ?.takeIf { it.isNotBlank() }
-                    ?: "会话操作失败（HTTP $status）"
+                    ?: nativePhrase("会话操作失败（HTTP $status）", "Session operation failed (HTTP $status).")
                 throw NativeAuthHttpException(status, message)
             }
             if (responseBody.isBlank()) JSONObject() else JSONObject(responseBody)
@@ -449,7 +449,7 @@ internal object NativeAuthApi {
             if (status !in 200..299) {
                 val message = runCatching { JSONObject(responseBody).optString("message") }.getOrNull()
                     ?.takeIf { it.isNotBlank() }
-                    ?: "登录失败（HTTP $status）"
+                    ?: nativePhrase("登录失败（HTTP $status）", "Sign-in failed (HTTP $status).")
                 throw NativeAuthHttpException(status, message)
             }
             JSONObject(responseBody)
