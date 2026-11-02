@@ -31,6 +31,12 @@
 - 最终两台设备各完成 12 个检查点：公开文章/合集和代表内容、订阅与取消、好友申请备注、作者端接受申请、已接受关系回显、陌生人消息请求、拉黑后的不可见校验、合集详情和文章详情跳转。测试数据、账号、关系、消息和审计记录均保留，报告位于 `tmp-native-public-profile-retry-20261103/`，两份报告均为 `completed=true`、`testDataRemoved=false`。
 - 测试结束后移除本轮 `3000/3001` ADB reverse，保留设备原有 `18010` 转发；重新构建并安装默认生产地址 Debug APK，两台设备前台均为 `xyz.hlovet.portal.prototype/.MainActivity`。本轮没有清理业务数据、生产配置或历史 `tmp-*` 证据。
 
+## Android 发现与更多导航双设备复验（2026-11-03）
+
+- `NativeMoreNavigationTest#publicMoreEntriesDispatchToExpectedTargets` 在 Android 15 `emulator-5554` 与 Android 11 `emulator-5562` 各执行 `1/1`，共 `2/2`，失败、错误和跳过均为 `0`。
+- 该专项确认默认入口为“发现”，匿名内容使用独立页签；“更多”中的专题、合集会回到发现页对应筛选，公告、站内导航、工具中心、问题反馈、意见建议和资源中心分别分发到正确的原生目标，没有因为入口合并而串页或丢失。
+- 测试包已卸载，主应用、登录会话和业务数据保留；两台设备重新回到 `MainActivity`，本轮没有清理数据库、生产配置或历史证据。
+
 ## 资源兑换异常交付真实复验（2026-10-28）
 
 - 在本地 Docker API、MySQL、Redis 和 Android 15 `emulator-5554` 上，沿用已保留的读者 `373/native_restore_*` 与文章 `226/native_resource_20261015_*`，重新执行资源兑换异常交付闭环。业务数据、兑换记录、积分流水和审计记录均保留，没有重置数据库或删除测试账号。
