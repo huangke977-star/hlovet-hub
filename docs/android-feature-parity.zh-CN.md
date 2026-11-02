@@ -24,6 +24,13 @@
 - 修复 FCM 与前台轮询通知在标题/正文为空时固定显示中文的问题；通知频道名称、描述和正文兜底现在都跟随账号保存的语言，新增 `NativeI18nTest#notificationFallbacksFollowTheSelectedLocale`，并随 `testDebugUnitTest` 与 Debug 构建通过。
 - 该持续校验仍不替代 Google/Passkey 成功授权、FCM 真推送、生产双设备 WebRTC、外部 AI/OCR/语音/图片服务、OSS/R2 和物理断网等外部条件验收；这些边界仍按上方门槛单独记录。
 
+## Android 公开主页双设备复跑（2026-11-03）
+
+- 使用本地 Docker API、MySQL、Redis 和当前源码 Debug 测试包，先后在 Android 15 `emulator-5554` 与 Android 11 `emulator-5562` 执行 `NativeLocalPublicProfileTest#realPublicProfileContentAndSocialActions`，最终各 `1/1`，合计 `2/2`，失败、错误和跳过均为 `0`。
+- Android 15 首轮在切换到第二个辅助账号后出现一次 60 秒页面用户名断言超时；报告已保留，随后在相同源码和环境下独立重跑通过。Android 11 首次运行通过，因此没有把一次设备 Activity 时序抖动改写成产品缺陷或忽略失败证据。
+- 最终两台设备各完成 12 个检查点：公开文章/合集和代表内容、订阅与取消、好友申请备注、作者端接受申请、已接受关系回显、陌生人消息请求、拉黑后的不可见校验、合集详情和文章详情跳转。测试数据、账号、关系、消息和审计记录均保留，报告位于 `tmp-native-public-profile-retry-20261103/`，两份报告均为 `completed=true`、`testDataRemoved=false`。
+- 测试结束后移除本轮 `3000/3001` ADB reverse，保留设备原有 `18010` 转发；重新构建并安装默认生产地址 Debug APK，两台设备前台均为 `xyz.hlovet.portal.prototype/.MainActivity`。本轮没有清理业务数据、生产配置或历史 `tmp-*` 证据。
+
 ## 资源兑换异常交付真实复验（2026-10-28）
 
 - 在本地 Docker API、MySQL、Redis 和 Android 15 `emulator-5554` 上，沿用已保留的读者 `373/native_restore_*` 与文章 `226/native_resource_20261015_*`，重新执行资源兑换异常交付闭环。业务数据、兑换记录、积分流水和审计记录均保留，没有重置数据库或删除测试账号。
