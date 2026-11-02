@@ -3110,3 +3110,10 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 在本地 Docker API/门户和 Android 15 `emulator-5554` 上执行 `NativeLocalArticleAttachmentTest`，结果为 `1/1`，失败、错误和跳过均为 `0`。
 - 使用保留的本地测试账号上传图片、文本和 WAV 音频，核对服务端附件类型、文章保存后重新读取、带登录令牌下载原始字节，以及未登录下载返回 `404`；同时在 Android `MediaStore.Downloads` 中准备了图片和文本文件供系统选择器链路继续使用。
 - 测试文章、附件、系统下载目录文件和报告按既有约定保留；测试后移除 `3000/3001` ADB reverse，重新构建并安装默认生产地址 Debug APK，BuildConfig 为 `https://5200918.xyz/api` 与 `https://5200918.xyz`，冷启动前台为 `MainActivity`。OSS/R2 远端存储和生产账号上传仍需外部条件验收。
+
+## Android 15 本地隐私与安全凭据复验（2026-11-02）
+
+- 本地 API 使用现有的专用测试密钥覆盖配置重建，仅作用于 Docker 项目 `lingxi_portal` 的 `hlovet-api`；根 `.env`、生产服务器、数据库/Redis 卷和线上配置均未修改。`/health/ready` 返回 `200`，数据库和 Redis 检查均为 `ok`。
+- 在 Android 15 `emulator-5554` 使用显式本地 API/门户地址构建并安装测试 APK，`NativeLocalPrivacyDeviceTest` 完整运行 `2/2`，`NativeLocalMainPrivacyTest` 运行 `1/1`，失败、错误和跳过均为 `0`。真实 Compose 页面覆盖密码验证错误提示、密码验证后修改邮箱/密码并保持当前会话、TOTP 绑定、六位验证码、恢复码和解除双因素认证。
+- TOTP 流程最初因 API 缺少 `BACKUP_ENCRYPTION_KEY` 而无法继续；加载本地专用密钥后单测和整类复跑均通过，确认问题是测试环境密钥缺失，不是验证弹窗关闭逻辑。该密钥文件保存在已忽略的 `output/android/local-api-testing/credential.env`，后续本地 Compose 重建必须继续复用，不能轮换，否则已有本地加密测试数据可能无法读取。
+- 测试结束后已移除 Android 15 的 `3000/3001` ADB reverse，并恢复安装默认生产地址 Debug APK；正式 BuildConfig 为 `https://5200918.xyz/api` 与 `https://5200918.xyz`。本轮没有清理测试账号、审计记录、TOTP 测试数据或历史证据。

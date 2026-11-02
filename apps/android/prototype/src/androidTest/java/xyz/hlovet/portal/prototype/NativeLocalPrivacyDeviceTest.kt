@@ -223,6 +223,7 @@ class NativeLocalPrivacyDeviceTest {
     private fun waitText(label: String) = compose.waitUntil(20_000) {
         compose.onAllNodesWithText(label).fetchSemanticsNodes().isNotEmpty()
     }
+    /** 等待保护验证弹窗关闭，确保后续断言发生在业务页面而不是验证层。 */
     private fun waitClosed() = compose.waitUntil(20_000) {
         compose.onAllNodes(isDialog()).fetchSemanticsNodes().isEmpty()
     }
