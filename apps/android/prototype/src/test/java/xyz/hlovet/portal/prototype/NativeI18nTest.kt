@@ -54,4 +54,21 @@ class NativeI18nTest {
             NativeI18n.applyLocale("zh-CN")
         }
     }
+
+    /** 系统通知的频道和空消息兜底应随账号语言切换，不能固定为中文。 */
+    @Test
+    fun notificationFallbacksFollowTheSelectedLocale() {
+        try {
+            NativeI18n.applyLocale("zh-CN")
+            assertEquals("站内提醒", nativeNotificationChannelName())
+            assertEquals("HLOVET 的聊天、评论和系统提醒", nativeNotificationChannelDescription())
+            assertEquals("你有一条新的站内提醒。", nativeNotificationBodyFallback())
+            NativeI18n.applyLocale("en-US")
+            assertEquals("Site notifications", nativeNotificationChannelName())
+            assertEquals("HLOVET chats, comments, and system notifications", nativeNotificationChannelDescription())
+            assertEquals("You have a new site notification.", nativeNotificationBodyFallback())
+        } finally {
+            NativeI18n.applyLocale("zh-CN")
+        }
+    }
 }

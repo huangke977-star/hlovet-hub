@@ -21,6 +21,18 @@ internal data class NativeNotificationIntent(
     val actionUrl: String?,
 )
 
+/** 返回系统通知缺少标题时的当前语言兜底文案，保证后台服务和前台轮询使用同一套翻译。 */
+internal fun nativeNotificationTitleFallback(): String = nativePhrase("HLOVET", "HLOVET")
+
+/** 返回系统通知缺少正文时的当前语言兜底文案，避免英文账号收到中文通知。 */
+internal fun nativeNotificationBodyFallback(): String = nativePhrase("你有一条新的站内提醒。", "You have a new site notification.")
+
+/** 返回系统通知频道名称的当前语言文案，首次创建频道时使用。 */
+internal fun nativeNotificationChannelName(): String = nativePhrase("站内提醒", "Site notifications")
+
+/** 返回系统通知频道描述的当前语言文案，首次创建频道时使用。 */
+internal fun nativeNotificationChannelDescription(): String = nativePhrase("HLOVET 的聊天、评论和系统提醒", "HLOVET chats, comments, and system notifications")
+
 /**
  * A small foreground notification fallback for the native client.
  *
@@ -34,20 +46,22 @@ internal object NativeLocalNotifications {
     const val EXTRA_NOTIFICATION_ID = "notification_id"
 
     private const val CHANNEL_ID = "hlovet-native-updates"
-    private const val CHANNEL_NAME = "站内提醒"
     private const val PREFS = "native-local-notifications"
     private const val SEEN_PREFIX = "seen:"
     private const val INITIALIZED_PREFIX = "initialized:"
     private const val MAX_SEEN_IDS = 240
 
+    /** 创建系统通知频道，并在服务进程中先恢复已保存的语言偏好。 */
     fun ensureChannel(context: Context) {
+        // FCM 服务没有经过 MainActivity，必须主动读取持久化语言，避免使用设备默认语言或旧进程状态。
+        NativeI18n.load(context)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            CHANNEL_NAME,
+            nativeNotificationChannelName(),
             NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = "HLOVET 的聊天、评论和系统提醒"
+            description = nativeNotificationChannelDescription()
         }
         context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }
@@ -104,6 +118,7 @@ internal object NativeLocalNotifications {
         )
     }
 
+    /** 发布远程或轮询通知，并把空标题/正文补成当前语言后传入点击 Intent。 */
     fun showRemote(
         context: Context,
         notificationId: Int?,
@@ -116,14 +131,17 @@ internal object NativeLocalNotifications {
         if ((notificationId ?: messageId ?: 0) <= 0 && actionUrl.isNullOrBlank()) return false
         if (!isAllowed(context)) return false
         ensureChannel(context)
+        // 服务端允许标题或正文为空，展示层必须在统一入口补齐可理解的多语言文本。
+        val resolvedTitle = title.ifBlank { nativeNotificationTitleFallback() }
+        val resolvedBody = body.ifBlank { nativeNotificationBodyFallback() }
         val systemNotificationId = notificationId ?: messageId ?: stableNotificationId(type, actionUrl, body)
         val intent = Intent(context, MainActivity::class.java).apply {
             action = ACTION_OPEN_NOTIFICATION
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_NOTIFICATION_ID, notificationId ?: 0)
             putExtra(EXTRA_NOTIFICATION_MESSAGE_ID, messageId ?: 0)
-            putExtra(EXTRA_NOTIFICATION_TITLE, title)
-            putExtra(EXTRA_NOTIFICATION_BODY, body)
+            putExtra(EXTRA_NOTIFICATION_TITLE, resolvedTitle)
+            putExtra(EXTRA_NOTIFICATION_BODY, resolvedBody)
             putExtra(EXTRA_NOTIFICATION_TYPE, type)
             putExtra(EXTRA_NOTIFICATION_URL, actionUrl)
         }
@@ -135,9 +153,9 @@ internal object NativeLocalNotifications {
         )
         val posted = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title.ifBlank { "HLOVET" })
-            .setContentText(body.ifBlank { "你有一条新的站内提醒。" })
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentTitle(resolvedTitle)
+            .setContentText(resolvedBody)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(resolvedBody))
             .setCategory(NotificationCompat.CATEGORY_SOCIAL)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)

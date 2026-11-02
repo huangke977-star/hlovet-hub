@@ -21,6 +21,7 @@
 - 在公开主页修复提交后重新执行路由与接口审计：PC 用户路由 `70/70`、后台入口 `24/24` 均有 Android 分发映射；PC 的 `27/27` 个 API 模块得到 `388` 个精确/跨模块匹配、`21` 个有意别名、`11` 个动态解析候选，`0` 个确认缺失候选。
 - 使用 JDK 17 执行 `:prototype:compileDebugKotlin`、`:prototype:testDebugUnitTest` 和 `:prototype:assembleDebug`，均成功；当前源码级校验没有发现本轮会话稳定性修复引入的编译或 JVM 回归。
 - 新增 `.github/workflows/android-parity.yml`，在 `main` 的推送和 PR 上自动执行上述路由/API 对齐检查及 Android JVM 测试，避免新增 PC 页面或接口后只更新 Android 单端。
+- 修复 FCM 与前台轮询通知在标题/正文为空时固定显示中文的问题；通知频道名称、描述和正文兜底现在都跟随账号保存的语言，新增 `NativeI18nTest#notificationFallbacksFollowTheSelectedLocale`，并随 `testDebugUnitTest` 与 Debug 构建通过。
 - 该持续校验仍不替代 Google/Passkey 成功授权、FCM 真推送、生产双设备 WebRTC、外部 AI/OCR/语音/图片服务、OSS/R2 和物理断网等外部条件验收；这些边界仍按上方门槛单独记录。
 
 ## 资源兑换异常交付真实复验（2026-10-28）

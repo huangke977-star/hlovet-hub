@@ -112,7 +112,9 @@ internal object NativeFirebasePush {
 }
 
 class NativeFirebaseMessagingService : com.google.firebase.messaging.FirebaseMessagingService() {
+    /** 保存 Firebase 新令牌并在已有会话下重新登记，避免令牌轮换后继续使用旧设备记录。 */
     override fun onNewToken(token: String) {
+        // 令牌保存和服务端登记都复用 NativeFirebasePush，保持可选 Firebase 配置的边界。
         NativeFirebasePush.saveToken(this, token)
         val session = NativeSessionStore.load(this) ?: return
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
@@ -120,11 +122,20 @@ class NativeFirebaseMessagingService : com.google.firebase.messaging.FirebaseMes
         }
     }
 
+    /** 接收 FCM 数据消息并转为可点击的本地通知，空文案按当前语言补齐。 */
     override fun onMessageReceived(message: com.google.firebase.messaging.RemoteMessage) {
+        // FCM 进程不一定经过 MainActivity，先恢复账号保存的语言偏好再计算兜底文案。
+        NativeI18n.load(this)
         val data = message.data
-        val title = data["title"] ?: message.notification?.title ?: "HLOVET"
-        val body = data["body"] ?: message.notification?.body ?: "你有一条新的站内提醒。"
+        // 依次读取数据消息、通知消息和当前语言兜底，空字符串同样视为缺失。
+        val title = data["title"]?.takeIf(String::isNotBlank)
+            ?: message.notification?.title?.takeIf(String::isNotBlank)
+            ?: nativeNotificationTitleFallback()
+        val body = data["body"]?.takeIf(String::isNotBlank)
+            ?: message.notification?.body?.takeIf(String::isNotBlank)
+            ?: nativeNotificationBodyFallback()
         val notificationId = data["notificationId"]?.toIntOrNull()
+        // 未登录设备不展示需要账号上下文的站内通知，避免把上一个账号的消息泄露到当前设备。
         val session = NativeSessionStore.load(this) ?: return
         val owner = NativeOfflineOwner.forSession(session)
         if (notificationId != null) NativeLocalNotifications.rememberSeen(this, owner, notificationId)
