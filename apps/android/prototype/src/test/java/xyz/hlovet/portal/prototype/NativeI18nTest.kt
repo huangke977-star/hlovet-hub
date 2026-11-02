@@ -2,6 +2,7 @@ package xyz.hlovet.portal.prototype
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import androidx.compose.ui.graphics.Color
 
 class NativeI18nTest {
     @Test
@@ -53,6 +54,18 @@ class NativeI18nTest {
         } finally {
             NativeI18n.applyLocale("zh-CN")
         }
+    }
+
+    /** 默认卡片背景跟随外观配置，明确的强调色背景不能被玻璃背景覆盖。 */
+    @Test
+    fun defaultCardSurfaceUsesConfiguredGlassBackground() {
+        val siteSurface = Color(0xFFFFFFFF)
+        val glassFallback = Color(0x99FFFFFF)
+        val accentSurface = Color(0xFFFFE4EC)
+
+        assertEquals(glassFallback, resolveNativeCardContainerColor(Color.Unspecified, siteSurface, glassFallback))
+        assertEquals(glassFallback, resolveNativeCardContainerColor(siteSurface, siteSurface, glassFallback))
+        assertEquals(accentSurface, resolveNativeCardContainerColor(accentSurface, siteSurface, glassFallback))
     }
 
     /** 系统通知的频道和空消息兜底应随账号语言切换，不能固定为中文。 */

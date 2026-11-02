@@ -561,7 +561,7 @@ private sealed interface NativeLoginStep {
     data class GoogleLinkPassword(val pendingToken: String) : NativeLoginStep
 }
 
-/** Keeps the existing page code on one shared glass surface implementation. */
+/** 将历史页面使用的 Card 适配到统一的玻璃卡片实现。 */
 @Suppress("UNUSED_PARAMETER")
 @Composable
 private fun Card(
@@ -571,8 +571,12 @@ private fun Card(
     elevation: CardElevation = CardDefaults.cardElevation(),
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
-    val configuredContainerColor = colors.containerColor.takeUnless { it == Color.Unspecified }
-        ?: HlovetUi.glassFallback
+    // 默认 surface 只表示站点普通背景，不应绕过用户配置的卡片透明度；强调色背景继续保持页面自己的层级。
+    val configuredContainerColor = resolveNativeCardContainerColor(
+        requestedColor = colors.containerColor,
+        siteSurface = MaterialTheme.colorScheme.surface,
+        glassFallback = HlovetUi.glassFallback,
+    )
     GlassCard(
         modifier = modifier,
         shape = shape,

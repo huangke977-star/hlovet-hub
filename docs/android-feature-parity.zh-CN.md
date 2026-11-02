@@ -3232,3 +3232,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 在提交 `d3520fa` 后重新执行 `:prototype:testDebugUnitTest --no-daemon`，63 个 XML 共 `333/333`，失败、错误和跳过均为 `0`，Gradle 构建成功。
 - 当前源码覆盖审计再次通过：PC 用户路由 `70/70`、后台入口 `24/24`，PC API 模块 `27/27`；API 结果为 `388` 个精确/跨模块匹配、`21` 个有意别名、`11` 个动态/解析器候选、`0` 个确认缺失。
 - `git diff --check` 通过。该回归确认最新推送没有引入 JVM 或静态覆盖回退；Google/Passkey 成功凭据、FCM 到达、生产 WebRTC、外部 AI/媒体供应商和 OSS/R2 仍按外部条件表单独验收。
+
+## Android 统一卡片背景配置复核（2026-11-03）
+
+- 修复 MainActivity 历史 `Card` 适配层：未指定背景或显式使用站点默认 `surface` 的卡片现在统一读取 `HlovetUi.glassFallback`，因此首页、发现流及复用旧卡片的页面会跟随账号卡片透明度；专题强调色、提示色等明确背景仍保持原有层级。
+- 新增 `resolveNativeCardContainerColor` 纯函数测试，覆盖默认背景、站点 surface 和明确强调色三种分支；`NativeI18nTest` 与 `NativeRouteNormalizationTest` 定向测试通过，完整 `:prototype:testDebugUnitTest` 通过，JVM 结果仍为 `333/333`。
+- `:prototype:assembleDebug`、PC 路由 `70/70`、后台入口 `24/24`、API 对齐 `27/27` 均通过，`git diff --check` 通过；本次未改 API、路由、文章内部模式值或业务数据。

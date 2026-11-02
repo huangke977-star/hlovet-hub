@@ -131,6 +131,16 @@ internal object HlovetUi {
     }
 }
 
+/** 将旧卡片默认背景统一映射到当前账号的玻璃背景，保留明确指定的强调色背景。 */
+internal fun resolveNativeCardContainerColor(
+    requestedColor: Color,
+    siteSurface: Color,
+    glassFallback: Color,
+): Color = when {
+    requestedColor == Color.Unspecified || requestedColor == siteSurface -> glassFallback
+    else -> requestedColor
+}
+
 /** Keep the site setting's opacity semantics, including a deliberately transparent value of 0. */
 internal fun normalizedGlassTintAlpha(value: Int): Float = value.coerceIn(0, 100) / 100f
 
