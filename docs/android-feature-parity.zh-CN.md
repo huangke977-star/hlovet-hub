@@ -3074,3 +3074,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 在 Android 11 与 Android 15 上分别执行无已注册 Passkey 的登录回退用例，各为 `1/1`，失败、错误和跳过均为 `0`；Android 15 当前恢复实例为 `emulator-5554`，Android 11 单独复验使用既有 `emulator-5562`。
 - 两台设备在系统没有可用凭据时都能回到账号密码登录路径，不会卡在 Passkey 弹窗或崩溃。此前两台设备并行启动时 Android 11 曾在进入登录页前超时，单独重跑后通过，该次启动资源竞争不计为产品失败。
 - 本轮只证明“无凭据时的回退”边界，尚未用已注册 Passkey 完成真实成功登录；真实 Google 授权、Passkey 成功凭据、FCM 到达、生产 WebRTC、外部 AI/媒体供应商和 OSS/R2 仍需独立验收。
+
+## Android 15 本地真实会话复验（2026-11-02）
+
+- 在本地 Docker API `http://127.0.0.1:3001`、门户 `http://127.0.0.1:3000` 和 Android 15 `emulator-5554` 上，使用当前源码执行 `NativeLocalMainSessionTest`，结果为 `1/1`，失败、错误和跳过均为 `0`，测试耗时约 12 秒。
+- 测试通过真实 `MainActivity` 完成动态注册、密码登录、首次兴趣引导跳过、个人页用户名回显、加密会话文件位置与内容检查，以及 `ActivityScenario.recreate()` 后的登录态恢复。测试账号和会话按既有约定保留，没有清理业务数据。
+- 测试后已移除 Android 15 的 `3000/3001` ADB reverse，重新构建并安装默认生产地址 Debug APK；BuildConfig 确认为 `https://5200918.xyz/api` 与 `https://5200918.xyz`，冷启动前台为 `MainActivity`。本轮不扩大为 Google/Passkey 成功凭据、FCM、生产 WebRTC、外部 AI/媒体供应商或 OSS/R2 验收。
