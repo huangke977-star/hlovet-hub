@@ -38,6 +38,12 @@
 - 当前 APK 覆盖安装到 Android 15 `emulator-5554` 后冷启动 `MainActivity` 成功；UI 树确认主标题、底部主导航和发现筛选均显示英文 `Discover`，搜索入口和发现内容正常呈现。清空 Logcat 后未发现 `FATAL EXCEPTION`，未清除应用数据、会话或业务数据。
 - 本轮仍只证明源码映射、构建和冷启动边界；Google/Passkey 成功授权、FCM 真推送、生产双设备 WebRTC、外部 AI/OCR/语音/图片服务、OSS/R2 和物理断网仍按外部验收门槛处理。
 
+## 公开主页双设备本地真实回归（2026-11-03）
+
+- 本地 API 健康检查返回 HTTP 200，数据库和 Redis 均正常；使用本地构建参数与 `3000/3001` ADB reverse，在 Android 15 `emulator-5554` 通过 `NativeLocalPublicProfileTest#realPublicProfileContentAndSocialActions` 完成 `1/1`，在 Android 11 `emulator-5562` 通过同一测试完成 `OK (1 test)`。
+- 两台设备均覆盖了独立作者/访客、公开文章和合集、主页代表内容、订阅/取消订阅、好友申请与备注、接受关系、陌生人消息请求、拉黑后的不可见校验及文章/合集跳转；测试数据和账号按测试约定保留。
+- 首次使用 Gradle 聚合任务时，另外两台未建立 reverse 的设备因连接本地 `3001` 失败；该次不计入通过数，随后改为单设备直接 instrumentation，在 5554 和 5562 均通过。测试结束后已恢复生产地址 Debug 包，并移除本轮 `3000/3001` 映射，保留既有 `18010` 映射。
+
 ## Android 公开主页双设备复跑（2026-11-03）
 
 - 使用本地 Docker API、MySQL、Redis 和当前源码 Debug 测试包，先后在 Android 15 `emulator-5554` 与 Android 11 `emulator-5562` 执行 `NativeLocalPublicProfileTest#realPublicProfileContentAndSocialActions`，最终各 `1/1`，合计 `2/2`，失败、错误和跳过均为 `0`。
