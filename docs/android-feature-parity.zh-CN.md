@@ -3092,3 +3092,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用设备内 MockWebServer 和当前源码在 Android 15 `emulator-5554` 执行 `NativeAiAssistantDeviceTest`，两项用例均通过，结果为 `2/2`，失败、错误和跳过均为 `0`。
 - 真实 Compose 页面覆盖站内问答发送与回答展示、受控工具列表，以及“描述文章 → 生成草稿预览 → 点击确认后写入”的确认边界；接口请求全部由隔离夹具响应，不调用外部 AI 模型，不写入真实文章或账号数据。
 - 测试后已停止设备内 MockWebServer，重新构建并安装默认生产地址 Debug APK；BuildConfig 确认为 `https://5200918.xyz/api` 与 `https://5200918.xyz`，冷启动前台为 `MainActivity`。真实供应商问答、OCR、语音转文字和图片生成仍需对应模型或外部服务配置后验收。
+
+## Android 15 内容生产链路复验（2026-11-02）
+
+- 在本地 Docker API/门户和 Android 15 `emulator-5554` 上执行 `NativeLocalContentSuiteTest`：合集与富文本用例共 `2/2` 执行通过，失败、错误均为 `0`；其中会话创建用例因设备已有本地来源会话按设计跳过 `1` 项，不计为失败。
+- 合集用例实际覆盖创建、文章收录排序、编辑增删、私密/登录可见/公开权限、订阅/取消订阅、重复订阅、删除合集不删除文章及失效会话恢复；富文本用例覆盖任务列表拆分、撤销/重做、代码块与复杂 HTML 保存后重开、预览和正文回显。
+- 测试数据和账号按既有约定保留；测试后移除 `3000/3001` ADB reverse，重新构建并安装默认生产地址 Debug APK，BuildConfig 为 `https://5200918.xyz/api` 与 `https://5200918.xyz`，冷启动前台为 `MainActivity`。真实账号发布、附件上传及生产文章写入仍需单独验收。
