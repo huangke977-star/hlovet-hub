@@ -2428,6 +2428,29 @@ private fun HlovetMobilePreview(
                                 accountTarget = null
                             },
                             onOpenArticle = { article -> openDetailTarget(DetailTarget.Article(article), NativeDetailBackTarget.Account(AccountTarget.SubscriptionFeed)) },
+                            // 订阅管理中的专题和合集沿用发现页详情模型，打开后返回仍回到订阅页。
+                            onOpenTopic = { slug ->
+                                scope.launch {
+                                    runCatching {
+                                        withContext(Dispatchers.IO) { NativeDiscoveryApi.getTopic(session?.accessToken, slug) }
+                                    }.onSuccess { topic ->
+                                        openDetailTarget(DetailTarget.Topic(topic), NativeDetailBackTarget.Account(AccountTarget.SubscriptionFeed))
+                                    }.onFailure { exception ->
+                                        showNativeNotice(exception.message ?: nativePhrase("专题暂时无法打开。", "The topic cannot be opened right now."))
+                                    }
+                                }
+                            },
+                            onOpenCollection = { id ->
+                                scope.launch {
+                                    runCatching {
+                                        withContext(Dispatchers.IO) { NativeDiscoveryApi.getCollection(session?.accessToken, id) }
+                                    }.onSuccess { collection ->
+                                        openDetailTarget(DetailTarget.Collection(collection), NativeDetailBackTarget.Account(AccountTarget.SubscriptionFeed))
+                                    }.onFailure { exception ->
+                                        showNativeNotice(exception.message ?: nativePhrase("合集暂时无法打开。", "The collection cannot be opened right now."))
+                                    }
+                                }
+                            },
                         )
                     } else if (accountTarget == AccountTarget.MyCollections) {
                         MyCollectionsScreen(

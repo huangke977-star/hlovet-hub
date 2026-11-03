@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -46,6 +47,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -69,12 +72,15 @@ private data class NativeSubscriptionScreenLoad(
     val emailSettings: NativeSubscriptionEmailSettings,
 )
 
+/** 展示订阅动态并维护作者、专题、标签、合集及邮件日报设置。 */
 @Composable
 internal fun SubscriptionFeedScreen(
     session: NativeSession?,
     initialSort: String = "latest",
     onBack: () -> Unit,
     onOpenArticle: (RemoteArticle) -> Unit,
+    onOpenTopic: (String) -> Unit = {},
+    onOpenCollection: (Int) -> Unit = {},
 ) {
     val token = session?.accessToken
     var sort by remember(token, initialSort) { mutableStateOf(initialSort) }
@@ -85,11 +91,14 @@ internal fun SubscriptionFeedScreen(
     var emailSettings by remember(token) { mutableStateOf<NativeSubscriptionEmailSettings?>(null) }
     var settingsOpen by remember(token) { mutableStateOf(false) }
     var loading by remember(token) { mutableStateOf(true) }
+    var loadingMore by remember(token) { mutableStateOf(false) }
     var error by remember(token) { mutableStateOf<String?>(null) }
     var notice by remember(token) { mutableStateOf<String?>(null) }
+    val feedListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    fun load(showLoading: Boolean = true) {
+    /** 重新读取第一页及所有订阅配置，筛选或刷新后清理旧的分页内容。 */
+    fun loadInitial(showLoading: Boolean = true) {
         val currentToken = token ?: run {
             loading = false
             error = nativePhrase("请先登录后查看订阅动态。", "Sign in to view subscription updates.")
@@ -101,7 +110,7 @@ internal fun SubscriptionFeedScreen(
             runCatching {
                 withContext(Dispatchers.IO) {
                     NativeSubscriptionScreenLoad(
-                        feed = NativeDiscoveryApi.listSubscriptionFeed(currentToken, page, 12, sort),
+                        feed = NativeDiscoveryApi.listSubscriptionFeed(currentToken, 1, 12, sort),
                         settings = NativeDiscoveryApi.getSubscriptionSettings(currentToken),
                         contentSettings = NativeDiscoveryApi.getContentSubscriptionSettings(currentToken),
                         emailSettings = NativeDiscoveryApi.getSubscriptionEmailSettings(currentToken),
@@ -109,6 +118,7 @@ internal fun SubscriptionFeedScreen(
                 }
             }.onSuccess { next ->
                 feed = next.feed
+                page = 1
                 settings = next.settings
                 contentSettings = next.contentSettings
                 emailSettings = next.emailSettings
@@ -117,7 +127,48 @@ internal fun SubscriptionFeedScreen(
         }
     }
 
-    LaunchedEffect(token, page, sort) { load() }
+    /** 接近列表底部时追加下一页，并按文章编号去重保持滚动位置稳定。 */
+    fun loadMore() {
+        val currentToken = token ?: return
+        val currentFeed = feed ?: return
+        if (loading || loadingMore || currentFeed.page >= currentFeed.totalPages) return
+        val nextPage = currentFeed.page + 1
+        loadingMore = true
+        error = null
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { NativeDiscoveryApi.listSubscriptionFeed(currentToken, nextPage, 12, sort) }
+            }.onSuccess { next ->
+                feed = currentFeed.copy(
+                    items = (currentFeed.items + next.items).distinctBy { it.article.id },
+                    page = next.page,
+                    pageSize = next.pageSize,
+                    totalPages = next.totalPages,
+                    total = next.total,
+                    unread = next.unread,
+                )
+                page = next.page
+            }.onFailure { error = it.message ?: nativePhrase("更多订阅动态加载失败。", "Could not load more subscription updates.") }
+            loadingMore = false
+        }
+    }
+
+    // 语言、会话或排序变化时从第一页开始，避免新筛选混入旧列表。
+    LaunchedEffect(token, sort) {
+        page = 1
+        loadInitial()
+    }
+
+    // 使用 Compose 的可见项观察器模拟 PC 端 IntersectionObserver，用户无需寻找分页按钮。
+    LaunchedEffect(feedListState, page, feed?.totalPages, loading, loadingMore) {
+        snapshotFlow {
+            val layout = feedListState.layoutInfo
+            val lastVisible = layout.visibleItemsInfo.lastOrNull()?.index ?: 0
+            layout.totalItemsCount > 0 && lastVisible >= layout.totalItemsCount - 3
+        }.collect { nearEnd ->
+            if (nearEnd && !loading && !loadingMore && feed?.let { page < it.totalPages } == true) loadMore()
+        }
+    }
 
     fun markRead(item: NativeSubscriptionFeedItem) {
         val currentToken = token ?: return
@@ -153,7 +204,7 @@ internal fun SubscriptionFeedScreen(
         val currentToken = token ?: return
         scope.launch {
             runCatching { withContext(Dispatchers.IO) { action(currentToken) } }
-                .onSuccess { notice = success; load(false) }
+                .onSuccess { notice = success; loadInitial(false) }
                 .onFailure { error = it.message ?: nativePhrase("订阅设置更新失败。", "Subscription settings could not be updated.") }
         }
     }
@@ -173,6 +224,7 @@ internal fun SubscriptionFeedScreen(
     }
 
     LazyColumn(
+        state = feedListState,
         contentPadding = PaddingValues(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -187,7 +239,7 @@ internal fun SubscriptionFeedScreen(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = nativePhrase("返回", "Back")) } },
                 actions = {
                     IconButton(onClick = { settingsOpen = true }) { Icon(Icons.Filled.Tune, contentDescription = nativePhrase("订阅管理", "Subscription settings"), tint = SubscriptionAccent) }
-                    IconButton(onClick = { page = 1; load() }) { Icon(Icons.Filled.Refresh, contentDescription = nativePhrase("刷新", "Refresh"), tint = SubscriptionAccent) }
+                    IconButton(onClick = { page = 1; loadInitial() }) { Icon(Icons.Filled.Refresh, contentDescription = nativePhrase("刷新", "Refresh"), tint = SubscriptionAccent) }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
@@ -225,14 +277,10 @@ internal fun SubscriptionFeedScreen(
                 SubscriptionArticleRow(item = item, onClick = { markRead(item) })
             }
             feed?.let { pageData ->
-                if (pageData.totalPages > 1) {
-                    item {
-                        Row(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { page -= 1 }, enabled = page > 1) { Text(nativePhrase("上一页", "Previous"), fontSize = 11.sp) }
-                            Text("${pageData.page} / ${pageData.totalPages}", color = SubscriptionMuted, fontSize = 11.sp)
-                        TextButton(onClick = { page += 1 }, enabled = page < pageData.totalPages) { Text(nativePhrase("下一页", "Next"), fontSize = 11.sp) }
-                        }
-                    }
+                if (loadingMore) {
+                    item { Text(nativePhrase("正在加载更多…", "Loading more…"), color = SubscriptionMuted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 22.dp)) }
+                } else if (pageData.page >= pageData.totalPages) {
+                    item { Text(nativePhrase("已经到达订阅动态末尾。", "You have reached the end of subscription updates."), color = SubscriptionMuted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 22.dp)) }
                 }
             }
         }
@@ -254,6 +302,8 @@ internal fun SubscriptionFeedScreen(
             onRemoveTopic = { topic -> updateSettings({ NativeDiscoveryApi.unsubscribeTopic(it, topic.id) }, nativePhrase("已取消专题订阅。", "Topic subscription removed.")) },
             onRemoveTag = { tag -> updateSettings({ NativeDiscoveryApi.unsubscribeTag(it, tag.tag) }, nativePhrase("已取消标签订阅。", "Tag subscription removed.")) },
             onRemoveCollection = { collection -> updateSettings({ NativeDiscoveryApi.unsubscribeCollection(it, collection.id) }, nativePhrase("已取消合集订阅。", "Collection subscription removed.")) },
+            onOpenTopic = onOpenTopic,
+            onOpenCollection = onOpenCollection,
         )
     }
 }
@@ -298,6 +348,8 @@ private fun SubscriptionSettingsDialog(
     onRemoveTopic: (NativeTopicSubscriptionSetting) -> Unit,
     onRemoveTag: (NativeTagSubscriptionSetting) -> Unit,
     onRemoveCollection: (NativeCollectionSubscriptionSetting) -> Unit,
+    onOpenTopic: (String) -> Unit,
+    onOpenCollection: (Int) -> Unit,
 ) {
     HlovetAlertDialog(
         onDismissRequest = onDismiss,
@@ -351,7 +403,7 @@ private fun SubscriptionSettingsDialog(
                     SubscriptionSettingHeading(nativePhrase("专题", "Topics"), Icons.Filled.Article)
                     if (current.topics.isEmpty()) Text(nativePhrase("还没有订阅专题。", "No topics subscribed yet."), color = SubscriptionMuted, fontSize = 12.sp)
                     current.topics.forEach { topic ->
-                        SubscriptionContentRow(topic.title, nativePhrase("${topic.articleCount} 篇 · ${topic.subscriberCount} 人订阅", "${topic.articleCount} articles · ${topic.subscriberCount} subscribers"), topic.frequency, onFrequency = { onTopicFrequency(topic, it) }, onRemove = { onRemoveTopic(topic) })
+                        SubscriptionContentRow(topic.title, nativePhrase("${topic.articleCount} 篇 · ${topic.subscriberCount} 人订阅", "${topic.articleCount} articles · ${topic.subscriberCount} subscribers"), topic.frequency, onFrequency = { onTopicFrequency(topic, it) }, onRemove = { onRemoveTopic(topic) }, onOpen = { onOpenTopic(topic.slug) })
                     }
                     HorizontalDivider(color = HlovetUi.divider)
                     SubscriptionSettingHeading(nativePhrase("标签", "Tags"), Icons.Filled.Tag)
@@ -363,7 +415,7 @@ private fun SubscriptionSettingsDialog(
                     SubscriptionSettingHeading(nativePhrase("合集", "Collections"), Icons.Filled.FolderOpen)
                     if (current.collections.isEmpty()) Text(nativePhrase("还没有订阅合集。", "No collections subscribed yet."), color = SubscriptionMuted, fontSize = 12.sp)
                     current.collections.forEach { collection ->
-                        SubscriptionContentRow(collection.name, nativePhrase("${collection.ownerName} · ${collection.articleCount} 篇", "${collection.ownerName} · ${collection.articleCount} articles"), null, onFrequency = null, onRemove = { onRemoveCollection(collection) })
+                        SubscriptionContentRow(collection.name, nativePhrase("${collection.ownerName} · ${collection.articleCount} 篇", "${collection.ownerName} · ${collection.articleCount} articles"), null, onFrequency = null, onRemove = { onRemoveCollection(collection) }, onOpen = { onOpenCollection(collection.id) })
                     }
                 }
             }
@@ -428,16 +480,22 @@ private fun SubscriptionAuthorRow(
 }
 
 @Composable
+/** 显示专题、标签或合集订阅，标题可选地打开对应内容详情。 */
 private fun SubscriptionContentRow(
     label: String,
     detail: String,
     frequency: String?,
     onFrequency: ((String) -> Unit)?,
     onRemove: () -> Unit,
+    onOpen: (() -> Unit)? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clickable(enabled = onOpen != null) { onOpen?.invoke() },
+            ) {
                 Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 if (detail.isNotBlank()) Text(detail, color = SubscriptionMuted, fontSize = 10.sp)
             }
