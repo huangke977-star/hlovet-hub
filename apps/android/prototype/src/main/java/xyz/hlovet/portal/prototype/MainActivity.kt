@@ -163,6 +163,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
@@ -5928,7 +5929,7 @@ private fun DiscoverScreen(
     var loadingMore by remember { mutableStateOf(false) }
     var discoveryMode by remember(initialMode) { mutableStateOf(initialMode) }
     var articleSort by remember { mutableStateOf("recommended") }
-    var articleSortDialogOpen by remember { mutableStateOf(false) }
+    var discoveryFilterDialogOpen by remember { mutableStateOf(false) }
     var discoveryPage by remember(articles, topics, collections) { mutableIntStateOf(1) }
     var canLoadMore by remember(articles, topics, collections) {
         mutableStateOf(articles.size >= 8 || topics.size >= 8 || collections.size >= 8)
@@ -6157,6 +6158,7 @@ private fun DiscoverScreen(
         else -> "recommended"
     }
 
+    /** 按内容类型重新读取第一页，并清理旧分页结果，避免筛选切换时混入上一种内容。 */
     fun loadDiscoveryMode(mode: String, force: Boolean = false, sortOverride: String? = null) {
         if (loadingMore || !force && mode == discoveryMode && discoveryPage == 1) return
         discoveryMode = mode
@@ -6183,6 +6185,7 @@ private fun DiscoverScreen(
         if (initialMode != "推荐") loadDiscoveryMode(initialMode, force = true)
     }
 
+    /** 追加当前发现模式的下一页，成功后按稳定 ID 合并并更新是否还有后续数据。 */
     fun loadMoreDiscovery() {
         if (loadingMore || !canLoadMore) return
         val nextPage = discoveryPage + 1
@@ -6204,41 +6207,53 @@ private fun DiscoverScreen(
         }
     }
 
+    // 列表接近底部时自动追加下一页，避免用户必须离开内容区寻找“加载更多”按钮。
+    val discoveryListState = rememberLazyListState()
+    LaunchedEffect(discoveryListState, canLoadMore, loadingMore) {
+        snapshotFlow {
+            val layout = discoveryListState.layoutInfo
+            val lastVisible = layout.visibleItemsInfo.lastOrNull()?.index ?: 0
+            layout.totalItemsCount > 0 && lastVisible >= layout.totalItemsCount - 3
+        }.collect { nearEnd ->
+            if (nearEnd && canLoadMore && !loadingMore) loadMoreDiscovery()
+        }
+    }
+
     LazyColumn(
+        state = discoveryListState,
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            AppHeader(
-                nativePhrase("发现", "Discover"),
-                nativePhrase("找到正在发生的内容", "Find what is happening now"),
-                action = {
-                    IconButton(onClick = onResourceCenterClick) {
-                        Icon(Icons.Filled.AutoAwesome, contentDescription = nativePhrase("资源中心", "Resource center"), tint = Accent)
-                    }
-                },
-            )
-        }
-        item {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = nativePhrase("搜索", "Search"), tint = TextMuted) },
-                trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        IconButton(onClick = { query = "" }) {
-                            Icon(Icons.Filled.Close, contentDescription = nativePhrase("清除搜索", "Clear search"), tint = TextMuted)
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.weight(1f).testTag("discover-search"),
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = nativePhrase("搜索", "Search"), tint = TextMuted) },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Filled.Close, contentDescription = nativePhrase("清除搜索", "Clear search"), tint = TextMuted)
+                            }
                         }
-                    }
-                },
-                placeholder = { Text(nativePhrase("搜索文章、专题和合集", "Search articles, topics, and collections"), color = TextMuted, fontSize = 13.sp) },
-                colors = HlovetUi.fieldColors(
-                    focusedBorderColor = Accent,
-                ),
-            )
+                    },
+                    placeholder = { Text(nativePhrase("搜索文章、专题和合集", "Search articles, topics, and collections"), color = TextMuted, fontSize = 13.sp) },
+                    colors = HlovetUi.fieldColors(focusedBorderColor = Accent),
+                )
+                IconButton(
+                    onClick = { discoveryFilterDialogOpen = true },
+                    modifier = Modifier.size(48.dp).testTag("discover-filter"),
+                ) {
+                    Icon(Icons.Filled.Tune, contentDescription = nativePhrase("筛选", "Filter"), tint = Accent)
+                }
+            }
         }
         if (query.trim().length >= 2) {
             item {
@@ -6289,105 +6304,27 @@ private fun DiscoverScreen(
                 }
             }
         } else {
-            if (discoveryMode == "推荐") {
-                item {
-                    NativeRecommendationPanel(
-                        session = session,
-                        recommendations = recommendations,
-                        loading = recommendationsLoading,
-                        error = recommendationsError,
-                        actionBusy = recommendationActionBusy,
-                        onLogin = onLogin,
-                        onRefresh = ::refreshRecommendations,
-                        onFeedback = ::markRecommendationNotInterested,
-                        onToggleTopic = ::toggleRecommendedTopic,
-                        onToggleCollection = ::toggleRecommendedCollection,
-                        onToggleAuthor = ::toggleRecommendedAuthor,
-                        onOpenTopic = { topic ->
-                            scope.launch {
-                                runCatching {
-                                    withContext(Dispatchers.IO) { NativeDiscoveryApi.getTopic(session?.accessToken, topic.slug.ifBlank { topic.title }) }
-                                }.onSuccess(onTopicClick)
-                                    .onFailure { recommendationsError = it.message ?: nativePhrase("专题暂时无法打开。", "The topic is temporarily unavailable.") }
-                            }
-                        },
-                        onOpenCollection = { collection ->
-                            scope.launch {
-                                runCatching {
-                                    withContext(Dispatchers.IO) { NativeDiscoveryApi.getCollection(session?.accessToken, collection.id) }
-                                }.onSuccess(onCollectionClick)
-                                    .onFailure { recommendationsError = it.message ?: nativePhrase("合集暂时无法打开。", "The collection is temporarily unavailable.") }
-                            }
-                        },
-                        onOpenUser = onOpenUser,
-                        onOpenGroup = { group ->
-                            if (group.isMember) onOpenGroup(group) else joinRequestTarget = group
-                        },
-                    )
-                }
-            }
-            item {
-                LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(listOf("推荐", "热门", "最新", "文章", "专题", "合集")) { mode ->
-                        FilterChip(
-                            selected = mode == discoveryMode,
-                            onClick = { loadDiscoveryMode(mode) },
-                            label = { Text(nativeDiscoveryModeLabel(mode), fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Accent,
-                                selectedLabelColor = HlovetUi.onAccent,
-                                containerColor = MaterialTheme.colorScheme.surface,
-                            ),
-                            border = null,
-                        )
-                    }
-                }
-            }
-            if (discoveryMode == "文章") {
-                item {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        FilterChip(
-                            selected = articleSort != "recommended",
-                            onClick = { articleSortDialogOpen = true },
-                            label = {
-                                Text(
-                                    nativeArticleSortDisplayLabel(articleSort),
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Filled.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
-                            },
-                            border = null,
-                        )
-                    }
-                }
-            }
             val visibility = nativeDiscoveryVisibility(discoveryMode)
             val showTopics = visibility.showTopics
             val showCollections = visibility.showCollections
             val showArticles = visibility.showArticles
-            item {
-                // 发现流的展示标题跟随导航文案，内部仍用稳定的“文章”模式值请求服务端数据。
-                SectionHeading(
-                    when (discoveryMode) {
-                        "文章", "热门", "最新" -> if (discoveryMode == "热门") nativePhrase("热门文章", "Popular articles") else if (discoveryMode == "最新") nativePhrase("最新文章", "Latest articles") else nativePhrase("发现", "Discover")
-                        "专题" -> nativePhrase("专题", "Topics")
-                        "合集" -> nativePhrase("合集", "Collections")
-                        else -> nativePhrase("专题与合集", "Topics and collections")
-                    },
-                    "",
-                )
+            if (!showArticles || discoveryMode !in listOf("文章", "热门", "最新", "推荐")) {
+                item {
+                    // 只有专题、合集或混合内容需要标题，纯文章流把首屏空间留给内容本身。
+                    SectionHeading(
+                        when (discoveryMode) {
+                            "专题" -> nativePhrase("专题", "Topics")
+                            "合集" -> nativePhrase("合集", "Collections")
+                            else -> nativePhrase("专题与合集", "Topics and collections")
+                        },
+                        "",
+                    )
+                }
             }
             if ((showTopics && localTopics.isEmpty()) && (showCollections && localCollections.isEmpty()) && (!showArticles || localArticles.isEmpty())) {
                 item { EmptyState(if (showArticles && !showTopics && !showCollections) nativePhrase("暂无可展示的文章", "No articles to show") else nativePhrase("暂时没有公开专题或合集", "No public topics or collections yet")) }
             } else {
-                if (showTopics) items(localTopics.take(discoveryPage * 3)) { topic ->
+                if (showTopics) items(localTopics) { topic ->
                     TopicRow(
                         title = topic.title,
                         meta = nativePhrase("专题 · ${topic.articleCount} 篇文章 · ${topic.subscriberCount} 人订阅", "Topic · ${topic.articleCount} articles · ${topic.subscriberCount} subscribers"),
@@ -6399,7 +6336,7 @@ private fun DiscoverScreen(
                         onSubscribe = { toggleTopic(topic) },
                     )
                 }
-                if (showCollections) items(localCollections.take(discoveryPage * 3)) { collection ->
+                if (showCollections) items(localCollections) { collection ->
                     TopicRow(
                         title = collection.name,
                         meta = nativePhrase("合集 · ${collection.articleCount} 篇文章 · ${collection.subscriberCount} 人订阅", "Collection · ${collection.articleCount} articles · ${collection.subscriberCount} subscribers"),
@@ -6413,45 +6350,56 @@ private fun DiscoverScreen(
                 }
             }
             loadMoreError?.let { message ->
-                item { Text(message, color = Coral, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp)) }
+                item {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(message, color = Coral, fontSize = 12.sp)
+                        if (canLoadMore) {
+                            TextButton(onClick = ::loadMoreDiscovery, enabled = !loadingMore) {
+                                Text(nativePhrase("点击重试", "Retry"), fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
             }
             subscriptionError?.let { message ->
                 item { Text(message, color = Coral, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp)) }
             }
             if (showArticles) {
-                if (discoveryMode != "文章") {
+                if (discoveryMode !in listOf("文章", "热门", "最新", "推荐")) {
                     item { SectionHeading(if (discoveryMode == "热门") nativePhrase("热门文章", "Popular articles") else if (discoveryMode == "最新") nativePhrase("最新文章", "Latest articles") else nativePhrase("最近更新", "Recently updated"), "") }
                 }
                 item {
-                    val recent = localArticles.take(discoveryPage * 4)
-                    if (recent.isEmpty()) EmptyState(nativePhrase("暂无可展示的文章", "No articles to show"))
-                    else ArticleGroup(recent, onArticleClick = onArticleClick)
+                    if (localArticles.isEmpty()) EmptyState(nativePhrase("暂无可展示的文章", "No articles to show"))
+                    else ArticleGroup(localArticles, onArticleClick = onArticleClick)
                 }
             }
-            if (canLoadMore || loadingMore) {
+            if (loadingMore) {
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                        TextButton(onClick = ::loadMoreDiscovery, enabled = !loadingMore) {
-                            Text(if (loadingMore) nativePhrase("正在加载…", "Loading…") else nativePhrase("加载更多", "Load more"), fontSize = 12.sp)
-                        }
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Accent)
+                        Spacer(Modifier.width(8.dp))
+                        Text(nativePhrase("正在加载更多…", "Loading more…"), color = TextMuted, fontSize = 12.sp)
                     }
                 }
             }
         }
     }
 
-    if (articleSortDialogOpen) {
+    if (discoveryFilterDialogOpen) {
         HlovetAlertDialog(
-            onDismissRequest = { articleSortDialogOpen = false },
-            title = { Text(nativePhrase("文章排序", "Article sorting")) },
+            onDismissRequest = { discoveryFilterDialogOpen = false },
+            title = { Text(nativePhrase("筛选发现内容", "Filter discover content")) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    nativeArticleSortOptions.forEach { option ->
+                Column(
+                    modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(nativePhrase("内容类型", "Content type"), color = TextMuted, fontSize = 12.sp)
+                    listOf("文章", "热门", "最新", "专题", "合集", "推荐").forEach { mode ->
                         TextButton(
                             onClick = {
-                                articleSort = option.value
-                                articleSortDialogOpen = false
-                                loadDiscoveryMode("文章", force = true, sortOverride = option.value)
+                                discoveryFilterDialogOpen = false
+                                loadDiscoveryMode(mode)
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
@@ -6460,17 +6408,48 @@ private fun DiscoverScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(nativeArticleSortDisplayLabel(option.value), fontSize = 13.sp)
-                                if (articleSort == option.value) {
-                                    Icon(Icons.Filled.Favorite, contentDescription = nativePhrase("当前排序", "Current sorting"), tint = Accent, modifier = Modifier.size(16.dp))
+                                Text(nativeDiscoveryModeLabel(mode), fontSize = 13.sp)
+                                if (discoveryMode == mode) {
+                                    Icon(Icons.Filled.Check, contentDescription = nativePhrase("当前类型", "Current type"), tint = Accent, modifier = Modifier.size(16.dp))
                                 }
                             }
+                        }
+                    }
+                    if (discoveryMode == "文章") {
+                        Text(nativePhrase("文章排序", "Article sorting"), color = TextMuted, fontSize = 12.sp)
+                        nativeArticleSortOptions.forEach { option ->
+                            TextButton(
+                                onClick = {
+                                    articleSort = option.value
+                                    discoveryFilterDialogOpen = false
+                                    loadDiscoveryMode("文章", force = true, sortOverride = option.value)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text(nativeArticleSortDisplayLabel(option.value), fontSize = 13.sp)
+                                    if (articleSort == option.value) Icon(Icons.Filled.Check, contentDescription = nativePhrase("当前排序", "Current sorting"), tint = Accent, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            discoveryFilterDialogOpen = false
+                            onResourceCenterClick()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = Accent, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(nativePhrase("资源中心", "Resource center"), fontSize = 13.sp)
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { articleSortDialogOpen = false }) { Text(nativePhrase("取消", "Cancel")) }
+                TextButton(onClick = { discoveryFilterDialogOpen = false }) { Text(nativePhrase("关闭", "Close")) }
             },
         )
     }
@@ -7460,10 +7439,7 @@ private fun MessagesScreen(
             },
             title = { Text(nativePhrase("通知设置", "Notification settings"), fontWeight = FontWeight.Bold) },
             text = {
-                Column(
-                    modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(nativePhrase("分别控制站内提醒、设备推送和订阅日报。", "Control in-app alerts, device notifications, and subscription digests."), color = TextMuted, fontSize = 12.sp)
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(nativePhrase("Android 系统提醒", "Android notifications"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -13650,7 +13626,7 @@ internal data class NativeDiscoveryVisibility(
 )
 
 internal fun nativeDiscoveryVisibility(mode: String): NativeDiscoveryVisibility = when (mode) {
-    "文章", "热门", "最新" -> NativeDiscoveryVisibility(showArticles = true, showTopics = false, showCollections = false)
+    "文章", "热门", "最新", "推荐" -> NativeDiscoveryVisibility(showArticles = true, showTopics = false, showCollections = false)
     "专题" -> NativeDiscoveryVisibility(showArticles = false, showTopics = true, showCollections = false)
     "合集" -> NativeDiscoveryVisibility(showArticles = false, showTopics = false, showCollections = true)
     else -> NativeDiscoveryVisibility(showArticles = true, showTopics = true, showCollections = true)

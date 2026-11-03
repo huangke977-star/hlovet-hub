@@ -51,7 +51,7 @@ class NativeRouteNormalizationTest {
         assertEquals(NativeDiscoveryVisibility(true, false, false), nativeDiscoveryVisibility("文章"))
         assertEquals(NativeDiscoveryVisibility(false, true, false), nativeDiscoveryVisibility("专题"))
         assertEquals(NativeDiscoveryVisibility(false, false, true), nativeDiscoveryVisibility("合集"))
-        assertEquals(NativeDiscoveryVisibility(true, true, true), nativeDiscoveryVisibility("推荐"))
+        assertEquals(NativeDiscoveryVisibility(true, false, false), nativeDiscoveryVisibility("推荐"))
     }
 
     @Test

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.FilterChip
@@ -61,6 +63,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -133,6 +136,8 @@ internal fun NativeAnonymousTopicsScreen(
     var identityPassword by remember { mutableStateOf("") }
     var messageDraft by remember { mutableStateOf("") }
     var pendingFiles by remember { mutableStateOf<List<NativeUploadFile>>(emptyList()) }
+    var filterDialogOpen by remember { mutableStateOf(false) }
+    val topicListState = rememberLazyListState()
 
     // 系统多选文件返回后统一检查数量和总大小，拒绝时保留现有附件与正文。
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -227,6 +232,17 @@ internal fun NativeAnonymousTopicsScreen(
     LaunchedEffect(query, sort, visibility, manager, management, session?.accessToken) {
         delay(if (query.isBlank()) 0 else 220)
         loadTopics()
+    }
+
+    // 话题列表接近底部时自动请求下一页，让匿名内容保持连续阅读体验。
+    LaunchedEffect(topicListState, page, pageTotal, loading) {
+        snapshotFlow {
+            val layout = topicListState.layoutInfo
+            val lastVisible = layout.visibleItemsInfo.lastOrNull()?.index ?: 0
+            layout.totalItemsCount > 0 && lastVisible >= layout.totalItemsCount - 3
+        }.collect { nearEnd ->
+            if (nearEnd && !loading && page < pageTotal) loadTopics(reset = false)
+        }
     }
 
     // 仅详情打开时定期同步，页面销毁后由 Compose 取消轮询。
@@ -434,9 +450,10 @@ internal fun NativeAnonymousTopicsScreen(
         },
     ) { padding ->
         LazyColumn(
+            state = topicListState,
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (managementDenied) {
                 item {
@@ -444,35 +461,25 @@ internal fun NativeAnonymousTopicsScreen(
                 }
             } else {
                 item {
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it.take(120) },
-                        modifier = Modifier.fillMaxWidth().testTag("anonymous-topic-search"),
-                        singleLine = true,
-                        label = { Text(nativePhrase("搜索匿名话题", "Search anonymous topics")) },
-                        leadingIcon = { Icon(Icons.Filled.Message, contentDescription = null) },
-                        colors = loginFieldColors(),
-                    )
-                }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("time" to nativePhrase("最近活跃", "Recently active"), "participation" to nativePhrase("参与最多", "Most participation"), "likes" to nativePhrase("点赞最多", "Most liked"), "favorites" to nativePhrase("喜欢最多", "Most favorited")).forEach { (value, label) ->
-                        FilterChip(
-                            selected = sort == value,
-                            onClick = { sort = value },
-                            label = { Text(label, fontSize = 10.sp) },
-                            border = null,
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = HlovetUi.accent, selectedLabelColor = Color.White),
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it.take(120) },
+                            modifier = Modifier.weight(1f).testTag("anonymous-topic-search"),
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Filled.Message, contentDescription = null) },
+                            placeholder = { Text(nativePhrase("搜索匿名话题", "Search anonymous topics"), fontSize = 13.sp) },
+                            colors = loginFieldColors(),
                         )
-                    }
-                }
-            }
-            if (manager) {
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("visible" to nativePhrase("正常", "Visible"), "hidden" to nativePhrase("已隐藏", "Hidden"), "all" to nativePhrase("全部", "All")).forEach { (value, label) ->
-                            FilterChip(selected = visibility == value, onClick = { visibility = value }, label = { Text(label, fontSize = 10.sp) }, border = null)
+                        IconButton(
+                            onClick = { filterDialogOpen = true },
+                            modifier = Modifier.size(48.dp).testTag("anonymous-topic-filter"),
+                        ) {
+                            Icon(Icons.Filled.Tune, contentDescription = nativePhrase("筛选", "Filter"), tint = HlovetUi.accent)
                         }
                     }
                 }
@@ -483,12 +490,47 @@ internal fun NativeAnonymousTopicsScreen(
             items(items, key = { it.id }) { item ->
                 AnonymousTopicListRow(item = item, onOpen = { loadTopic(item.id) }, onFavorite = { favorite(item) })
             }
-            if (page < pageTotal) item {
-                TextButton(onClick = { loadTopics(reset = false) }, enabled = !loading) {
-                    Text(if (loading) nativePhrase("读取中…", "Loading...") else nativePhrase("加载更多话题", "Load more topics"))
+            if (loading && items.isNotEmpty()) item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    Text(nativePhrase("正在加载更多…", "Loading more..."), color = HlovetUi.muted, fontSize = 12.sp)
                 }
             }
         }
+    }
+
+    if (filterDialogOpen) {
+        HlovetAlertDialog(
+            onDismissRequest = { filterDialogOpen = false },
+            title = { Text(nativePhrase("筛选匿名话题", "Filter anonymous topics")) },
+            text = {
+                Column(
+                    modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(nativePhrase("排序方式", "Sort by"), color = HlovetUi.muted, fontSize = 12.sp)
+                    listOf("time" to nativePhrase("最近活跃", "Recently active"), "participation" to nativePhrase("参与最多", "Most participation"), "likes" to nativePhrase("点赞最多", "Most liked"), "favorites" to nativePhrase("喜欢最多", "Most favorited")).forEach { (value, label) ->
+                        TextButton(onClick = { sort = value; filterDialogOpen = false }, modifier = Modifier.fillMaxWidth()) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(label, fontSize = 13.sp)
+                                if (sort == value) Icon(Icons.Filled.Done, contentDescription = nativePhrase("当前排序", "Current sorting"), tint = HlovetUi.accent, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                    if (manager) {
+                        Text(nativePhrase("可见性", "Visibility"), color = HlovetUi.muted, fontSize = 12.sp)
+                        listOf("visible" to nativePhrase("正常", "Visible"), "hidden" to nativePhrase("已隐藏", "Hidden"), "all" to nativePhrase("全部", "All")).forEach { (value, label) ->
+                            TextButton(onClick = { visibility = value; filterDialogOpen = false }, modifier = Modifier.fillMaxWidth()) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text(label, fontSize = 13.sp)
+                                    if (visibility == value) Icon(Icons.Filled.Done, contentDescription = nativePhrase("当前可见性", "Current visibility"), tint = HlovetUi.accent, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { filterDialogOpen = false }) { Text(nativePhrase("关闭", "Close")) } },
+        )
     }
 
     if (createOpen) {
