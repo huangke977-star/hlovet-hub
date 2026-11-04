@@ -7,6 +7,13 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## 订阅动态真实回归（2026-11-05）
+
+- 在本地 Docker API、MySQL、Redis 和 Android 11 `emulator-5562` 上执行 `NativeLocalSubscriptionFeedTest#subscriptionFeedLoadsNextPageAndOpensSubscribedCollection`，最终 `OK (1 test)`，失败、错误和跳过均为 `0`。
+- 该专项使用隔离作者、读者、13 篇公开文章和公开合集，实际核对作者订阅与合集订阅合并后按文章去重、第一页/第二页服务端分页、订阅管理中的合集详情入口、返回列表后的触底自动加载、打开未读文章前写入已读状态以及文章详情跳转，共 5 个检查点通过。
+- 回归夹具现在会在本地专项读者 refresh token 失效时注册替代读者，并完成首次兴趣引导；返回订阅页后由懒列表自身执行定位，避免把未组合的末项当作已显示内容。测试账号、文章、合集和订阅关系按约定保留，`testDataRemoved=false`。
+- 结束后本地 API 的 `3000/3001` ADB reverse 已移除；本轮只验证本地真实链路，不扩大为生产环境、实体网络切换或外部服务验收。
+
 ## 发现与匿名信息流真实布局复验（2026-11-05）
 
 - 使用当前 `main` 构建的 Debug APK 覆盖安装到 Android 11 `emulator-5562`，未清除账号、离线内容或业务数据；应用冷启动成功，前台仍为 `MainActivity`。

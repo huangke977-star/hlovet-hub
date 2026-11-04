@@ -43,11 +43,13 @@ class NativeLocalSubscriptionFeedTest {
         // 只有本地 API 与本地门户同时匹配时才允许创建文章和订阅关系。
         assumeTrue(BuildConfig.API_BASE_URL == "http://127.0.0.1:3001" && BuildConfig.PORTAL_BASE_URL == "http://127.0.0.1:3000")
         originalSession = NativeSessionStore.load(context)
-        // 优先复用主会话专项读者；没有合适会话时注册隔离读者，保证专项可独立执行。
+        // 优先复用主会话专项读者；refresh token 失效时不能让本地回归在前置阶段失败。
         val stored = originalSession?.takeIf { it.username.startsWith("native_restore_") }
-        reader = if (stored != null) {
-            NativeAuthApi.refresh(stored.refreshToken)
-        } else {
+        reader = stored?.let { session ->
+            runCatching { NativeAuthApi.refresh(session.refreshToken) }.getOrNull()
+        }
+        if (reader == null) {
+            // 仅在没有可用隔离会话时注册新读者，避免复用已撤销的认证材料。
             val suffix = UUID.randomUUID().toString().take(8)
             val result = NativeAuthApi.register(
                 "subscription_reader_$suffix",
@@ -57,10 +59,12 @@ class NativeLocalSubscriptionFeedTest {
                 null,
                 null,
             )
-            (result as? NativeAuthResult.Authenticated)?.session
+            reader = (result as? NativeAuthResult.Authenticated)?.session
                 ?: error("Local subscription reader registration did not authenticate")
         }
         check(NativeSessionStore.save(context, requireNotNull(reader)))
+        // 读者首次注册会弹出兴趣引导；专项验证订阅页本身，因此先完成空兴趣引导以解除遮罩。
+        NativeDiscoveryApi.completeOnboarding(requireNotNull(reader).accessToken, emptyList(), emptyList())
         oldLocale = NativeI18n.locale
         InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale("zh-CN") }
     }
@@ -166,12 +170,13 @@ class NativeLocalSubscriptionFeedTest {
 
     /** 保存当前读者会话并打开订阅动态深链。 */
     private fun open(session: NativeSession) {
-        // 每次切换身份都重新创建 Activity，避免旧页面协程覆盖当前会话。
+        // 每次切换身份都清空旧任务并重新创建 Activity，避免 singleTop 复用旧会话页面。
         check(NativeSessionStore.save(context, session))
         scenario = ActivityScenario.launch(
             Intent(context, MainActivity::class.java)
                 .setAction(Intent.ACTION_VIEW)
-                .setData(Uri.parse("${BuildConfig.PORTAL_BASE_URL}/articles/subscriptions")),
+                .setData(Uri.parse("${BuildConfig.PORTAL_BASE_URL}/articles/subscriptions"))
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }
 
