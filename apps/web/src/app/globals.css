@@ -23378,3 +23378,146 @@ body:has(.ai-user-page) :is(.ai-conversation-sidebar, .ai-chat-messages, .ai-too
 .ai-admin-page .ai-capability-card > footer .button:focus-visible {
   border: 0;
 }
+
+/* 发现和匿名信息流共用紧凑工具栏，把主要空间留给连续内容流。 */
+.article-discovery-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+.article-discovery-toolbar > .article-search {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.article-discovery-filter-bar {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-left: 0;
+  width: auto;
+}
+.article-discovery-filter-bar .article-order-select {
+  min-width: 154px;
+  justify-content: center;
+  padding: 0 5px;
+}
+.article-discovery-filter-bar .announcement-editor-select {
+  min-width: 0;
+  width: 100%;
+}
+.article-discovery-filter-bar .announcement-editor-select-trigger {
+  min-height: 38px;
+  width: 100%;
+  justify-content: flex-start;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.74rem;
+  padding: 0 7px;
+}
+.article-discovery-filter-bar .announcement-editor-select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.article-discovery-layout {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.article-discovery-main {
+  min-width: 0;
+}
+.article-discovery-secondary {
+  min-width: 0;
+  border-top: 1px solid color-mix(in srgb, var(--control-line) 70%, transparent);
+  padding-top: 2px;
+}
+.article-discovery-secondary .discovery-recommendations {
+  position: static;
+  padding: 10px 0 0;
+}
+.article-discovery-secondary .discovery-recommendation-columns {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.article-discovery-secondary .discovery-recommendation-columns > div + div {
+  border-top: 0;
+  border-left: 1px solid color-mix(in srgb, var(--control-line) 68%, transparent);
+  padding-top: 0;
+  padding-left: 10px;
+}
+.anonymous-topic-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--control-line) 72%, transparent);
+  padding: 8px 12px;
+}
+.anonymous-topic-toolbar .p8-list-search {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+}
+.anonymous-topic-filter-bar {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+.anonymous-topic-filter-bar .anonymous-topic-sort,
+.anonymous-topic-filter-bar .anonymous-topic-visibility {
+  flex: 0 0 auto;
+}
+.anonymous-topic-filter-bar .announcement-editor-select-trigger {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 700px) {
+  .article-discovery-toolbar {
+    gap: 7px;
+  }
+  .article-discovery-filter-bar .article-order-select {
+    min-width: 132px;
+  }
+  .article-discovery-secondary .discovery-recommendation-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .article-discovery-secondary .discovery-recommendation-columns > div + div {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .anonymous-topic-toolbar {
+    padding-inline: 9px;
+  }
+}
+
+@media (max-width: 460px) {
+  .article-discovery-toolbar {
+    align-items: center;
+    flex-direction: row;
+  }
+  .article-discovery-filter-bar { width: auto; }
+  .article-discovery-filter-bar .article-order-select {
+    min-width: 118px;
+  }
+  .anonymous-topic-toolbar {
+    align-items: center;
+    flex-direction: row;
+  }
+  .anonymous-topic-filter-bar {
+    justify-content: flex-end;
+  }
+}

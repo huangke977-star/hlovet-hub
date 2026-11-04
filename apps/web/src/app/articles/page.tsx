@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, BookOpen, ChevronDown, ChevronUp, EyeOff, FolderOpen, RefreshCw, Rss, Search, SlidersHorizontal, UserPlus, UserRound, UsersRound, X } from "lucide-react";
+import { ArrowRight, BookOpen, EyeOff, FolderOpen, RefreshCw, Rss, Search, SlidersHorizontal, UserPlus, UserRound, UsersRound, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
@@ -50,11 +50,11 @@ function ArticlesContent() {
   const [recommendations, setRecommendations] = useState<DiscoveryRecommendations | null>(null);
   const [isRefreshingRecommendations, setIsRefreshingRecommendations] = useState(false);
   const [isRecommendationFeedbackSubmitting, setIsRecommendationFeedbackSubmitting] = useState(false);
-  const [isRecommendationsOpen, setIsRecommendationsOpen] = useState(false);
   const [joinRequestTarget, setJoinRequestTarget] = useState<DiscoveryRecommendations["groups"][number] | null>(null);
   const [joinRequestNote, setJoinRequestNote] = useState("");
   const [isComposing, setIsComposing] = useState(false);
 
+  /** 更新发现页查询参数，保持搜索、内容范围和排序可以通过浏览器前进后退恢复。 */
   function replaceQuery(next: { q?: string; feed?: DiscoverFeed; order?: DiscoverOrder }) {
     const params = new URLSearchParams(searchParams.toString());
     const nextSearch = next.q ?? querySearch;
@@ -78,6 +78,20 @@ function ArticlesContent() {
     { label: t("discover.mostFavorited"), value: "favorites" },
     { label: t("discover.mostCommented"), value: "comments" },
   ];
+  const discoveryFilterOptions: ReadonlyArray<{ label: string; value: DiscoveryFilter }> = [
+    { label: t("discover.recommended"), value: "feed:recommended" },
+    { label: t("discover.latest"), value: "feed:latest" },
+    { label: t("discover.popular"), value: "feed:popular" },
+    ...articleOrderOptions.filter((option) => option.value !== "default").map((option) => ({ label: option.label, value: `order:${option.value}` as DiscoveryFilter })),
+  ];
+  const activeDiscoveryFilter: DiscoveryFilter = order === "default" ? `feed:${feed}` : `order:${order}`;
+
+  /** 将统一筛选器的选择拆分为内容范围或排序参数，避免工具栏出现多组控件。 */
+  function handleDiscoveryFilter(value: DiscoveryFilter) {
+    const [kind, selected] = value.split(":") as ["feed" | "order", string];
+    if (kind === "feed" && isDiscoverFeed(selected)) replaceQuery({ feed: selected, order: "default" });
+    if (kind === "order" && isDiscoverOrder(selected)) replaceQuery({ order: selected });
+  }
 
   useEffect(() => {
     if (isComposing || searchInput === querySearch) return;
@@ -235,21 +249,14 @@ function ArticlesContent() {
   return (
     <section className="page-shell articles-page">
       <ArticleCenterNav active="discover" isLoggedIn={isLoggedIn} user={user} />
-      <div className="article-discovery-tabs article-center-secondary-tabs" role="tablist">
-        {([
-          ["recommended", t("discover.recommended")],
-          ["latest", t("discover.latest")],
-          ["popular", t("discover.popular")],
-        ] as const).map(([value, label]) => (
-          <button aria-selected={feed === value} className={feed === value ? "active" : undefined} key={value} onClick={() => replaceQuery({ feed: value, order: "default" })} role="tab" type="button">{label}</button>
-        ))}
+      <div className="article-discovery-toolbar" role="toolbar">
+        <label className="article-search">
+          <Search aria-hidden="true" size={17} />
+          <input aria-label={t("discover.searchArticles")} name="search" onChange={(event) => setSearchInput(event.target.value)} onCompositionEnd={(event) => { setSearchInput(event.currentTarget.value); setIsComposing(false); }} onCompositionStart={() => setIsComposing(true)} placeholder={t("discover.searchArticles")} value={searchInput} />
+          {searchInput ? <button aria-label={t("common.clear")} onClick={() => setSearchInput("")} title={t("common.clear")} type="button"><X aria-hidden="true" size={16} /></button> : null}
+        </label>
         <div className="article-discovery-filter-bar">
-          <label className="article-search">
-            <Search aria-hidden="true" size={17} />
-            <input aria-label={t("discover.searchArticles")} name="search" onChange={(event) => setSearchInput(event.target.value)} onCompositionEnd={(event) => { setSearchInput(event.currentTarget.value); setIsComposing(false); }} onCompositionStart={() => setIsComposing(true)} placeholder={t("discover.searchArticles")} value={searchInput} />
-            {searchInput ? <button aria-label={t("common.clear")} onClick={() => setSearchInput("")} title={t("common.clear")} type="button"><X aria-hidden="true" size={16} /></button> : null}
-          </label>
-          <div className="article-order-select"><SlidersHorizontal aria-hidden="true" size={16} /><GlassSelect ariaLabel={t("discover.articleSort")} menuClassName="article-discovery-order-menu" menuPortal onChange={(value) => replaceQuery({ order: value })} options={articleOrderOptions} value={order} /></div>
+          <div className="article-order-select"><GlassSelect ariaLabel={t("discover.articleSort")} leadingIcon={<SlidersHorizontal aria-hidden="true" size={14} />} menuClassName="article-discovery-order-menu" menuPortal onChange={handleDiscoveryFilter} options={discoveryFilterOptions} value={activeDiscoveryFilter} /></div>
         </div>
       </div>
       <div className="article-discovery-layout">
@@ -259,10 +266,7 @@ function ArticlesContent() {
               : <div className="article-empty-state"><strong>{t("discover.notFound")}</strong><span>{querySearch ? t("discover.tryAnother") : t("discover.noContent")}</span></div>}
           {list.items.length ? <ArticleInfiniteFooter hasMore={list.page < list.totalPages} isLoading={isLoadingMore} onLoadMore={loadMore} /> : null}
         </div>
-        {recommendations ? <aside className={`article-discovery-sidebar${isRecommendationsOpen ? " is-open" : ""}`}>
-          <button aria-expanded={isRecommendationsOpen} className="side-panel-mobile-toggle" onClick={() => setIsRecommendationsOpen((current) => !current)} type="button"><span>{phrase("为你推荐", "For you")}</span>{isRecommendationsOpen ? <ChevronUp aria-hidden="true" size={15} /> : <ChevronDown aria-hidden="true" size={15} />}</button>
-          <DiscoveryRecommendationsPanel isFeedbackSubmitting={isRecommendationFeedbackSubmitting} isRefreshing={isRefreshingRecommendations} onFeedback={markNotInterested} onJoinGroup={(group) => { setError(""); setJoinRequestTarget(group); setJoinRequestNote(""); }} onRefresh={() => void refreshRecommendations()} onToggleAuthor={toggleAuthor} onToggleCollection={toggleCollection} onToggleTopic={toggleTopic} recommendations={recommendations} />
-        </aside> : null}
+        {recommendations ? <section className="article-discovery-secondary"><DiscoveryRecommendationsPanel isFeedbackSubmitting={isRecommendationFeedbackSubmitting} isRefreshing={isRefreshingRecommendations} onFeedback={markNotInterested} onJoinGroup={(group) => { setError(""); setJoinRequestTarget(group); setJoinRequestNote(""); }} onRefresh={() => void refreshRecommendations()} onToggleAuthor={toggleAuthor} onToggleCollection={toggleCollection} onToggleTopic={toggleTopic} recommendations={recommendations} /></section> : null}
       </div>
       {joinRequestTarget ? <RequestComposerDialog icon={<UsersRound aria-hidden="true" size={18} />} isSubmitting={isJoinRequestSubmitting} label={phrase("申请说明", "Request note")} maxLength={200} onChange={setJoinRequestNote} onClose={() => { setJoinRequestTarget(null); setJoinRequestNote(""); }} onSubmit={() => void joinRecommendedGroup()} placeholder={phrase("向群管理员说明来意，可不填", "Introduce yourself to the group managers. Optional.")} submitLabel={phrase("提交入群申请", "Send join request")} title={phrase("申请加入群聊", "Request to join group")} value={joinRequestNote}><div className="request-composer-group-target"><span className="discovery-recommendation-icon group">{joinRequestTarget.avatarUrl ? <img alt="" src={resolveApiUrl(joinRequestTarget.avatarUrl)} /> : getNamedFallbackText(joinRequestTarget.name, "群")}</span><span><strong>{joinRequestTarget.name}</strong><small>{phrase(`${joinRequestTarget.memberCount} 位成员`, `${joinRequestTarget.memberCount} members`)}</small></span></div></RequestComposerDialog> : null}
       <AppToast message={error || notice} onDismiss={() => { setError(""); setNotice(""); }} tone={error ? "error" : "success"} />
@@ -324,6 +328,18 @@ function resolveSort(feed: DiscoverFeed, order: DiscoverOrder): string {
 
 function normalizeFeed(value: string | null): DiscoverFeed {
   return value === "latest" || value === "popular" ? value : "recommended";
+}
+
+type DiscoveryFilter = `feed:${DiscoverFeed}` | `order:${Exclude<DiscoverOrder, "default">}`;
+
+/** 判断统一筛选器传入的内容范围，防止异常 URL 值进入请求参数。 */
+function isDiscoverFeed(value: string): value is DiscoverFeed {
+  return value === "recommended" || value === "latest" || value === "popular";
+}
+
+/** 判断统一筛选器传入的排序值，防止异常 URL 值进入请求参数。 */
+function isDiscoverOrder(value: string): value is Exclude<DiscoverOrder, "default"> {
+  return value === "latest" || value === "popular" || value === "views" || value === "likes" || value === "favorites" || value === "comments";
 }
 
 function normalizeOrder(value: string | null): DiscoverOrder {
