@@ -14,6 +14,12 @@
 - 回归夹具现在会在本地专项读者 refresh token 失效时注册替代读者，并完成首次兴趣引导；返回订阅页后由懒列表自身执行定位，避免把未组合的末项当作已显示内容。测试账号、文章、合集和订阅关系按约定保留，`testDataRemoved=false`。
 - 结束后本地 API 的 `3000/3001` ADB reverse 已移除；本轮只验证本地真实链路，不扩大为生产环境、实体网络切换或外部服务验收。
 
+## Android 15 匿名信息流真实回归（2026-11-05）
+
+- 在本地 Docker API、MySQL、Redis 和 Android 15 `emulator-5560` 上执行 `NativeLocalAnonymousTopicTest#realAnonymousTopicLifecycleAndInteractions`，最终 `OK (1 test)`，失败、错误和跳过均为 `0`。
+- 真实页面核对了匿名信息流首行搜索、搜索结果打开、话题详情、匿名发言、附件、点赞、收藏、创建者关闭/重开及密码恢复；服务端回读确认本轮数据全部落库，业务测试数据按约定保留。
+- 结束后已移除 `3000/3001` ADB reverse，重新安装默认生产地址 Debug APK 并冷启动到 `MainActivity`；本轮不把本地 API 结果扩大为生产网络验收。
+
 ## 发现与匿名信息流真实布局复验（2026-11-05）
 
 - 使用当前 `main` 构建的 Debug APK 覆盖安装到 Android 11 `emulator-5562`，未清除账号、离线内容或业务数据；应用冷启动成功，前台仍为 `MainActivity`。
