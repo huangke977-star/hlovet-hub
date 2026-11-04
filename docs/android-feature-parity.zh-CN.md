@@ -7,6 +7,13 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## 发现与匿名信息流真实布局复验（2026-11-05）
+
+- 使用当前 `main` 构建的 Debug APK 覆盖安装到 Android 11 `emulator-5562`，未清除账号、离线内容或业务数据；应用冷启动成功，前台仍为 `MainActivity`。
+- 发现页 UI 树核对为首行搜索框和筛选图标，下面直接进入文章信息流；文章行独立位于 `LazyColumn`，列表接近底部会自动追加下一页，未再使用会压缩首屏的额外筛选区或大卡片容器。
+- 匿名页 UI 树核对为首行搜索框和筛选图标，创建入口移到右下角悬浮按钮；话题列表使用独立懒加载行，接近底部自动追加分页，搜索/筛选不会占用文章或话题列表区域。
+- 原始截图和 UI dump 保存在 `tmp-discover-layout-current-20261105.png`、`tmp-discover-layout-current-20261105.xml`、`tmp-anonymous-layout-current-20261105.png` 和 `tmp-anonymous-layout-current-20261105.xml`；本轮未执行真实创建、收藏或内容写入操作。
+
 ## 双设备 WebRTC 真实媒体验收（2026-11-04）
 
 - 在本地 Docker API、Android 11 `emulator-5562` 和 Android 15 `emulator-5566` 上，使用两台设备各自通过真实注册/密码登录建立的本地会话，未复制或导出任何认证材料；两端均通过真实 `MainActivity`、Socket 信令和通话控件完成配对。
