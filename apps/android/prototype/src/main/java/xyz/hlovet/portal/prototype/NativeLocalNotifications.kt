@@ -33,6 +33,21 @@ internal fun nativeNotificationChannelName(): String = nativePhrase("站内提�
 /** 返回系统通知频道描述的当前语言文案，首次创建频道时使用。 */
 internal fun nativeNotificationChannelDescription(): String = nativePhrase("HLOVET 的聊天、评论和系统提醒", "HLOVET chats, comments, and system notifications")
 
+/** 按设备当前语言选择 FCM 文案，并在供应商缺少对应语言时回退到默认文案。 */
+internal fun nativeNotificationPayloadText(
+    data: Map<String, String>,
+    primaryKey: String,
+    englishKey: String,
+    locale: String?,
+    fallback: String,
+): String {
+    // 英文优先读取英文字段；字段缺失时仍尝试中文字段，避免后台通知出现空标题或空正文。
+    val preferredKey = if (normalizeNativeLocale(locale) == "en-US") englishKey else primaryKey
+    return data[preferredKey]?.takeIf(String::isNotBlank)
+        ?: data[primaryKey]?.takeIf(String::isNotBlank)
+        ?: fallback
+}
+
 /**
  * A small foreground notification fallback for the native client.
  *

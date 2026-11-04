@@ -51,6 +51,12 @@
 - 修复 FCM 与前台轮询通知在标题/正文为空时固定显示中文的问题；通知频道名称、描述和正文兜底现在都跟随账号保存的语言，新增 `NativeI18nTest#notificationFallbacksFollowTheSelectedLocale`，并随 `testDebugUnitTest` 与 Debug 构建通过。
 - 该持续校验仍不替代 Google/Passkey 成功授权、FCM 真推送、生产双设备 WebRTC、外部 AI/OCR/语音/图片服务、OSS/R2 和物理断网等外部条件验收；这些边界仍按上方门槛单独记录。
 
+## FCM 双语后台通知文案修复（2026-11-05）
+
+- 后台 FCM 服务现在先恢复账号保存的语言，再从数据消息中选择对应文案：中文使用 `title/body`，英文优先使用 `titleEn/bodyEn`；英文字段缺失时回退到主字段，避免旧服务端或部分供应商导致通知为空。
+- 新增 `NativeNotificationPayloadTextTest`，覆盖英文优先、中文默认和英文缺失回退三条路径；已通过 `:prototype:compileDebugKotlin`、`:prototype:testDebugUnitTest` 和 `:prototype:assembleDebug`。
+- 本轮未进行真实 FCM 到达验证，因为仍需要 Firebase Android 配置、服务端 FCM 凭据和带 Google Play 服务的真实设备；不把本地构建结果扩大解释为生产推送已验收。
+
 ## Android 当前源码与冷启动复核（2026-11-03）
 
 - 使用当前 `main` 再次执行 `node apps/android/tools/check-route-parity.mjs` 和 `node apps/android/tools/check-api-parity.mjs`：PC 用户路由 `70/70`、后台入口 `24/24`、PC API 模块 `27/27` 均通过，审计结果为 `0` 个确认缺失候选。

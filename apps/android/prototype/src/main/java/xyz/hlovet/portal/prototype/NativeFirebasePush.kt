@@ -23,7 +23,7 @@ internal fun isNativeFirebaseConfigured(
     return apiKey.isNotBlank() && projectId.isNotBlank() && applicationId.isNotBlank() && senderId.isNotBlank()
 }
 
-/** Optional FCM bridge. Empty Gradle Firebase properties intentionally disable it. */
+/** 可选的 FCM 桥接层；Gradle Firebase 参数为空时保持关闭，不影响无推送配置的 APK。 */
 internal object NativeFirebasePush {
     private const val PREFS = "native-firebase-push"
     private const val TOKEN_KEY = "token"
@@ -111,6 +111,7 @@ internal object NativeFirebasePush {
     }
 }
 
+/** 接收后台 FCM 数据消息、去重并转交统一的本地通知与深链入口。 */
 class NativeFirebaseMessagingService : com.google.firebase.messaging.FirebaseMessagingService() {
     /** 保存 Firebase 新令牌并在已有会话下重新登记，避免令牌轮换后继续使用旧设备记录。 */
     override fun onNewToken(token: String) {
@@ -127,13 +128,21 @@ class NativeFirebaseMessagingService : com.google.firebase.messaging.FirebaseMes
         // FCM 进程不一定经过 MainActivity，先恢复账号保存的语言偏好再计算兜底文案。
         NativeI18n.load(this)
         val data = message.data
-        // 依次读取数据消息、通知消息和当前语言兜底，空字符串同样视为缺失。
-        val title = data["title"]?.takeIf(String::isNotBlank)
-            ?: message.notification?.title?.takeIf(String::isNotBlank)
-            ?: nativeNotificationTitleFallback()
-        val body = data["body"]?.takeIf(String::isNotBlank)
-            ?: message.notification?.body?.takeIf(String::isNotBlank)
-            ?: nativeNotificationBodyFallback()
+        // 按当前语言选择数据消息中的双语字段，再回退到 Firebase 通知字段和本地兜底。
+        val title = nativeNotificationPayloadText(
+            data = data,
+            primaryKey = "title",
+            englishKey = "titleEn",
+            locale = NativeI18n.locale,
+            fallback = message.notification?.title?.takeIf(String::isNotBlank) ?: nativeNotificationTitleFallback(),
+        )
+        val body = nativeNotificationPayloadText(
+            data = data,
+            primaryKey = "body",
+            englishKey = "bodyEn",
+            locale = NativeI18n.locale,
+            fallback = message.notification?.body?.takeIf(String::isNotBlank) ?: nativeNotificationBodyFallback(),
+        )
         val notificationId = data["notificationId"]?.toIntOrNull()
         // 未登录设备不展示需要账号上下文的站内通知，避免把上一个账号的消息泄露到当前设备。
         val session = NativeSessionStore.load(this) ?: return
