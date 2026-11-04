@@ -5877,44 +5877,67 @@ private fun ArticleGroup(
     ) {
         Column {
             displayArticles.forEachIndexed { index, article ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onArticleClick(article) }
-                        .padding(horizontal = if (edgeToEdge) 12.dp else 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Avatar(article.authorName.takeLast(2), Coral)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(article.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Spacer(Modifier.height(4.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(article.authorName, color = TextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(" · ", color = TextMuted, fontSize = 11.sp)
-                            Text(articleReadTime(article), color = TextMuted, fontSize = 11.sp)
-                            Spacer(Modifier.width(7.dp))
-                            Text(article.category, color = Accent, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (onNotInterested != null) {
-                            IconButton(onClick = { onNotInterested(article) }, modifier = Modifier.size(34.dp)) {
-                                Icon(Icons.Filled.VisibilityOff, contentDescription = nativePhrase("不感兴趣", "Not interested"), tint = TextMuted, modifier = Modifier.size(17.dp))
-                            }
-                        }
-                        Icon(Icons.Filled.BookmarkBorder, contentDescription = null, tint = TextMuted, modifier = Modifier.size(21.dp))
-                    }
-                }
-                if (index < displayArticles.lastIndex) {
-                    HorizontalDivider(
-                        color = HlovetUi.divider,
-                        thickness = 1.dp,
-                        modifier = Modifier.padding(horizontal = if (edgeToEdge) 12.dp else 16.dp),
-                    )
+                ArticleFeedRow(
+                    article = article,
+                    onArticleClick = onArticleClick,
+                    onNotInterested = onNotInterested,
+                    edgeToEdge = edgeToEdge,
+                    showDivider = index < displayArticles.lastIndex,
+                )
+            }
+        }
+    }
+}
+
+/** 展示发现页单条文章信息流行，保证文章在 LazyColumn 中独立回收和触发分页。 */
+@Composable
+private fun ArticleFeedRow(
+    article: RemoteArticle,
+    onArticleClick: (RemoteArticle) -> Unit,
+    onNotInterested: ((RemoteArticle) -> Unit)?,
+    edgeToEdge: Boolean,
+    showDivider: Boolean,
+) {
+    // 行内容直接占用列表宽度，避免外层卡片或额外标题压缩文章阅读区域。
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onArticleClick(article) }
+                .padding(horizontal = if (edgeToEdge) 12.dp else 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 作者头像使用后两位兜底，保证没有头像时仍有稳定的视觉锚点。
+            Avatar(article.authorName.takeLast(2), Coral)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(article.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(article.authorName, color = TextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(" · ", color = TextMuted, fontSize = 11.sp)
+                    Text(articleReadTime(article), color = TextMuted, fontSize = 11.sp)
+                    Spacer(Modifier.width(7.dp))
+                    Text(article.category, color = Accent, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
+            Spacer(Modifier.width(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onNotInterested != null) {
+                    IconButton(onClick = { onNotInterested(article) }, modifier = Modifier.size(34.dp)) {
+                        Icon(Icons.Filled.VisibilityOff, contentDescription = nativePhrase("不感兴趣", "Not interested"), tint = TextMuted, modifier = Modifier.size(17.dp))
+                    }
+                }
+                Icon(Icons.Filled.BookmarkBorder, contentDescription = null, tint = TextMuted, modifier = Modifier.size(21.dp))
+            }
+        }
+        // 分隔线只保留在相邻文章之间，使列表像资讯流而不是一组大卡片。
+        if (showDivider) {
+            HorizontalDivider(
+                color = HlovetUi.divider,
+                thickness = 1.dp,
+                modifier = Modifier.padding(horizontal = if (edgeToEdge) 12.dp else 16.dp),
+            )
         }
     }
 }
@@ -6301,7 +6324,15 @@ private fun DiscoverScreen(
             if (result != null) {
                 if (result.articles.isNotEmpty()) {
                     item { SectionHeading(nativePhrase("文章", "Articles"), "") }
-                    item { ArticleGroup(result.articles, onArticleClick = onArticleClick, edgeToEdge = true) }
+                    itemsIndexed(result.articles, key = { _, article -> "discover-search-article-${article.id}" }) { index, article ->
+                        ArticleFeedRow(
+                            article = article,
+                            onArticleClick = onArticleClick,
+                            onNotInterested = null,
+                            edgeToEdge = true,
+                            showDivider = index < result.articles.lastIndex,
+                        )
+                    }
                 }
                 if (result.topics.isNotEmpty()) {
                     item { SectionHeading(nativePhrase("专题", "Topics"), "") }
@@ -6402,9 +6433,19 @@ private fun DiscoverScreen(
                 if (discoveryMode !in listOf("文章", "热门", "最新", "推荐")) {
                     item { SectionHeading(if (discoveryMode == "热门") nativePhrase("热门文章", "Popular articles") else if (discoveryMode == "最新") nativePhrase("最新文章", "Latest articles") else nativePhrase("最近更新", "Recently updated"), "") }
                 }
-                item {
-                    if (localArticles.isEmpty()) EmptyState(nativePhrase("暂无可展示的文章", "No articles to show"))
-                    else ArticleGroup(localArticles, onArticleClick = onArticleClick, edgeToEdge = true)
+                if (localArticles.isEmpty()) {
+                    item { EmptyState(nativePhrase("暂无可展示的文章", "No articles to show")) }
+                } else {
+                    // 每条文章都是 LazyColumn 的独立元素，滚动时只组合可见行，分页触发点也更准确。
+                    itemsIndexed(localArticles, key = { _, article -> "discover-article-${article.id}" }) { index, article ->
+                        ArticleFeedRow(
+                            article = article,
+                            onArticleClick = onArticleClick,
+                            onNotInterested = null,
+                            edgeToEdge = true,
+                            showDivider = index < localArticles.lastIndex,
+                        )
+                    }
                 }
             }
             if (loadingMore) {

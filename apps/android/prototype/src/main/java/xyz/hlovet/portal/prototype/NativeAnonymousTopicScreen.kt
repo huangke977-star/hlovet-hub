@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -437,6 +438,19 @@ internal fun NativeAnonymousTopicsScreen(
     // 列表和全部弹窗共用同一错误状态，错误必须出现在用户当前操作的最上层。
     Scaffold(
         containerColor = Color.Transparent,
+        floatingActionButton = {
+            // 公开匿名页把发起入口移出首行，避免搜索框被操作按钮挤窄；管理页继续使用顶部新增按钮。
+            if (!management && !managementDenied) {
+                FloatingActionButton(
+                    onClick = { if (!saving) openCreate() },
+                    modifier = Modifier.testTag("anonymous-topic-create-fab"),
+                    containerColor = HlovetUi.accent,
+                    contentColor = Color.White,
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = nativePhrase("发起匿名话题", "Create anonymous topic"))
+                }
+            }
+        },
         topBar = {
             if (management) {
                 TopAppBar(
@@ -490,14 +504,6 @@ internal fun NativeAnonymousTopicsScreen(
                         ) {
                             Icon(Icons.Filled.Tune, contentDescription = nativePhrase("筛选", "Filter"), tint = HlovetUi.accent)
                         }
-                        if (!management && !managementDenied) {
-                            IconButton(onClick = { loadTopics() }, enabled = !loading && !saving, modifier = Modifier.size(44.dp)) {
-                                Icon(Icons.Filled.Refresh, contentDescription = nativePhrase("刷新", "Refresh"))
-                            }
-                            IconButton(onClick = ::openCreate, enabled = !saving, modifier = Modifier.size(44.dp).testTag("anonymous-topic-create")) {
-                                Icon(Icons.Filled.Add, contentDescription = nativePhrase("发起匿名话题", "Create anonymous topic"))
-                            }
-                        }
                     }
                 }
             }
@@ -541,6 +547,23 @@ internal fun NativeAnonymousTopicsScreen(
                                     Text(label, fontSize = 13.sp)
                                     if (visibility == value) Icon(Icons.Filled.Done, contentDescription = nativePhrase("当前可见性", "Current visibility"), tint = HlovetUi.accent, modifier = Modifier.size(16.dp))
                                 }
+                            }
+                        }
+                    }
+                    if (!management) {
+                        TextButton(
+                            onClick = { filterDialogOpen = false; loadTopics() },
+                            enabled = !loading && !saving,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Start,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(nativePhrase("刷新列表", "Refresh list"), fontSize = 13.sp)
                             }
                         }
                     }
