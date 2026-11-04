@@ -7,6 +7,14 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## 双设备 WebRTC 真实媒体验收（2026-11-04）
+
+- 在本地 Docker API、Android 11 `emulator-5562` 和 Android 15 `emulator-5566` 上，使用两台设备各自通过真实注册/密码登录建立的本地会话，未复制或导出任何认证材料；两端均通过真实 `MainActivity`、Socket 信令和通话控件完成配对。
+- 语音专项 `NativeLocalDualDeviceCallTest#pairedNativeVoiceCallConnectsAndEnds` 双端均为 `OK (1 test)`：主叫、被叫、WebRTC 活跃状态、静音/恢复和同步挂断共 5 个检查点完成，双方会话均保留。
+- 视频专项 `NativeLocalDualDeviceCallTest#pairedNativeVideoCallMinimizesAndEnds` 双端均为 `OK (1 test)`：真实本地/远端视频帧、两轮最小化恢复、静音、摄像头关闭/恢复、单摄像头能力边界和同步挂断共 7 个检查点完成，报告中 `turnConfigured=true`。
+- 本轮 TURN 使用随机临时密钥的隔离 coturn 容器和 `3002` 本地签发夹具，不修改正式 TURN、代理、服务器配置或数据库；结束后容器、签发夹具、设备 `3001/3002` reverse 和临时密钥均已清理，5562 原有的 `18080` 映射保留。原始双端日志和设备报告保存在 `tmp-dual-call-results-20261104/voice1104c/`、`tmp-dual-call-results-20261104/video1104a/`，测试业务数据按约定保留。
+- 这次关闭了“生产双设备 WebRTC”这一项本地真实媒体门槛，但不扩大为生产 TURN、实体手机网络切换、FCM、Google/Passkey 成功授权、外部 AI/OCR/语音/图片服务或 OSS/R2 的验收；这些仍需对应外部条件。
+
 ## Android 本地注册策略链路差异复核（2026-11-03）
 
 - 为避免认证页读取旧配置，`NativeAuthApi` 的策略类 GET 请求已关闭 HTTP 缓存，并发送 `Cache-Control: no-cache, no-store`；提交 `f629949` 已推送。
