@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -104,6 +105,7 @@ internal fun nativeAnonymousTopicAccess(management: Boolean, isAdministrator: Bo
 internal fun NativeAnonymousTopicsScreen(
     session: NativeSession?,
     management: Boolean = false,
+    showBackNavigation: Boolean = true,
     onBack: () -> Unit,
 ) {
     // 话题、编辑草稿和匿名身份留在本页面，公开与管理请求沿用同一套组件及服务端权限。
@@ -436,24 +438,26 @@ internal fun NativeAnonymousTopicsScreen(
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
-            TopAppBar(
-                title = { Text(if (management) nativePhrase("匿名话题管理", "Anonymous topic management") else nativePhrase("匿名话题", "Anonymous topics"), fontSize = 20.sp, fontWeight = FontWeight.Bold) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = nativePhrase("返回", "Back")) } },
-                actions = {
-                    if (!managementDenied) {
-                        IconButton(onClick = { loadTopics() }, enabled = !loading && !saving) { Icon(Icons.Filled.Refresh, contentDescription = nativePhrase("刷新", "Refresh")) }
-                        IconButton(onClick = ::openCreate, enabled = !saving, modifier = Modifier.testTag("anonymous-topic-create")) { Icon(Icons.Filled.Add, contentDescription = nativePhrase("发起匿名话题", "Create anonymous topic")) }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-            )
+            if (management) {
+                TopAppBar(
+                    title = { Text(nativePhrase("匿名话题管理", "Anonymous topic management"), fontSize = 20.sp, fontWeight = FontWeight.Bold) },
+                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = nativePhrase("返回", "Back")) } },
+                    actions = {
+                        if (!managementDenied) {
+                            IconButton(onClick = { loadTopics() }, enabled = !loading && !saving) { Icon(Icons.Filled.Refresh, contentDescription = nativePhrase("刷新", "Refresh")) }
+                            IconButton(onClick = ::openCreate, enabled = !saving, modifier = Modifier.testTag("anonymous-topic-create")) { Icon(Icons.Filled.Add, contentDescription = nativePhrase("发起匿名话题", "Create anonymous topic")) }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                )
+            }
         },
     ) { padding ->
         LazyColumn(
             state = topicListState,
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (managementDenied) {
                 item {
@@ -466,10 +470,15 @@ internal fun NativeAnonymousTopicsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
+                        if (!management && showBackNavigation) {
+                            IconButton(onClick = onBack, modifier = Modifier.size(44.dp)) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = nativePhrase("返回", "Back"))
+                            }
+                        }
                         OutlinedTextField(
                             value = query,
                             onValueChange = { query = it.take(120) },
-                            modifier = Modifier.weight(1f).testTag("anonymous-topic-search"),
+                            modifier = Modifier.weight(1f).height(48.dp).testTag("anonymous-topic-search"),
                             singleLine = true,
                             leadingIcon = { Icon(Icons.Filled.Message, contentDescription = null) },
                             placeholder = { Text(nativePhrase("搜索匿名话题", "Search anonymous topics"), fontSize = 13.sp) },
@@ -477,9 +486,17 @@ internal fun NativeAnonymousTopicsScreen(
                         )
                         IconButton(
                             onClick = { filterDialogOpen = true },
-                            modifier = Modifier.size(48.dp).testTag("anonymous-topic-filter"),
+                            modifier = Modifier.size(44.dp).testTag("anonymous-topic-filter"),
                         ) {
                             Icon(Icons.Filled.Tune, contentDescription = nativePhrase("筛选", "Filter"), tint = HlovetUi.accent)
+                        }
+                        if (!management && !managementDenied) {
+                            IconButton(onClick = { loadTopics() }, enabled = !loading && !saving, modifier = Modifier.size(44.dp)) {
+                                Icon(Icons.Filled.Refresh, contentDescription = nativePhrase("刷新", "Refresh"))
+                            }
+                            IconButton(onClick = ::openCreate, enabled = !saving, modifier = Modifier.size(44.dp).testTag("anonymous-topic-create")) {
+                                Icon(Icons.Filled.Add, contentDescription = nativePhrase("发起匿名话题", "Create anonymous topic"))
+                            }
                         }
                     }
                 }

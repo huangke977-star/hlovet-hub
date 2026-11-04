@@ -2676,6 +2676,7 @@ private fun HlovetMobilePreview(
                         // 匿名内容是独立信息流，返回按钮只回到发现页，不改变匿名页内部的查询和排序实现。
                         NativeAnonymousTopicsScreen(
                             session = session,
+                            showBackNavigation = false,
                             onBack = { selectedTab = 0 },
                         )
                     }
@@ -5856,17 +5857,23 @@ private fun SectionHeading(title: String, action: String, onAction: (() -> Unit)
     }
 }
 
+/** 以连续信息流展示文章；发现页使用全宽行式布局，其他入口保留卡片容器。 */
 @Composable
 private fun ArticleGroup(
     displayArticles: List<RemoteArticle>,
     onArticleClick: (RemoteArticle) -> Unit = {},
     onNotInterested: ((RemoteArticle) -> Unit)? = null,
+    edgeToEdge: Boolean = false,
 ) {
     Card(
-        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
-        shape = HlovetUi.cardShape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (edgeToEdge) Modifier else Modifier.padding(horizontal = 20.dp)),
+        shape = if (edgeToEdge) RoundedCornerShape(0.dp) else HlovetUi.cardShape,
+        colors = CardDefaults.cardColors(
+            containerColor = if (edgeToEdge) Color.Transparent else MaterialTheme.colorScheme.surface,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (edgeToEdge) 0.dp else 1.dp),
     ) {
         Column {
             displayArticles.forEachIndexed { index, article ->
@@ -5874,7 +5881,7 @@ private fun ArticleGroup(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onArticleClick(article) }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = if (edgeToEdge) 12.dp else 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Avatar(article.authorName.takeLast(2), Coral)
@@ -5901,7 +5908,11 @@ private fun ArticleGroup(
                     }
                 }
                 if (index < displayArticles.lastIndex) {
-                    HorizontalDivider(color = HlovetUi.divider, thickness = 1.dp, modifier = Modifier.padding(horizontal = 16.dp))
+                    HorizontalDivider(
+                        color = HlovetUi.divider,
+                        thickness = 1.dp,
+                        modifier = Modifier.padding(horizontal = if (edgeToEdge) 12.dp else 16.dp),
+                    )
                 }
             }
         }
@@ -6245,19 +6256,19 @@ private fun DiscoverScreen(
     LazyColumn(
         state = discoveryListState,
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
             Row(
-                modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+                modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    modifier = Modifier.weight(1f).testTag("discover-search"),
+                    modifier = Modifier.weight(1f).height(48.dp).testTag("discover-search"),
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = nativePhrase("搜索", "Search"), tint = TextMuted) },
                     trailingIcon = {
@@ -6272,7 +6283,7 @@ private fun DiscoverScreen(
                 )
                 IconButton(
                     onClick = { discoveryFilterDialogOpen = true },
-                    modifier = Modifier.size(48.dp).testTag("discover-filter"),
+                    modifier = Modifier.size(44.dp).testTag("discover-filter"),
                 ) {
                     Icon(Icons.Filled.Tune, contentDescription = nativePhrase("筛选", "Filter"), tint = Accent)
                 }
@@ -6290,7 +6301,7 @@ private fun DiscoverScreen(
             if (result != null) {
                 if (result.articles.isNotEmpty()) {
                     item { SectionHeading(nativePhrase("文章", "Articles"), "") }
-                    item { ArticleGroup(result.articles, onArticleClick = onArticleClick) }
+                    item { ArticleGroup(result.articles, onArticleClick = onArticleClick, edgeToEdge = true) }
                 }
                 if (result.topics.isNotEmpty()) {
                     item { SectionHeading(nativePhrase("专题", "Topics"), "") }
@@ -6393,7 +6404,7 @@ private fun DiscoverScreen(
                 }
                 item {
                     if (localArticles.isEmpty()) EmptyState(nativePhrase("暂无可展示的文章", "No articles to show"))
-                    else ArticleGroup(localArticles, onArticleClick = onArticleClick)
+                    else ArticleGroup(localArticles, onArticleClick = onArticleClick, edgeToEdge = true)
                 }
             }
             if (loadingMore) {
