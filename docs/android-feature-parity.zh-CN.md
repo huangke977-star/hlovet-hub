@@ -3329,3 +3329,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 已提交 `NativeLocalSubscriptionFeedTest.discoverFeedKeepsSearchFilterRowAndLoadsNextPage`，覆盖公开文章分页、发现页搜索/筛选行、独立列表和触底懒加载；测试数据按专项约定保留，不清理服务端记录。
 - 最新 Debug APK 已增量安装到 Android 15 `emulator-5560` 和 Android 11 `emulator-5562`，两台设备冷启动后均显示发现页搜索、筛选和可滚动列表；切换匿名页后均显示匿名搜索、筛选和发起入口。未清除应用数据，设备现场 XML 保留在 `apps/android/tmp-current-*`。
 - `:prototype:compileDebugAndroidTestKotlin`、`:prototype:testDebugUnitTest`、`:prototype:assembleDebug` 通过；PC 路由 `70/70`、后台入口 `24/24`、API 对齐审计 `27/27`（388 个精确/跨模块匹配、21 个有意别名、0 个确认缺失）和 `git diff --check` 通过。真实 AndroidTest 本轮未执行：Docker Linux 引擎管道不可用，`127.0.0.1:3001/health/ready` 连接被拒绝，因此不能把本地 API 分页和模拟器交互写成已通过。
+
+## Android 发现与匿名信息流设备回归（2026-11-06）
+
+- 使用 `previewApiBaseUrl=http://127.0.0.1:39871` 的设备内 MockWebServer 变体，在 Android 11 `emulator-5562` 和 Android 15 `emulator-5560` 实际执行 `NativeDiscoverAnonymousLayoutDeviceTest`；两台设备各 `2/2` 通过，失败、错误和跳过均为 `0`。
+- 回归覆盖发现页和匿名页的首行搜索框、右侧筛选入口、独立列表滚动，以及滚动接近底部后自动追加第二页；测试使用设备内固定夹具，不访问生产 API、不写入业务数据。
+- `:prototype:testDebugUnitTest`、`:prototype:assembleDebug`、专用 `:prototype:connectedDebugAndroidTest` 和 `git diff --check` 均通过。普通生产地址变体的同名设备测试按保护规则跳过，不能把它误报为本地夹具测试结果。
