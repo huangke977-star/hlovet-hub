@@ -171,14 +171,71 @@ class NativeLocalSubscriptionFeedTest {
         record("real-ui-read-marks-before-opening-article")
     }
 
+    /** 验证发现页首行工具栏不挤压文章流，并在滚到第一页末尾后自动加载下一页。 */
+    @Test
+    fun discoverFeedKeepsSearchFilterRowAndLoadsNextPage() {
+        // 创建超过发现页首批大小的公开文章，保证触底时确实存在后续服务端分页。
+        val suffix = UUID.randomUUID().toString().take(8)
+        val marker = "native_discover_$suffix"
+        author = (NativeAuthApi.register("discover_$suffix", "discover_$suffix", "$marker@example.invalid", "Local!${UUID.randomUUID()}", null, null) as NativeAuthResult.Authenticated).session
+        val authorSession = requireNotNull(author)
+        NativeDiscoveryApi.completeOnboarding(authorSession.accessToken, emptyList(), emptyList())
+        val articles = (1..13).map { number ->
+            // 正文保持最小化，只验证发现信息流布局和服务端分页，不把测试扩大到编辑器功能。
+            val draft = NativeArticleApi.createArticle(
+                authorSession.accessToken,
+                NativeDraftInput("$marker-$number", "Discover feed fixture", "<p>$marker-$number</p>", "html", "随笔", ""),
+            )
+            NativeArticleApi.publish(authorSession.accessToken, draft.id)
+        }
+        val readerSession = requireNotNull(reader)
+        val articleIds = articles.map { it.id }.toSet()
+        val firstPage = NativeDiscoveryApi.listDiscoveryPage(readerSession.accessToken, page = 1, pageSize = 8, sort = "latest")
+        val secondPage = NativeDiscoveryApi.listDiscoveryPage(readerSession.accessToken, page = 2, pageSize = 8, sort = "latest")
+        assertTrue(firstPage.articles.isNotEmpty())
+        assertTrue(firstPage.totalPages >= 2)
+        assertTrue(firstPage.articles.any { it.id in articleIds })
+        assertTrue(secondPage.articles.isNotEmpty())
+        report.put("discoverMarker", marker).put("discoverArticleIds", JSONArray(articles.map { it.id }))
+        record("real-api-discover-pagination-fixture")
+
+        // 通过真实发现入口打开页面，确认搜索框、筛选入口和独立列表同时存在。
+        openRoute(readerSession, "/articles")
+        dismissOnboardingIfShown()
+        waitTag("discover-search")
+        compose.onNodeWithTag("discover-search").assertIsDisplayed()
+        compose.onNodeWithTag("discover-filter").assertIsDisplayed()
+        compose.onNodeWithTag("discover-feed-list").assertIsDisplayed()
+
+        // 选择最新文章模式，让 UI 请求与上面的分页夹具使用相同排序口径。
+        compose.onNodeWithTag("discover-filter").performClick()
+        compose.onNodeWithText("最新", substring = false).performClick()
+        waitTag("discover-article-${firstPage.articles.first().id}")
+        record("real-ui-discover-search-filter-row")
+
+        // 只滚动到第一页末尾，第二页必须由列表接近底部的监听自动请求，而不是点击按钮。
+        val firstPageLast = firstPage.articles.lastOrNull { it.id in articleIds }
+            ?: firstPage.articles.last()
+        compose.onNodeWithTag("discover-feed-list")
+            .performScrollToNode(hasTestTag("discover-article-${firstPageLast.id}"))
+        waitTag("discover-article-${secondPage.articles.first().id}")
+        record("real-ui-discover-auto-loads-next-page")
+    }
+
     /** 保存当前读者会话并打开订阅动态深链。 */
     private fun open(session: NativeSession) {
+        // 订阅专项保留原入口名称，通用路由方法供发现页布局专项复用。
+        openRoute(session, "/articles/subscriptions")
+    }
+
+    /** 保存当前读者会话并打开指定原生深链。 */
+    private fun openRoute(session: NativeSession, path: String) {
         // 每次切换身份都清空旧任务并重新创建 Activity，避免 singleTop 复用旧会话页面。
         check(NativeSessionStore.save(context, session))
         scenario = ActivityScenario.launch(
             Intent(context, MainActivity::class.java)
                 .setAction(Intent.ACTION_VIEW)
-                .setData(Uri.parse("${BuildConfig.PORTAL_BASE_URL}/articles/subscriptions"))
+                .setData(Uri.parse("${BuildConfig.PORTAL_BASE_URL}$path"))
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }
@@ -220,6 +277,14 @@ class NativeLocalSubscriptionFeedTest {
             // 失败报告带上当前目标，便于区分排序差异、接口数据缺失和页面加载竞态。
             val semantics = runCatching { compose.onRoot(useUnmergedTree = true).printToString() }.getOrDefault("语义树读取失败")
             throw AssertionError("等待页面文字失败: $value\n${semantics.take(4_000)}", failure)
+        }
+    }
+
+    /** 等待指定语义标签出现，保证分页内容已进入 Compose 列表后再执行下一步。 */
+    private fun waitTag(tag: String, timeoutMillis: Long = 30_000) {
+        // 语义标签可能在首屏请求或触底追加请求完成后才出现，等待期间不主动改变列表位置。
+        compose.waitUntil(timeoutMillis) {
+            compose.onAllNodesWithTag(tag).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty()
         }
     }
 

@@ -3302,3 +3302,10 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用同一生产地址 Debug 包在 Android 15 `emulator-5556` 和 Android 11 `emulator-5562` 逐项点击底部“发现 / 匿名 / 更多 / 消息 / 我的”，两台设备均完成页面切换并保持 `MainActivity` 前台；未登录入口按设计显示登录门槛，没有执行业务写操作。
 - Android 15 English 页面显示 `Discover / Anonymous / More / Messages / Profile`；“更多”页可见 `Announcements / Tools / Navigation`。Android 11 中文页面显示“发现 / 匿名 / 更多 / 消息 / 我的”；“更多”页可见“公告 / 工具 / 导航”和登录提示。发现页筛选对外显示 `Discover`，没有回退为 `Articles`。
 - 本轮未清除应用数据、未改账号或业务记录；该结果关闭的是公开导航和多语言入口的设备回归，不替代登录后写操作、Google/Passkey、FCM、双设备生产通话、外部 AI/媒体供应商或 OSS/R2 验收。
+
+## Android 发现与匿名信息流布局收口（2026-11-05）
+
+- 发现页和匿名话题页统一为信息流布局：首行只保留搜索框与筛选入口，下面由文章/话题列表独立占满剩余高度并滚动；发现页默认展示文章，匿名页保留搜索、排序和权限筛选，筛选状态用入口标记提示，不再让筛选控件挤占列表区域。
+- 两个信息流均保留接近列表底部自动请求下一页的分页逻辑；发现文章行补充稳定语义标签，便于真实 UI 回归验证滚动后是否加载第二页。原有路由、筛选参数、文章权限和匿名话题业务逻辑未改变。
+- 已提交 `NativeLocalSubscriptionFeedTest.discoverFeedKeepsSearchFilterRowAndLoadsNextPage`，覆盖公开文章分页、发现页搜索/筛选行、独立列表和触底懒加载；测试数据按专项约定保留，不清理服务端记录。
+- `:prototype:compileDebugAndroidTestKotlin` 和 `:prototype:testDebugUnitTest` 通过；`git diff --check` 通过。真实 AndroidTest 本轮未执行：Docker Linux 引擎管道不可用，`127.0.0.1:3001/health/ready` 连接被拒绝，因此不能把本地 API 分页和模拟器交互写成已通过。
