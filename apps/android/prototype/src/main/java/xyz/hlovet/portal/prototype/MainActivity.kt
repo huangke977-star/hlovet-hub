@@ -6239,7 +6239,8 @@ private fun DiscoverScreen(
     }
 
     LaunchedEffect(initialMode) {
-        if (initialMode != "推荐") loadDiscoveryMode(initialMode, force = true)
+        // 进入发现页立即按当前入口读取真实分页；默认文章入口不能继续复用首页的混合推荐快照。
+        loadDiscoveryMode(initialMode, force = true)
     }
 
     /** 追加当前发现模式的下一页，成功后按稳定 ID 合并并更新是否还有后续数据。 */
@@ -6279,7 +6280,7 @@ private fun DiscoverScreen(
     LazyColumn(
         state = discoveryListState,
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(top = 0.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
@@ -6291,7 +6292,7 @@ private fun DiscoverScreen(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    modifier = Modifier.weight(1f).height(48.dp).testTag("discover-search"),
+                    modifier = Modifier.weight(1f).height(44.dp).testTag("discover-search"),
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = nativePhrase("搜索", "Search"), tint = TextMuted) },
                     trailingIcon = {
@@ -6306,7 +6307,7 @@ private fun DiscoverScreen(
                 )
                 IconButton(
                     onClick = { discoveryFilterDialogOpen = true },
-                    modifier = Modifier.size(44.dp).testTag("discover-filter"),
+                    modifier = Modifier.size(40.dp).testTag("discover-filter"),
                 ) {
                     Icon(Icons.Filled.Tune, contentDescription = nativePhrase("筛选", "Filter"), tint = Accent)
                 }

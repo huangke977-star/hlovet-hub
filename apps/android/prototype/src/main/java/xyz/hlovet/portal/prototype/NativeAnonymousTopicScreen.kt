@@ -51,6 +51,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -470,7 +471,7 @@ internal fun NativeAnonymousTopicsScreen(
         LazyColumn(
             state = topicListState,
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (managementDenied) {
@@ -492,7 +493,7 @@ internal fun NativeAnonymousTopicsScreen(
                         OutlinedTextField(
                             value = query,
                             onValueChange = { query = it.take(120) },
-                            modifier = Modifier.weight(1f).height(48.dp).testTag("anonymous-topic-search"),
+                            modifier = Modifier.weight(1f).height(44.dp).testTag("anonymous-topic-search"),
                             singleLine = true,
                             leadingIcon = { Icon(Icons.Filled.Message, contentDescription = null) },
                             placeholder = { Text(nativePhrase("搜索匿名话题", "Search anonymous topics"), fontSize = 13.sp) },
@@ -500,7 +501,7 @@ internal fun NativeAnonymousTopicsScreen(
                         )
                         IconButton(
                             onClick = { filterDialogOpen = true },
-                            modifier = Modifier.size(44.dp).testTag("anonymous-topic-filter"),
+                            modifier = Modifier.size(40.dp).testTag("anonymous-topic-filter"),
                         ) {
                             Icon(Icons.Filled.Tune, contentDescription = nativePhrase("筛选", "Filter"), tint = HlovetUi.accent)
                         }
@@ -649,9 +650,17 @@ private fun AnonymousTopicListRow(
     onOpen: () -> Unit,
     onFavorite: () -> Unit,
 ) {
-    GlassCard(modifier = Modifier.fillMaxWidth().testTag("anonymous-topic-${item.id}"), shape = HlovetUi.rowShape) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).clickable(onClick = onOpen).testTag("anonymous-topic-open-${item.id}"), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    // 匿名话题与发现文章共用连续信息流行，避免大卡片把首屏内容切成互不连贯的块。
+    Column(Modifier.fillMaxWidth().testTag("anonymous-topic-${item.id}")) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpen)
+                .testTag("anonymous-topic-open-${item.id}")
+                .padding(horizontal = 4.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(item.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
                     buildString {
@@ -672,6 +681,7 @@ private fun AnonymousTopicListRow(
             }
             Text("${item.favoriteCount}", color = HlovetUi.muted, fontSize = 10.sp)
         }
+        HorizontalDivider(color = HlovetUi.divider, thickness = 1.dp, modifier = Modifier.padding(horizontal = 4.dp))
     }
 }
 

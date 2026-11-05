@@ -8,7 +8,6 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import java.io.File
 import java.util.UUID
 import org.json.JSONArray
@@ -137,6 +136,7 @@ class NativeLocalSubscriptionFeedTest {
 
         // 进入订阅页并打开设置，专题/合集名称应是可点击的详情入口。
         open(readerSession)
+        dismissOnboardingIfShown()
         waitText("我的订阅")
         compose.onNodeWithContentDescription("订阅管理").performClick()
         waitText(collectionName)
@@ -146,10 +146,13 @@ class NativeLocalSubscriptionFeedTest {
         record("real-ui-opens-subscribed-collection-detail")
 
         // 返回订阅页后滚到第一页末尾，等待第二页文章自动追加而不是点击分页按钮。
-        compose.onNodeWithContentDescription("返回").performClick()
-        waitText("我的订阅")
+        val firstFirstPageTitle = firstPage.items.first().article.title
         val lastFirstPageTitle = firstPage.items.last().article.title
         val firstSecondPageTitle = secondPage.items.first().article.title
+        compose.onNodeWithContentDescription("返回").performClick()
+        waitText("我的订阅")
+        // 标题会先于网络列表出现，先等待第一页首项进入语义树，再让 LazyColumn 定位离屏末项。
+        waitText(firstFirstPageTitle)
         compose.onNodeWithTag("subscription-feed-list")
             .performScrollToNode(hasText(lastFirstPageTitle, substring = false))
         waitText(firstSecondPageTitle)
@@ -180,6 +183,30 @@ class NativeLocalSubscriptionFeedTest {
         )
     }
 
+    /** 处理新账号首次进入原生页面时的真实兴趣引导，确认遮罩完成后再测试订阅页面。 */
+    private fun dismissOnboardingIfShown() {
+        // 首次等待允许订阅标题或引导跳过按钮先出现，避免用固定睡眠掩盖页面加载竞态。
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithText("我的订阅", substring = false)
+                .fetchSemanticsNodes(atLeastOneRootRequired = false)
+                .isNotEmpty() || compose.onAllNodesWithTag("native-onboarding-skip")
+                .fetchSemanticsNodes(atLeastOneRootRequired = false)
+                .isNotEmpty()
+        }
+        // 如果当前账号仍是首次登录，沿用用户可见的跳过操作完成服务端引导状态。
+        if (compose.onAllNodesWithTag("native-onboarding-skip")
+                .fetchSemanticsNodes(atLeastOneRootRequired = false)
+                .isNotEmpty()
+        ) {
+            compose.onNodeWithTag("native-onboarding-skip").performClick()
+            compose.waitUntil(30_000) {
+                compose.onAllNodesWithTag("native-onboarding-skip")
+                    .fetchSemanticsNodes(atLeastOneRootRequired = false)
+                    .isEmpty()
+            }
+        }
+    }
+
     /** 等待语义树中的业务文字出现，避免固定睡眠掩盖加载竞态。 */
     private fun waitText(value: String, timeoutMillis: Long = 30_000) {
         // 目标文本可能在分页或详情请求完成后才进入 Compose 语义树，等待期间不主动滚动列表。
@@ -204,11 +231,12 @@ class NativeLocalSubscriptionFeedTest {
 
     /** 截取当前窗口作为失败后的人类可读证据。 */
     private fun screenshot(name: String) {
-        // 等待系统和 Compose 空闲后再截图，避免记录半渲染状态。
-        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).waitForIdle(1_000)
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-        val image = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
-        File(context.filesDir, "native-local-subscription-feed-$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        image.recycle()
+        // 失败收尾不能因为 UiAutomation 已被测试框架占用而覆盖原始断言或报告。
+        runCatching {
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            val image = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return@runCatching
+            File(context.filesDir, "native-local-subscription-feed-$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            image.recycle()
+        }
     }
 }
