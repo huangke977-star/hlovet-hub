@@ -27,6 +27,12 @@
 - 匿名页 UI 树核对为首行搜索框和筛选图标，创建入口移到右下角悬浮按钮；话题列表使用独立懒加载行，接近底部自动追加分页，搜索/筛选不会占用文章或话题列表区域。
 - 原始截图和 UI dump 保存在 `tmp-discover-layout-current-20261105.png`、`tmp-discover-layout-current-20261105.xml`、`tmp-anonymous-layout-current-20261105.png` 和 `tmp-anonymous-layout-current-20261105.xml`；本轮未执行真实创建、收藏或内容写入操作。
 
+## 发现与匿名紧凑工具栏回归（2026-11-06）
+
+- 发现页和匿名页共用 `NativeFeedToolbar`：首行固定为紧凑搜索框和无背景筛选图标，搜索框高度统一为 `50dp`；筛选激活只显示小标记，不再让返回按钮挤压搜索区域。
+- 发现页文章、匿名页话题继续使用独立 `LazyColumn` 行，并在接近底部时自动追加下一页；纯文章模式不再插入专题/合集标题或其它推荐块，首屏直接进入内容流。
+- 新增 `NativeDiscoverAnonymousLayoutDeviceTest` 设备夹具回归，在 Android 15 `emulator-5560` 与 Android 11 `emulator-5562` 各执行 2/2，失败、错误、跳过均为 0；覆盖两个页面的首行控件存在、筛选切换、列表滚动和第二页自动加载。夹具只绑定设备回环 `127.0.0.1:39871`，不访问生产数据。
+
 ## 双设备 WebRTC 真实媒体验收（2026-11-04）
 
 - 在本地 Docker API、Android 11 `emulator-5562` 和 Android 15 `emulator-5566` 上，使用两台设备各自通过真实注册/密码登录建立的本地会话，未复制或导出任何认证材料；两端均通过真实 `MainActivity`、Socket 信令和通话控件完成配对。

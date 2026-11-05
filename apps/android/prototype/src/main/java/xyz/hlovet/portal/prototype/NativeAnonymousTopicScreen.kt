@@ -455,12 +455,19 @@ internal fun NativeAnonymousTopicsScreen(
             }
         },
         topBar = {
-            if (management) {
+            if (management || showBackNavigation) {
                 TopAppBar(
-                    title = { Text(nativePhrase("匿名话题管理", "Anonymous topic management"), fontSize = 20.sp, fontWeight = FontWeight.Bold) },
+                    title = {
+                        Text(
+                            if (management) nativePhrase("匿名话题管理", "Anonymous topic management")
+                            else nativePhrase("匿名", "Anonymous"),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    },
                     navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = nativePhrase("返回", "Back")) } },
                     actions = {
-                        if (!managementDenied) {
+                        if (management && !managementDenied) {
                             IconButton(onClick = { loadTopics() }, enabled = !loading && !saving) { Icon(Icons.Filled.Refresh, contentDescription = nativePhrase("刷新", "Refresh")) }
                             IconButton(onClick = ::openCreate, enabled = !saving, modifier = Modifier.testTag("anonymous-topic-create")) { Icon(Icons.Filled.Add, contentDescription = nativePhrase("发起匿名话题", "Create anonymous topic")) }
                         }
@@ -475,44 +482,19 @@ internal fun NativeAnonymousTopicsScreen(
         ) {
             // 搜索工具栏固定在匿名信息流上方，筛选入口不会随列表滚动离开首屏。
             if (!managementDenied) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    if (!management && showBackNavigation) {
-                        IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = nativePhrase("返回", "Back"))
-                        }
-                    }
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it.take(120) },
-                        modifier = Modifier.weight(1f).height(56.dp).testTag("anonymous-topic-search"),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                        placeholder = { Text(nativePhrase("搜索匿名话题", "Search anonymous topics"), fontSize = 13.sp) },
-                        colors = loginFieldColors(),
-                    )
-                    Box(
-                        modifier = Modifier.size(40.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        IconButton(
-                            onClick = { filterDialogOpen = true },
-                            modifier = Modifier.size(40.dp).testTag("anonymous-topic-filter"),
-                        ) {
-                            Icon(Icons.Filled.Tune, contentDescription = nativePhrase("筛选", "Filter"), tint = HlovetUi.accent)
-                        }
-                        if (sort != "time" || (manager && visibility != "visible")) {
-                            Surface(
-                                modifier = Modifier.align(Alignment.TopEnd).size(6.dp),
-                                shape = CircleShape,
-                                color = HlovetUi.secondaryAccent,
-                            ) {}
-                        }
-                    }
-                }
+                NativeFeedToolbar(
+                    query = query,
+                    onQueryChange = { query = it },
+                    onClearQuery = { query = "" },
+                    onFilterClick = { filterDialogOpen = true },
+                    queryTag = "anonymous-topic-search",
+                    filterTag = "anonymous-topic-filter",
+                    placeholder = nativePhrase("搜索匿名话题", "Search anonymous topics"),
+                    searchContentDescription = nativePhrase("搜索匿名话题", "Search anonymous topics"),
+                    clearContentDescription = nativePhrase("清除搜索", "Clear search"),
+                    filterContentDescription = nativePhrase("筛选", "Filter"),
+                    hasActiveFilter = sort != "time" || (manager && visibility != "visible"),
+                )
                 HorizontalDivider(color = HlovetUi.divider)
             }
             LazyColumn(

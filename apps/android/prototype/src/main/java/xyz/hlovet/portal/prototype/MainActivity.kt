@@ -5960,8 +5960,9 @@ private fun FollowingStrip(
     }
 }
 
+/** 展示发现信息流；搜索和筛选固定在首行，文章列表独立滚动并按接近底部自动分页。 */
 @Composable
-private fun DiscoverScreen(
+internal fun DiscoverScreen(
     scaffoldPadding: PaddingValues,
     session: NativeSession?,
     initialMode: String = "推荐",
@@ -6281,46 +6282,19 @@ private fun DiscoverScreen(
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
     ) {
         // 搜索工具栏固定在信息流上方，滚动时只移动文章内容，避免用户回不到筛选入口。
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it.take(120) },
-                modifier = Modifier.weight(1f).height(56.dp).testTag("discover-search"),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = nativePhrase("搜索", "Search"), tint = TextMuted) },
-                trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        IconButton(onClick = { query = "" }) {
-                            Icon(Icons.Filled.Close, contentDescription = nativePhrase("清除搜索", "Clear search"), tint = TextMuted)
-                        }
-                    }
-                },
-                placeholder = { Text(nativePhrase("搜索文章、专题和合集", "Search articles, topics, and collections"), color = TextMuted, fontSize = 13.sp) },
-                colors = HlovetUi.fieldColors(focusedBorderColor = Accent),
-            )
-            Box(
-                modifier = Modifier.size(40.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                IconButton(
-                    onClick = { discoveryFilterDialogOpen = true },
-                    modifier = Modifier.size(40.dp).testTag("discover-filter"),
-                ) {
-                    Icon(Icons.Filled.Tune, contentDescription = nativePhrase("筛选", "Filter"), tint = Accent)
-                }
-                if (discoveryMode != "文章" || articleSort != "recommended") {
-                    Surface(
-                        modifier = Modifier.align(Alignment.TopEnd).size(6.dp),
-                        shape = CircleShape,
-                        color = Coral,
-                    ) {}
-                }
-            }
-        }
+        NativeFeedToolbar(
+            query = query,
+            onQueryChange = { query = it },
+            onClearQuery = { query = "" },
+            onFilterClick = { discoveryFilterDialogOpen = true },
+            queryTag = "discover-search",
+            filterTag = "discover-filter",
+            placeholder = nativePhrase("搜索文章、专题和合集", "Search articles, topics, and collections"),
+            searchContentDescription = nativePhrase("搜索", "Search"),
+            clearContentDescription = nativePhrase("清除搜索", "Clear search"),
+            filterContentDescription = nativePhrase("筛选", "Filter"),
+            hasActiveFilter = discoveryMode != "文章" || articleSort != "recommended",
+        )
         HorizontalDivider(color = HlovetUi.divider)
         LazyColumn(
             state = discoveryListState,
