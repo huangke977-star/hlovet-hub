@@ -3308,4 +3308,5 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 发现页和匿名话题页统一为信息流布局：首行只保留搜索框与筛选入口，下面由文章/话题列表独立占满剩余高度并滚动；发现页默认展示文章，匿名页保留搜索、排序和权限筛选，筛选状态用入口标记提示，不再让筛选控件挤占列表区域。
 - 两个信息流均保留接近列表底部自动请求下一页的分页逻辑；发现文章行补充稳定语义标签，便于真实 UI 回归验证滚动后是否加载第二页。原有路由、筛选参数、文章权限和匿名话题业务逻辑未改变。
 - 已提交 `NativeLocalSubscriptionFeedTest.discoverFeedKeepsSearchFilterRowAndLoadsNextPage`，覆盖公开文章分页、发现页搜索/筛选行、独立列表和触底懒加载；测试数据按专项约定保留，不清理服务端记录。
-- `:prototype:compileDebugAndroidTestKotlin` 和 `:prototype:testDebugUnitTest` 通过；`git diff --check` 通过。真实 AndroidTest 本轮未执行：Docker Linux 引擎管道不可用，`127.0.0.1:3001/health/ready` 连接被拒绝，因此不能把本地 API 分页和模拟器交互写成已通过。
+- 最新 Debug APK 已增量安装到 Android 15 `emulator-5560` 和 Android 11 `emulator-5562`，两台设备冷启动后均显示发现页搜索、筛选和可滚动列表；切换匿名页后均显示匿名搜索、筛选和发起入口。未清除应用数据，设备现场 XML 保留在 `apps/android/tmp-current-*`。
+- `:prototype:compileDebugAndroidTestKotlin`、`:prototype:testDebugUnitTest`、`:prototype:assembleDebug` 通过；PC 路由 `70/70`、后台入口 `24/24`、API 对齐审计 `27/27`（388 个精确/跨模块匹配、21 个有意别名、0 个确认缺失）和 `git diff --check` 通过。真实 AndroidTest 本轮未执行：Docker Linux 引擎管道不可用，`127.0.0.1:3001/health/ready` 连接被拒绝，因此不能把本地 API 分页和模拟器交互写成已通过。
