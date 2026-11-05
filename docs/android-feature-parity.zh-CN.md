@@ -14,6 +14,12 @@
 - 当前源码不依赖外部服务的回归同时为 JVM `337/337`，`:prototype:compileDebugKotlin`、`:prototype:assembleDebug`、`:prototype:assembleDebugAndroidTest` 均成功；路由与 API 对齐审计仍为 PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27` 且确认缺失为 `0`。
 - 测试结束后已卸载 `xyz.hlovet.portal.feedtest` 及其测试包；本轮没有清理生产应用、账号、离线内容或历史 `tmp-*` 证据。Docker 引擎未运行，因此本轮没有把本地真实 API 联调扩大为生产数据验收。
 
+## Android 隔离功能跨版本回归（2026-11-06）
+
+- 使用同一独立测试包和设备内 MockWebServer，在 Android 15 `emulator-5560` 执行 AI 助手、AI 配置、备份管理、OAuth 回调、通话浮层和行内媒体六组设备测试，共 `64/64` 通过，失败、错误和跳过均为 `0`。覆盖模型拉取/缓存价格、知识库索引与失败重试、备份任务轮询/恢复阻塞、OAuth 成功与拒绝回调、通话面板状态及音视频播放控制。
+- Android 11 `emulator-5562` 上，媒体任务轮询用例单独执行 `1/1` 通过；备份测试小批次中已通过媒体分页、策略保存失败重试和目录失败重试等场景。随后整类测试受到模拟器测试进程和 UiAutomation 被系统强制终止影响，出现无 Compose hierarchy，未发现应用进程 `FATAL EXCEPTION`，因此 Android 11 这组跨版本回归暂不标记为完整通过，待设备恢复稳定后再分批复跑。
+- 当前源码不依赖外部服务的 JVM 回归为 `337/337`，失败、错误和跳过均为 `0`；本轮仍未把 MockWebServer 结果扩大为真实 Google/Passkey、FCM、外部 AI/媒体供应商、OSS/R2 或生产网络验收。
+
 ## 订阅动态真实回归（2026-11-05）
 
 - 在本地 Docker API、MySQL、Redis 和 Android 11 `emulator-5562` 上执行 `NativeLocalSubscriptionFeedTest#subscriptionFeedLoadsNextPageAndOpensSubscribedCollection`，最终 `OK (1 test)`，失败、错误和跳过均为 `0`。
