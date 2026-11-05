@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
@@ -468,55 +470,72 @@ internal fun NativeAnonymousTopicsScreen(
             }
         },
     ) { padding ->
-        LazyColumn(
-            state = topicListState,
+        Column(
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (managementDenied) {
-                item {
-                    Text(nativePhrase("当前账号没有匿名话题管理权限。", "This account cannot manage anonymous topics."), color = HlovetUi.secondaryAccent, fontSize = 13.sp)
-                }
-            } else {
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        if (!management && showBackNavigation) {
-                            IconButton(onClick = onBack, modifier = Modifier.size(44.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = nativePhrase("返回", "Back"))
-                            }
+            // 搜索工具栏固定在匿名信息流上方，筛选入口不会随列表滚动离开首屏。
+            if (!managementDenied) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (!management && showBackNavigation) {
+                        IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = nativePhrase("返回", "Back"))
                         }
-                        OutlinedTextField(
-                            value = query,
-                            onValueChange = { query = it.take(120) },
-                            modifier = Modifier.weight(1f).height(44.dp).testTag("anonymous-topic-search"),
-                            singleLine = true,
-                            leadingIcon = { Icon(Icons.Filled.Message, contentDescription = null) },
-                            placeholder = { Text(nativePhrase("搜索匿名话题", "Search anonymous topics"), fontSize = 13.sp) },
-                            colors = loginFieldColors(),
-                        )
+                    }
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it.take(120) },
+                        modifier = Modifier.weight(1f).height(56.dp).testTag("anonymous-topic-search"),
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                        placeholder = { Text(nativePhrase("搜索匿名话题", "Search anonymous topics"), fontSize = 13.sp) },
+                        colors = loginFieldColors(),
+                    )
+                    Box(
+                        modifier = Modifier.size(40.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         IconButton(
                             onClick = { filterDialogOpen = true },
                             modifier = Modifier.size(40.dp).testTag("anonymous-topic-filter"),
                         ) {
                             Icon(Icons.Filled.Tune, contentDescription = nativePhrase("筛选", "Filter"), tint = HlovetUi.accent)
                         }
+                        if (sort != "time" || (manager && visibility != "visible")) {
+                            Surface(
+                                modifier = Modifier.align(Alignment.TopEnd).size(6.dp),
+                                shape = CircleShape,
+                                color = HlovetUi.secondaryAccent,
+                            ) {}
+                        }
                     }
                 }
+                HorizontalDivider(color = HlovetUi.divider)
             }
-            if (!error.isNullOrBlank()) item { Text(error!!, color = HlovetUi.secondaryAccent, fontSize = 12.sp) }
-            if (loading && items.isEmpty()) item { Text(nativePhrase("正在读取匿名话题…", "Loading anonymous topics..."), color = HlovetUi.muted, fontSize = 12.sp) }
-            if (!managementDenied && !loading && items.isEmpty()) item { Text(nativePhrase("暂时没有匿名话题。发起一个让大家聊聊。", "No anonymous topics yet. Start one for the community."), color = HlovetUi.muted, fontSize = 12.sp) }
-            items(items, key = { it.id }) { item ->
-                AnonymousTopicListRow(item = item, onOpen = { loadTopic(item.id) }, onFavorite = { favorite(item) })
-            }
-            if (loading && items.isNotEmpty()) item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    Text(nativePhrase("正在加载更多…", "Loading more..."), color = HlovetUi.muted, fontSize = 12.sp)
+            LazyColumn(
+                state = topicListState,
+                modifier = Modifier.fillMaxWidth().weight(1f).testTag("anonymous-topic-list"),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                if (managementDenied) {
+                    item {
+                        Text(nativePhrase("当前账号没有匿名话题管理权限。", "This account cannot manage anonymous topics."), color = HlovetUi.secondaryAccent, fontSize = 13.sp)
+                    }
+                }
+                if (!error.isNullOrBlank()) item { Text(error!!, color = HlovetUi.secondaryAccent, fontSize = 12.sp) }
+                if (loading && items.isEmpty()) item { Text(nativePhrase("正在读取匿名话题…", "Loading anonymous topics..."), color = HlovetUi.muted, fontSize = 12.sp) }
+                if (!managementDenied && !loading && items.isEmpty()) item { Text(nativePhrase("暂时没有匿名话题。发起一个让大家聊聊。", "No anonymous topics yet. Start one for the community."), color = HlovetUi.muted, fontSize = 12.sp) }
+                items(items, key = { it.id }) { item ->
+                    AnonymousTopicListRow(item = item, onOpen = { loadTopic(item.id) }, onFavorite = { favorite(item) })
+                }
+                if (loading && items.isNotEmpty()) item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                        Text(nativePhrase("正在加载更多…", "Loading more..."), color = HlovetUi.muted, fontSize = 12.sp)
+                    }
                 }
             }
         }

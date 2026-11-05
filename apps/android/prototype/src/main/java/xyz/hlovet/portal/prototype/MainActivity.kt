@@ -2672,7 +2672,7 @@ private fun HlovetMobilePreview(
                             }
                         },
                     )
-                    1 -> Box(Modifier.fillMaxSize().padding(padding)) {
+                    1 -> Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())) {
                         // 匿名内容是独立信息流，返回按钮只回到发现页，不改变匿名页内部的查询和排序实现。
                         NativeAnonymousTopicsScreen(
                             session = session,
@@ -5899,7 +5899,7 @@ private fun ArticleFeedRow(
     showDivider: Boolean,
 ) {
     // 行内容直接占用列表宽度，避免外层卡片或额外标题压缩文章阅读区域。
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth().testTag("discover-article-${article.id}")) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -6277,54 +6277,69 @@ private fun DiscoverScreen(
         }
     }
 
-    LazyColumn(
-        state = discoveryListState,
+    Column(
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
-        contentPadding = PaddingValues(top = 0.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
-        item {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.weight(1f).height(44.dp).testTag("discover-search"),
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = nativePhrase("搜索", "Search"), tint = TextMuted) },
-                    trailingIcon = {
-                        if (query.isNotEmpty()) {
-                            IconButton(onClick = { query = "" }) {
-                                Icon(Icons.Filled.Close, contentDescription = nativePhrase("清除搜索", "Clear search"), tint = TextMuted)
-                            }
+        // 搜索工具栏固定在信息流上方，滚动时只移动文章内容，避免用户回不到筛选入口。
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it.take(120) },
+                modifier = Modifier.weight(1f).height(56.dp).testTag("discover-search"),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = nativePhrase("搜索", "Search"), tint = TextMuted) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Filled.Close, contentDescription = nativePhrase("清除搜索", "Clear search"), tint = TextMuted)
                         }
-                    },
-                    placeholder = { Text(nativePhrase("搜索文章、专题和合集", "Search articles, topics, and collections"), color = TextMuted, fontSize = 13.sp) },
-                    colors = HlovetUi.fieldColors(focusedBorderColor = Accent),
-                )
+                    }
+                },
+                placeholder = { Text(nativePhrase("搜索文章、专题和合集", "Search articles, topics, and collections"), color = TextMuted, fontSize = 13.sp) },
+                colors = HlovetUi.fieldColors(focusedBorderColor = Accent),
+            )
+            Box(
+                modifier = Modifier.size(40.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 IconButton(
                     onClick = { discoveryFilterDialogOpen = true },
                     modifier = Modifier.size(40.dp).testTag("discover-filter"),
                 ) {
                     Icon(Icons.Filled.Tune, contentDescription = nativePhrase("筛选", "Filter"), tint = Accent)
                 }
+                if (discoveryMode != "文章" || articleSort != "recommended") {
+                    Surface(
+                        modifier = Modifier.align(Alignment.TopEnd).size(6.dp),
+                        shape = CircleShape,
+                        color = Coral,
+                    ) {}
+                }
             }
         }
+        HorizontalDivider(color = HlovetUi.divider)
+        LazyColumn(
+            state = discoveryListState,
+            modifier = Modifier.fillMaxWidth().weight(1f).testTag("discover-feed-list"),
+            contentPadding = PaddingValues(top = 0.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
         if (query.trim().length >= 2) {
             item {
                 when {
                     searchLoading -> Text(nativePhrase("正在搜索…", "Searching…"), color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp))
                     searchError != null -> Text(searchError!!, color = Coral, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp))
-                    else -> Text(nativePhrase("搜索结果", "Search results"), fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp))
+                    else -> Spacer(Modifier.height(4.dp))
                 }
             }
             val result = searchResult
             if (result != null) {
-                if (result.articles.isNotEmpty()) {
-                    item { SectionHeading(nativePhrase("文章", "Articles"), "") }
+                val visibility = nativeDiscoveryVisibility(discoveryMode)
+                if (visibility.showArticles && result.articles.isNotEmpty()) {
                     itemsIndexed(result.articles, key = { _, article -> "discover-search-article-${article.id}" }) { index, article ->
                         ArticleFeedRow(
                             article = article,
@@ -6335,7 +6350,7 @@ private fun DiscoverScreen(
                         )
                     }
                 }
-                if (result.topics.isNotEmpty()) {
+                if (visibility.showTopics && result.topics.isNotEmpty()) {
                     item { SectionHeading(nativePhrase("专题", "Topics"), "") }
                     items(result.topics) { topic ->
                         TopicRow(
@@ -6350,7 +6365,7 @@ private fun DiscoverScreen(
                         )
                     }
                 }
-                if (result.collections.isNotEmpty()) {
+                if (visibility.showCollections && result.collections.isNotEmpty()) {
                     item { SectionHeading(nativePhrase("合集", "Collections"), "") }
                     items(result.collections) { collection ->
                         TopicRow(
@@ -6365,7 +6380,11 @@ private fun DiscoverScreen(
                         )
                     }
                 }
-                if (result.articles.isEmpty() && result.topics.isEmpty() && result.collections.isEmpty()) {
+                val hasVisibleSearchResult =
+                    (visibility.showArticles && result.articles.isNotEmpty()) ||
+                        (visibility.showTopics && result.topics.isNotEmpty()) ||
+                        (visibility.showCollections && result.collections.isNotEmpty())
+                if (!hasVisibleSearchResult) {
                     item { EmptyState(nativePhrase("没有找到匹配内容", "No matching content found")) }
                 }
             }
@@ -6459,6 +6478,7 @@ private fun DiscoverScreen(
                 }
             }
         }
+    }
     }
 
     if (discoveryFilterDialogOpen) {
