@@ -7,6 +7,13 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## Android 信息流布局独立包双设备复验（2026-11-06）
+
+- 使用独立测试包 `xyz.hlovet.portal.feedtest` 构建当前源码，API 指向设备内 `127.0.0.1:39871` 的 MockWebServer，不覆盖现有生产 Debug 包，也不读取或写入服务器业务数据。
+- Android 15 `emulator-5560` 与 Android 11 `emulator-5562` 各执行 `NativeDiscoverAnonymousLayoutDeviceTest`，均为 `2/2`，失败、错误和跳过均为 `0`。发现页和匿名页分别核对了首行搜索/筛选控件、独立懒列表、筛选后列表保持可用，以及滚动到末项自动请求第二页。
+- 当前源码不依赖外部服务的回归同时为 JVM `337/337`，`:prototype:compileDebugKotlin`、`:prototype:assembleDebug`、`:prototype:assembleDebugAndroidTest` 均成功；路由与 API 对齐审计仍为 PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27` 且确认缺失为 `0`。
+- 测试结束后已卸载 `xyz.hlovet.portal.feedtest` 及其测试包；本轮没有清理生产应用、账号、离线内容或历史 `tmp-*` 证据。Docker 引擎未运行，因此本轮没有把本地真实 API 联调扩大为生产数据验收。
+
 ## 订阅动态真实回归（2026-11-05）
 
 - 在本地 Docker API、MySQL、Redis 和 Android 11 `emulator-5562` 上执行 `NativeLocalSubscriptionFeedTest#subscriptionFeedLoadsNextPageAndOpensSubscribedCollection`，最终 `OK (1 test)`，失败、错误和跳过均为 `0`。
