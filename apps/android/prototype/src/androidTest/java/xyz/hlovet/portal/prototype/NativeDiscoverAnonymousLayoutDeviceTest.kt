@@ -6,6 +6,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -95,6 +96,19 @@ class NativeDiscoverAnonymousLayoutDeviceTest {
         waitTag("discover-article-1")
         compose.onNodeWithTag("discover-feed-list").performScrollToNode(hasTestTag("discover-article-8"))
         waitTag("discover-article-9")
+
+        // 先切回文章模式并再次滚到列表深处，确保后续排序动作确实有旧滚动位置可复用。
+        compose.onNodeWithTag("discover-filter").performClick()
+        compose.onNodeWithText("发现", substring = false).performClick()
+        waitTag("discover-article-1")
+        compose.onNodeWithTag("discover-feed-list").performScrollToNode(hasTestTag("discover-article-8"))
+        waitTag("discover-article-9")
+
+        // 切换文章排序后第一条必须回到可见区域，不能沿用旧滚动位置。
+        compose.onNodeWithTag("discover-filter").performClick()
+        compose.onNodeWithText("最多点赞", substring = false).performClick()
+        waitTag("discover-article-1")
+        compose.onNodeWithTag("discover-article-1").assertIsDisplayed()
     }
 
     /** 验证匿名页搜索筛选首行不被返回按钮挤压，并在触底后追加第二页匿名话题。 */
@@ -117,6 +131,12 @@ class NativeDiscoverAnonymousLayoutDeviceTest {
         waitTag("anonymous-topic-1")
         compose.onNodeWithTag("anonymous-topic-list").performScrollToNode(hasTestTag("anonymous-topic-12"))
         waitTag("anonymous-topic-13")
+
+        // 搜索会重读第一页；输入前列表位于末尾，搜索后第一条话题应回到顶部可见。
+        // 使用 ASCII 夹具词，避免设备未配置中文输入法时把 UI 注入失败误判为产品问题。
+        compose.onNodeWithTag("anonymous-topic-search").performTextInput("filter")
+        waitTag("anonymous-topic-1")
+        compose.onNodeWithTag("anonymous-topic-1").assertIsDisplayed()
     }
 
     /** 根据当前请求路径返回文章、专题、合集或匿名话题分页夹具。 */

@@ -236,6 +236,8 @@ internal fun NativeAnonymousTopicsScreen(
 
     // 搜索输入短暂防抖；筛选和会话变化时重新读取真实列表。
     LaunchedEffect(query, sort, visibility, manager, management, session?.accessToken) {
+        // 查询条件变化代表一组新的结果，先回到顶部，避免懒列表保留上一组结果的滚动位置。
+        topicListState.scrollToItem(0)
         delay(if (query.isBlank()) 0 else 220)
         loadTopics()
     }

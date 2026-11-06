@@ -9,6 +9,8 @@
 
 ## Android 信息流布局独立包双设备复验（2026-11-06）
 
+- 本轮补齐信息流查询状态切换的滚动边界：发现页切换内容类型/文章排序、匿名页修改搜索/筛选条件时，都会先把懒列表回到第一条，避免沿用上一组结果的深滚动位置；用户继续向下滚动时仍按接近底部自动加载下一页。
+- 扩展 `NativeDiscoverAnonymousLayoutDeviceTest`：先滚到第一页末尾，再切换发现排序或输入匿名搜索词，Android 11 `HlovetChatUi11` 与 Android 15 `HlovetChatUi15` 各 `2/2` 通过，失败、错误和跳过均为 `0`。
 - 在该布局基础上进一步收紧发现与匿名页：共用搜索/筛选首行改为 `40dp` 单行控件，文章和匿名话题行减少上下留白并保持全宽连续分隔，首屏可以展示更多内容；搜索、筛选、分页和权限请求逻辑不变。
 - 本轮执行 `:prototype:testDebugUnitTest :prototype:compileDebugKotlin :prototype:assembleDebug :prototype:assembleDebugAndroidTest --rerun-tasks`，以及指定 `NativeDiscoverAnonymousLayoutDeviceTest` 的 `:prototype:connectedDebugAndroidTest`，Android 15 `HlovetChatUi15` 和 Android 11 `HlovetChatUi11` 各 `2/2` 通过，失败、错误和跳过均为 `0`。
 - 使用独立测试包 `xyz.hlovet.portal.feedtest` 构建当前源码，API 指向设备内 `127.0.0.1:39871` 的 MockWebServer，不覆盖现有生产 Debug 包，也不读取或写入服务器业务数据。

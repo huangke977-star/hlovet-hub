@@ -6360,6 +6360,10 @@ internal fun DiscoverScreen(
 
     // 列表接近底部时自动追加下一页，避免用户必须离开内容区寻找“加载更多”按钮。
     val discoveryListState = rememberLazyListState()
+    // 搜索词、内容类型或排序变化代表一组新的信息流，先回到顶部避免用户误读旧滚动位置。
+    LaunchedEffect(query, discoveryMode, articleSort) {
+        discoveryListState.scrollToItem(0)
+    }
     LaunchedEffect(discoveryListState, canLoadMore, loadingMore) {
         snapshotFlow {
             val layout = discoveryListState.layoutInfo
