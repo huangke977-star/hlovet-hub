@@ -230,10 +230,28 @@ internal const val NATIVE_VOICE_RECORDING_LIMIT_SECONDS = 5 * 60
 internal fun nativeVoiceRecordingLimitReached(seconds: Int): Boolean =
     seconds >= NATIVE_VOICE_RECORDING_LIMIT_SECONDS
 
-private sealed interface DetailTarget {
-    data class Article(val article: RemoteArticle, val focusCommentId: Int? = null) : DetailTarget
-    data class Topic(val topic: RemoteTopic) : DetailTarget
-    data class Collection(val collection: RemoteCollection) : DetailTarget
+/** 描述原生详情页的内容类型及是否只允许读取本地离线快照。 */
+internal sealed interface DetailTarget {
+    val offlineOnly: Boolean
+
+    /** 文章详情及可选评论定位信息。 */
+    data class Article(
+        val article: RemoteArticle,
+        val focusCommentId: Int? = null,
+        override val offlineOnly: Boolean = false,
+    ) : DetailTarget
+
+    /** 专题详情及其离线快照状态。 */
+    data class Topic(
+        val topic: RemoteTopic,
+        override val offlineOnly: Boolean = false,
+    ) : DetailTarget
+
+    /** 合集详情及其离线快照状态。 */
+    data class Collection(
+        val collection: RemoteCollection,
+        override val offlineOnly: Boolean = false,
+    ) : DetailTarget
 }
 
 private sealed interface NativeDetailBackTarget {
@@ -2179,9 +2197,24 @@ private fun HlovetMobilePreview(
                             session = session,
                             context = context,
                             onBack = { accountTarget = null },
-                            onOpenArticle = { article -> openDetailTarget(DetailTarget.Article(article), NativeDetailBackTarget.Account(AccountTarget.Offline)) },
-                            onOpenTopic = { topic -> openDetailTarget(DetailTarget.Topic(topic), NativeDetailBackTarget.Account(AccountTarget.Offline)) },
-                            onOpenCollection = { collection -> openDetailTarget(DetailTarget.Collection(collection), NativeDetailBackTarget.Account(AccountTarget.Offline)) },
+                            onOpenArticle = { article ->
+                                openDetailTarget(
+                                    DetailTarget.Article(article, offlineOnly = true),
+                                    NativeDetailBackTarget.Account(AccountTarget.Offline),
+                                )
+                            },
+                            onOpenTopic = { topic ->
+                                openDetailTarget(
+                                    DetailTarget.Topic(topic, offlineOnly = true),
+                                    NativeDetailBackTarget.Account(AccountTarget.Offline),
+                                )
+                            },
+                            onOpenCollection = { collection ->
+                                openDetailTarget(
+                                    DetailTarget.Collection(collection, offlineOnly = true),
+                                    NativeDetailBackTarget.Account(AccountTarget.Offline),
+                                )
+                            },
                         )
                     } else if (accountTarget == AccountTarget.Privacy) {
                         NativePrivacyScreen(
@@ -2560,6 +2593,7 @@ private fun HlovetMobilePreview(
                         is DetailTarget.Article -> ArticleDetailScreen(
                             initialArticle = target.article,
                             focusCommentId = target.focusCommentId,
+                            offlineOnly = target.offlineOnly,
                             session = session,
                             onLogin = { loginVisible = true },
                             onBack = ::closeDetailTarget,
@@ -2573,7 +2607,12 @@ private fun HlovetMobilePreview(
                             session = session,
                             onLogin = { loginVisible = true },
                             onBack = ::closeDetailTarget,
-                            onArticleClick = { openDetailTarget(DetailTarget.Article(it), NativeDetailBackTarget.Detail(target)) },
+                            onArticleClick = {
+                                openDetailTarget(
+                                    DetailTarget.Article(it, offlineOnly = target.offlineOnly),
+                                    NativeDetailBackTarget.Detail(target),
+                                )
+                            },
                             onContentChanged = { reloadKey += 1 },
                         )
                     }
@@ -4180,9 +4219,10 @@ private fun AppHeader(
  * onLogin/onBack/onOpenUser 分别处理登录、返回和作者导航，附件下载复用当前来源的统一文件操作面板。
  */
 @Composable
-private fun ArticleDetailScreen(
+internal fun ArticleDetailScreen(
     initialArticle: RemoteArticle,
     focusCommentId: Int? = null,
+    offlineOnly: Boolean = false,
     session: NativeSession?,
     onLogin: () -> Unit,
     onBack: () -> Unit,
@@ -4292,13 +4332,30 @@ private fun ArticleDetailScreen(
         }
     }
 
-    LaunchedEffect(initialArticle.slug, session?.accessToken, offlineOwner, focusCommentId) {
+    LaunchedEffect(initialArticle.slug, session?.accessToken, offlineOwner, focusCommentId, offlineOnly) {
         loading = true
         error = null
         notice = null
         offlineNotice = null
         showingOfflineContent = false
         offlineSaved = withContext(Dispatchers.IO) { NativeOfflineContentStore.isArticleSaved(context, offlineOwner, initialArticle.slug) }
+        if (offlineOnly) {
+            // 离线列表打开的是已保存正文，直接渲染本地快照，不能先等待一个必然失败的网络请求。
+            article = initialArticle
+            comments = emptyList()
+            commentTotal = initialArticle.commentCount
+            nextCommentCursor = null
+            hasMoreComments = false
+            highlightCommentId = null
+            offlineSaved = true
+            showingOfflineContent = true
+            offlineNotice = nativePhrase(
+                "当前处于离线阅读模式，评论和互动暂不可用。",
+                "Offline reading mode is active. Comments and interactions are unavailable.",
+            )
+            loading = false
+            return@LaunchedEffect
+        }
         try {
             val token = session?.accessToken
             val loadedArticle = withContext(Dispatchers.IO) { NativeArticleApi.getArticle(token, initialArticle.slug) }
@@ -5394,8 +5451,9 @@ private fun NativeArticleAttachment.toChatAttachmentPreview(): NativeChatAttachm
     createdAt = "",
 )
 
+/** 显示专题或合集详情；offlineOnly 为 true 时只使用传入的本地快照。 */
 @Composable
-private fun DiscoveryDetailScreen(
+internal fun DiscoveryDetailScreen(
     target: DetailTarget,
     session: NativeSession?,
     onLogin: () -> Unit,
@@ -5436,6 +5494,17 @@ private fun DiscoveryDetailScreen(
         offlineSaved = cachedTopic != null || cachedCollection != null
         cachedTopic?.let { topic = it }
         cachedCollection?.let { collection = it }
+        if (target.offlineOnly) {
+            // 离线列表传入的专题/合集已经包含文章清单，直接使用快照，避免断网时等待在线详情超时。
+            showingOfflineContent = true
+            offlineSaved = true
+            offlineNotice = nativePhrase(
+                "当前处于离线阅读模式，订阅和互动暂不可用。",
+                "Offline reading mode is active. Subscriptions and interactions are unavailable.",
+            )
+            loading = false
+            return@LaunchedEffect
+        }
         try {
             when (target) {
                 is DetailTarget.Topic -> {
