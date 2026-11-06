@@ -2493,6 +2493,7 @@ private fun HlovetMobilePreview(
                             session = session,
                             onBack = { accountTarget = null },
                             onArticleClick = { openDetailTarget(DetailTarget.Article(it), NativeDetailBackTarget.Account(accountTarget!!)) },
+                            onOpenTarget = { target -> accountTarget = target },
                         )
                     }
                 } else if (groupScreenVisible) {
@@ -13050,12 +13051,14 @@ private fun privacyTime(value: String): String = when {
     else -> value
 }
 
+/** 展示个人文章集合，按 PC 端阅读中心提供搜索、页签、逐行懒加载和移除操作。 */
 @Composable
-private fun AccountScreen(
+internal fun AccountScreen(
     target: AccountTarget,
     session: NativeSession?,
     onBack: () -> Unit,
     onArticleClick: (RemoteArticle) -> Unit,
+    onOpenTarget: (AccountTarget) -> Unit,
 ) {
     val searchable = target == AccountTarget.MyFavorites ||
         target == AccountTarget.MyLiked ||
@@ -13069,14 +13072,15 @@ private fun AccountScreen(
     var error by remember(session?.accessToken, target, searchQuery) { mutableStateOf<String?>(null) }
     var notice by remember(session?.accessToken, target, searchQuery) { mutableStateOf<String?>(null) }
     var clearHistoryConfirm by remember(session?.accessToken, target) { mutableStateOf(false) }
-    var historyActionBusy by remember(session?.accessToken, target) { mutableStateOf(false) }
+    var articleActionBusy by remember(session?.accessToken, target) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    /** 从当前个人文章集合移除一条阅读历史或稍后读记录，并立即同步列表。 */
     fun removeHistory(article: RemoteArticle) {
         val accessToken = session?.accessToken ?: return
-        if (historyActionBusy || target != AccountTarget.ReadingHistory) return
+        if (articleActionBusy || target != AccountTarget.ReadingHistory) return
         scope.launch {
-            historyActionBusy = true
+            articleActionBusy = true
             error = null
             try {
                 withContext(Dispatchers.IO) { NativeArticleApi.removeReadingHistory(accessToken, article.id) }
@@ -13090,16 +13094,41 @@ private fun AccountScreen(
             } catch (exception: Exception) {
                 error = exception.message ?: nativePhrase("移除阅读记录失败。", "Failed to remove the reading history entry.")
             } finally {
-                historyActionBusy = false
+                articleActionBusy = false
             }
         }
     }
 
+    /** 从稍后读集合移除文章，保持服务器状态和当前列表同步。 */
+    fun removeReadLater(article: RemoteArticle) {
+        val accessToken = session?.accessToken ?: return
+        if (articleActionBusy || target != AccountTarget.ReadLater) return
+        scope.launch {
+            articleActionBusy = true
+            error = null
+            try {
+                withContext(Dispatchers.IO) { NativeArticleApi.toggleReadLater(accessToken, article.id, false) }
+                articleList = articleList?.let { current ->
+                    current.copy(
+                        items = current.items.filterNot { it.id == article.id },
+                        total = (current.total - 1).coerceAtLeast(0),
+                    )
+                }
+                notice = nativePhrase("已从稍后读移除。", "Removed from Read later.")
+            } catch (exception: Exception) {
+                error = exception.message ?: nativePhrase("移出稍后读失败。", "Failed to remove the article from Read later.")
+            } finally {
+                articleActionBusy = false
+            }
+        }
+    }
+
+    /** 清空全部阅读历史，并将当前列表恢复为空状态。 */
     fun clearHistory() {
         val accessToken = session?.accessToken ?: return
-        if (historyActionBusy || target != AccountTarget.ReadingHistory) return
+        if (articleActionBusy || target != AccountTarget.ReadingHistory) return
         scope.launch {
-            historyActionBusy = true
+            articleActionBusy = true
             clearHistoryConfirm = false
             error = null
             try {
@@ -13109,7 +13138,7 @@ private fun AccountScreen(
             } catch (exception: Exception) {
                 error = exception.message ?: nativePhrase("清空阅读历史失败。", "Failed to clear reading history.")
             } finally {
-                historyActionBusy = false
+                articleActionBusy = false
             }
         }
     }
@@ -13152,6 +13181,22 @@ private fun AccountScreen(
                     error = exception.message ?: nativePhrase("更多内容加载失败，请稍后重试。", "Unable to load more content. Try again later.")
                 }
             loadingMore = false
+        }
+    }
+
+    // 列表接近底部时自动追加下一页，避免把阅读中心的连续内容割裂成手动分页按钮。
+    val articleListState = rememberLazyListState()
+    val currentPage = articleList?.page ?: 1
+    val totalPages = articleList?.totalPages ?: 1
+    LaunchedEffect(articleListState, currentPage, totalPages, loading, loadingMore) {
+        snapshotFlow {
+            val layout = articleListState.layoutInfo
+            val lastVisible = layout.visibleItemsInfo.lastOrNull()?.index ?: 0
+            layout.totalItemsCount > 0 && lastVisible >= layout.totalItemsCount - 3
+        }.collect { nearEnd ->
+            if (nearEnd && searchable && !loading && !loadingMore && currentPage < totalPages) {
+                loadMoreArticles()
+            }
         }
     }
 
@@ -13233,9 +13278,10 @@ private fun AccountScreen(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        state = articleListState,
+        modifier = Modifier.fillMaxSize().testTag("account-article-list"),
         contentPadding = PaddingValues(bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         item {
             TopAppBar(
@@ -13253,7 +13299,7 @@ private fun AccountScreen(
                 },
                 actions = {
                     if (target == AccountTarget.ReadingHistory && !articleList?.items.isNullOrEmpty()) {
-                        IconButton(onClick = { clearHistoryConfirm = true }, enabled = !historyActionBusy) {
+                        IconButton(onClick = { clearHistoryConfirm = true }, enabled = !articleActionBusy) {
                             Icon(Icons.Filled.Delete, contentDescription = nativePhrase("清空阅读历史", "Clear reading history"), tint = Coral)
                         }
                     }
@@ -13261,14 +13307,39 @@ private fun AccountScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
         }
+        if (target in setOf(AccountTarget.ReadLater, AccountTarget.ReadingHistory, AccountTarget.MyFavorites, AccountTarget.MyLiked)) {
+            item {
+                // 阅读中心的四个集合共用页签，切换时由宿主保留统一返回行为和深链目标。
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    listOf(
+                        AccountTarget.ReadLater to nativePhrase("稍后读", "Read later"),
+                        AccountTarget.ReadingHistory to nativePhrase("历史", "History"),
+                        AccountTarget.MyFavorites to nativePhrase("收藏", "Favorites"),
+                        AccountTarget.MyLiked to nativePhrase("赞过", "Liked"),
+                    ).forEach { (tabTarget, label) ->
+                        FilterChip(
+                            selected = target == tabTarget,
+                            onClick = { onOpenTarget(tabTarget) },
+                            label = { Text(label, fontSize = 11.sp) },
+                            border = null,
+                            colors = HlovetUi.filterChipColors(),
+                        )
+                    }
+                }
+            }
+        }
         if (searchable) {
             item {
+                // 搜索框使用固定首行高度，输入变化由上方 LaunchedEffect 防抖后重新请求第一页。
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it.take(100) },
-                    modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(),
                     singleLine = true,
-                    label = { Text(nativePhrase("搜索文章", "Search articles"), fontSize = 12.sp) },
+                    label = { Text(nativePhrase("搜索标题、正文、标签或作者", "Search titles, content, tags, or authors"), fontSize = 12.sp) },
                     trailingIcon = {
                         if (searchQuery.isNotBlank()) {
                             IconButton(onClick = { searchQuery = "" }, enabled = !loading && !loadingMore) {
@@ -13282,92 +13353,51 @@ private fun AccountScreen(
         }
         if (!notice.isNullOrBlank()) {
             item {
-                Text(notice!!, color = Accent, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 22.dp))
+                Text(notice!!, color = Accent, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
             }
         }
         when {
             loading -> item { EmptyState(nativePhrase("正在读取个人内容…", "Loading personal content...")) }
-            !error.isNullOrBlank() -> item { EmptyState(error!!) }
-            articleList?.items.isNullOrEmpty() -> item {
-                EmptyState(accountTargetEmptyState(target))
-            }
+            !error.isNullOrBlank() && articleList?.items.isNullOrEmpty() -> item { EmptyState(error!!) }
+            articleList?.items.isNullOrEmpty() -> item { EmptyState(accountTargetEmptyState(target)) }
             else -> {
                 item {
                     Text(
                         nativePhrase("共 ${articleList?.total ?: 0} 篇", "${articleList?.total ?: 0} articles"),
                         color = TextMuted,
                         fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 22.dp),
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
                     )
                 }
-                item {
-                    GlassCard(
-                        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
-                        shape = HlovetUi.cardShape,
-                    ) {
-                        Column {
-                            val currentItems = articleList!!.items
-                            currentItems.forEachIndexed { index, article ->
-                                ListItem(
-                                    headlineContent = { Text(article.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                    supportingContent = {
-                                        Text(
-                                            if (target == AccountTarget.ReadingHistory) {
-                                                listOfNotNull(
-                                                    nativePhrase("已读 ${article.readingProgress ?: 1}%", "${article.readingProgress ?: 1}% read"),
-                                                    article.lastReadAt?.takeIf { it.isNotBlank() }?.let {
-                                                        nativePhrase("上次阅读 ${formatNativeTime(it)}", "Last read ${formatNativeTime(it)}")
-                                                    },
-                                                ).joinToString(" · ")
-                                            } else {
-                                                listOfNotNull(
-                                                    article.category.takeIf { it.isNotBlank() },
-                                                    nativePhrase("阅读 ${article.viewCount}", "${article.viewCount} views"),
-                                                    nativePhrase("评论 ${article.commentCount}", "${article.commentCount} comments"),
-                                                ).joinToString(" · ")
-                                            },
-                                            color = TextMuted,
-                                            fontSize = 11.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    },
-                                    leadingContent = { Icon(Icons.Filled.LibraryBooks, contentDescription = null, tint = Accent) },
-                                    trailingContent = {
-                                        if (target == AccountTarget.ReadingHistory) {
-                                            IconButton(onClick = { removeHistory(article) }, enabled = !historyActionBusy) {
-                                                Icon(Icons.Filled.Delete, contentDescription = nativePhrase("移除阅读记录", "Remove from reading history"), tint = Coral, modifier = Modifier.size(18.dp))
-                                            }
-                                        } else {
-                                            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = TextMuted)
-                                        }
-                                    },
-                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                                    modifier = Modifier.clickable { onArticleClick(article) },
-                                )
-                                if (index < currentItems.lastIndex) HorizontalDivider(color = HlovetUi.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                val currentItems = articleList?.items.orEmpty()
+                itemsIndexed(
+                    items = currentItems,
+                    key = { _, article -> "account-article-${target::class.simpleName}-${article.id}" },
+                ) { index, article ->
+                    AccountArticleRow(
+                        article = article,
+                        target = target,
+                        onClick = { onArticleClick(article) },
+                        onRemoveHistory = { removeHistory(article) },
+                        onRemoveReadLater = { removeReadLater(article) },
+                        actionEnabled = !articleActionBusy,
+                        showDivider = index < currentItems.lastIndex,
+                    )
+                }
+                if (!error.isNullOrBlank()) {
+                    item {
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp)) {
+                            Text(error!!, color = Coral, fontSize = 12.sp)
+                            TextButton(onClick = ::loadMoreArticles, enabled = !loadingMore) {
+                                Text(nativePhrase("重试加载", "Retry loading"), fontSize = 11.sp)
                             }
                         }
                     }
                 }
-                if (searchable && articleList!!.page < articleList!!.totalPages) {
+                if (loadingMore) {
                     item {
-                        TextButton(
-                            onClick = ::loadMoreArticles,
-                            enabled = !loading && !loadingMore && !historyActionBusy,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                        ) {
-                            Text(
-                                if (loadingMore) {
-                                    nativePhrase("加载中…", "Loading...")
-                                } else {
-                                    nativePhrase(
-                                        "加载更多（${articleList!!.page}/${articleList!!.totalPages}）",
-                                        "Load more (${articleList!!.page}/${articleList!!.totalPages})",
-                                    )
-                                },
-                                fontSize = 11.sp,
-                            )
+                        Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.Center) {
+                            Text(nativePhrase("正在加载更多…", "Loading more..."), color = TextMuted, fontSize = 11.sp)
                         }
                     }
                 }
@@ -13381,10 +13411,74 @@ private fun AccountScreen(
             title = { Text(nativePhrase("清空阅读历史", "Clear reading history")) },
             text = { Text(nativePhrase("确定清空全部阅读历史吗？收藏、点赞和稍后阅读不会受到影响。", "Clear all reading history? Favorites, likes, and Read later will not be affected.")) },
             confirmButton = {
-                TextButton(onClick = ::clearHistory, enabled = !historyActionBusy) { Text(nativePhrase("清空", "Clear"), color = Coral) }
+                TextButton(onClick = ::clearHistory, enabled = !articleActionBusy) { Text(nativePhrase("清空", "Clear"), color = Coral) }
             },
             dismissButton = { TextButton(onClick = { clearHistoryConfirm = false }) { Text(nativePhrase("取消", "Cancel")) } },
         )
+    }
+}
+
+/** 展示个人文章集合中的单条文章，保持发现信息流的行式布局并保留历史操作入口。 */
+@Composable
+private fun AccountArticleRow(
+    article: RemoteArticle,
+    target: AccountTarget,
+    onClick: () -> Unit,
+    onRemoveHistory: () -> Unit,
+    onRemoveReadLater: () -> Unit,
+    actionEnabled: Boolean,
+    showDivider: Boolean,
+) {
+    // 行主体使用连续信息流排版，避免把个人文章列表重新包进一个大卡片。
+    Column(modifier = Modifier.fillMaxWidth().testTag("account-article-${article.id}")) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 作者没有头像时仍使用名称后两位，保证列表左侧锚点稳定。
+            Avatar(article.authorName.takeLast(2), Coral)
+            Spacer(Modifier.width(11.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(article.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    if (target == AccountTarget.ReadingHistory) {
+                        listOfNotNull(
+                            nativePhrase("已读 ${article.readingProgress ?: 1}%", "${article.readingProgress ?: 1}% read"),
+                            article.lastReadAt?.takeIf { it.isNotBlank() }?.let {
+                                nativePhrase("上次阅读 ${formatNativeTime(it)}", "Last read ${formatNativeTime(it)}")
+                            },
+                        ).joinToString(" · ")
+                    } else {
+                        listOfNotNull(
+                            article.authorName.takeIf { it.isNotBlank() },
+                            article.category.takeIf { it.isNotBlank() },
+                            nativePhrase("阅读 ${article.viewCount}", "${article.viewCount} views"),
+                            nativePhrase("评论 ${article.commentCount}", "${article.commentCount} comments"),
+                        ).joinToString(" · ")
+                    },
+                    color = TextMuted,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            // 仅历史和稍后读提供移除操作，其余集合保留进入文章详情的提示图标。
+            when (target) {
+                AccountTarget.ReadingHistory -> IconButton(onClick = onRemoveHistory, enabled = actionEnabled, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.Delete, contentDescription = nativePhrase("移除阅读记录", "Remove reading record"), tint = Coral, modifier = Modifier.size(18.dp))
+                }
+                AccountTarget.ReadLater -> IconButton(onClick = onRemoveReadLater, enabled = actionEnabled, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = nativePhrase("移出稍后读", "Remove from Read later"), tint = Coral, modifier = Modifier.size(18.dp))
+                }
+                else -> Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
+            }
+        }
+        // 分隔线只放在相邻文章之间，保持与发现信息流一致的连续阅读节奏。
+        if (showDivider) HorizontalDivider(color = HlovetUi.divider, modifier = Modifier.padding(horizontal = 16.dp))
     }
 }
 

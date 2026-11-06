@@ -3335,3 +3335,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用 `previewApiBaseUrl=http://127.0.0.1:39871` 的设备内 MockWebServer 变体，在 Android 11 `emulator-5562` 和 Android 15 `emulator-5560` 实际执行 `NativeDiscoverAnonymousLayoutDeviceTest`；两台设备各 `2/2` 通过，失败、错误和跳过均为 `0`。
 - 回归覆盖发现页和匿名页的首行搜索框、右侧筛选入口、独立列表滚动，以及滚动接近底部后自动追加第二页；测试使用设备内固定夹具，不访问生产 API、不写入业务数据。
 - `:prototype:testDebugUnitTest`、`:prototype:assembleDebug`、专用 `:prototype:connectedDebugAndroidTest` 和 `git diff --check` 均通过。普通生产地址变体的同名设备测试按保护规则跳过，不能把它误报为本地夹具测试结果。
+
+## Android 个人阅读集合信息流回归（2026-11-06）
+
+- 个人中心的稍后读、历史、收藏和赞过统一为页签加逐条文章信息流；文章行独立回收，阅读历史保留单条删除与清空操作，稍后读支持直接移除；列表接近底部时自动请求下一页，不再依赖手动加载按钮。
+- 使用设备内 MockWebServer 执行 `NativeAccountReadingDeviceTest`，Android 11 与 Android 15 各 `1/1` 通过，失败、错误和跳过均为 `0`；回归覆盖阅读集合页签切换、逐条文章展示、历史接口切换和触底自动追加第二页。
+- 测试使用固定夹具，不访问生产 API、不写入真实文章或账号数据；`:prototype:testDebugUnitTest`、`:prototype:assembleDebug` 与 `git diff --check` 通过。本轮未扩大为生产账号阅读集合或外部服务验收。
