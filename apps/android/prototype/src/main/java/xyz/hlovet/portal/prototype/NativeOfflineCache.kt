@@ -18,6 +18,7 @@ internal object NativeOfflineCache {
     private const val MAX_MEDIA_BYTES = 32L * 1024L * 1024L
     private const val MAX_DOWNLOAD_BYTES = 50L * 1024L * 1024L
     private const val MAX_PREFETCH_FILE_BYTES = 4L * 1024L * 1024L
+    private const val MAX_PREFETCH_ITEMS = 40
     private const val MEDIA_DIRECTORY = "media-cache"
     private const val TEMP_MEDIA_DIRECTORY = "media-temp"
 
@@ -27,6 +28,15 @@ internal object NativeOfflineCache {
         val bytes: Long,
         val maxBytes: Long,
         val legacyBytes: Long = 0L,
+    )
+
+    /** 记录一次显式保存动作发现、尝试和最终留在本地的媒体数量。 */
+    internal data class MediaPrefetchResult(
+        val requestedCount: Int,
+        val attemptedCount: Int,
+        val cachedCount: Int,
+        val unavailableCount: Int,
+        val skippedCount: Int,
     )
 
     /** 将 data 原子保存到 context 中 apiBaseUrl 下 owner 的首页缓存，不覆盖其它来源或旧版缓存。 */
@@ -218,68 +228,89 @@ internal object NativeOfflineCache {
         )
     }
 
-    /**
-     * Warm only a small number of image files for explicitly saved content.
-     * This keeps offline text useful without turning one save action into a
-     * full media mirror or allowing a large image to evict the whole cache.
-     */
+    /** 为显式保存的专题或合集预取图片，返回实际缓存结果而不是静默丢弃媒体。 */
     fun prefetchImages(
         context: Context,
         paths: List<String>,
         accessToken: String?,
         cacheOwner: String,
-        maxItems: Int = 4,
-    ): Int {
-        var cached = 0
-        paths.asSequence()
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .map(::nativeMediaUrl)
-            .distinct()
-            .take(maxItems.coerceAtLeast(0))
-            .forEachIndexed { index, url ->
-                val file = loadMediaFile(
-                    context = context,
-                    url = url,
-                    accessToken = accessToken,
-                    cacheOwner = cacheOwner,
-                    originalName = mediaFileName(url, "offline-image-$index.jpg"),
-                    mimeType = "image/*",
-                    maxBytes = MAX_PREFETCH_FILE_BYTES,
-                )
-                if (file != null) cached++
-            }
-        return cached
-    }
+        maxItems: Int = MAX_PREFETCH_ITEMS,
+        apiBaseUrl: String = BuildConfig.API_BASE_URL,
+    ): MediaPrefetchResult = prefetchPaths(
+        context = context,
+        paths = paths,
+        accessToken = accessToken,
+        cacheOwner = cacheOwner,
+        maxItems = maxItems,
+        originalNamePrefix = "offline-image",
+        mimeType = "image/*",
+        apiBaseUrl = apiBaseUrl,
+    )
 
-    /** Warm a bounded set of media referenced by an explicitly saved article body. */
+    /** 为显式保存的文章、专题或合集预取正文引用的全部受支持媒体。 */
     fun prefetchMedia(
         context: Context,
         paths: List<String>,
         accessToken: String?,
         cacheOwner: String,
-        maxItems: Int = 6,
-    ): Int {
-        var cached = 0
-        paths.asSequence()
+        maxItems: Int = MAX_PREFETCH_ITEMS,
+        apiBaseUrl: String = BuildConfig.API_BASE_URL,
+    ): MediaPrefetchResult = prefetchPaths(
+        context = context,
+        paths = paths,
+        accessToken = accessToken,
+        cacheOwner = cacheOwner,
+        maxItems = maxItems,
+        originalNamePrefix = "offline-media",
+        mimeType = "application/octet-stream",
+        apiBaseUrl = apiBaseUrl,
+    )
+
+    /** 按数量上限下载媒体，并在下载完成后重新统计仍存在于共享预算中的文件。 */
+    private fun prefetchPaths(
+        context: Context,
+        paths: List<String>,
+        accessToken: String?,
+        cacheOwner: String,
+        maxItems: Int,
+        originalNamePrefix: String,
+        mimeType: String,
+        apiBaseUrl: String,
+    ): MediaPrefetchResult {
+        // 先规范化并去重，避免同一正文中的重复引用浪费请求和缓存空间。
+        val candidates = paths.asSequence()
             .map(String::trim)
             .filter(String::isNotBlank)
             .map(::nativeMediaUrl)
             .distinct()
-            .take(maxItems.coerceAtLeast(0))
-            .forEachIndexed { index, url ->
-                val file = loadMediaFile(
-                    context = context,
-                    url = url,
-                    accessToken = accessToken,
-                    cacheOwner = cacheOwner,
-                    originalName = mediaFileName(url, "offline-media-$index"),
-                    mimeType = "application/octet-stream",
-                    maxBytes = MAX_PREFETCH_FILE_BYTES,
-                )
-                if (file != null) cached++
-            }
-        return cached
+            .toList()
+        val selected = candidates.take(maxItems.coerceAtLeast(0))
+
+        // 每个文件仍限制为 4 MB，失败只影响该媒体，不影响正文原子保存。
+        selected.forEachIndexed { index, url ->
+            loadMediaFile(
+                context = context,
+                url = url,
+                accessToken = accessToken,
+                cacheOwner = cacheOwner,
+                originalName = mediaFileName(url, "$originalNamePrefix-$index"),
+                mimeType = mimeType,
+                maxBytes = MAX_PREFETCH_FILE_BYTES,
+                apiBaseUrl = apiBaseUrl,
+            )
+        }
+
+        // 共享缓存可能在下载过程中淘汰较早媒体，最终命中数才是断网可用数。
+        val cachedCount = selected.count {
+            loadCachedMediaFile(context, it, cacheOwner, apiBaseUrl) != null
+        }
+        return MediaPrefetchResult(
+            requestedCount = candidates.size,
+            attemptedCount = selected.size,
+            cachedCount = cachedCount,
+            unavailableCount = (candidates.size - cachedCount).coerceAtLeast(0),
+            skippedCount = (candidates.size - selected.size).coerceAtLeast(0),
+        )
     }
 
     private fun findCachedMediaFile(directory: File, cacheKey: String): File? = directory

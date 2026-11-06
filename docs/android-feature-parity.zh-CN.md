@@ -14,6 +14,14 @@
 - 当前源码不依赖外部服务的回归同时为 JVM `337/337`，`:prototype:compileDebugKotlin`、`:prototype:assembleDebug`、`:prototype:assembleDebugAndroidTest` 均成功；路由与 API 对齐审计仍为 PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27` 且确认缺失为 `0`。
 - 测试结束后已卸载 `xyz.hlovet.portal.feedtest` 及其测试包；本轮没有清理生产应用、账号、离线内容或历史 `tmp-*` 证据。Docker 引擎未运行，因此本轮没有把本地真实 API 联调扩大为生产数据验收。
 
+## Android 离线媒体预取边界补充（2026-11-06）
+
+- 文章、专题和合集显式保存时统一最多尝试 40 个去重后的媒体引用；专题和合集不再只预取封面/图片，也会纳入正文中的图片、音频、视频和受支持附件链接。
+- 单个预取媒体仍限制为 4 MB，共享媒体缓存仍限制为 32 MB；超过共享预算的旧媒体按最近使用时间淘汰，正文索引不会被媒体淘汰影响。
+- 保存完成后会复查媒体是否仍在本地缓存：网络失败、单文件超限、共享预算淘汰或超过 40 个上限都会在离线提示中显示未缓存数量，避免用户误以为所有媒体都能断网打开。
+- `NativeOfflinePersistenceTest#mediaPrefetchReportsBoundAndUnavailableItems` 覆盖 42 个引用的 40 项上限、404 媒体失败和最终缓存数量统计；Android 15 `emulator-5560` 与 Android 11 `emulator-5562` 各为 `1/1` 通过，原有 `NativeOfflinePersistenceTest` 两台设备各为 `10/10` 通过。
+- 本轮重新执行 `:prototype:testDebugUnitTest :prototype:compileDebugKotlin :prototype:assembleDebug :prototype:assembleDebugAndroidTest --rerun-tasks`，构建成功；测试只使用设备回环 MockWebServer，不读取或修改生产文章、用户和离线数据。
+
 ## Android 隔离功能跨版本回归（2026-11-06）
 
 - 使用同一独立测试包和设备内 MockWebServer，在 Android 15 `emulator-5560` 执行 AI 助手、AI 配置、备份管理、OAuth 回调、通话浮层和行内媒体六组设备测试，共 `64/64` 通过，失败、错误和跳过均为 `0`。覆盖模型拉取/缓存价格、知识库索引与失败重试、备份任务轮询/恢复阻塞、OAuth 成功与拒绝回调、通话面板状态及音视频播放控制。

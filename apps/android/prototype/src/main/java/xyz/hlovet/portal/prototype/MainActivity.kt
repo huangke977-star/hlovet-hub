@@ -4462,11 +4462,10 @@ internal fun ArticleDetailScreen(
                         paths = nativeOfflineArticleMediaPaths(article),
                         accessToken = session?.accessToken,
                         cacheOwner = offlineOwner,
-                        maxItems = 6,
                     )
                 }
             }
-                .onSuccess { offlineSaved = true; offlineNotice = nativePhrase("文章已保存到本机，可在断网时打开。", "The article is saved on this device for offline reading.") }
+                .onSuccess { result -> offlineSaved = true; offlineNotice = nativeOfflineSaveNotice(result) }
                 .onFailure { error = it.message ?: nativePhrase("保存离线内容失败。", "Failed to save offline content.") }
             actionBusy = ""
         }
@@ -5216,6 +5215,19 @@ private fun NativeArticleReportDialog(
     )
 }
 
+/** 根据正文与媒体缓存结果生成离线保存反馈，避免正文成功但媒体缺失时误导用户。 */
+private fun nativeOfflineSaveNotice(result: NativeOfflineCache.MediaPrefetchResult): String {
+    // 媒体缺失只影响断网时的对应资源，已经原子保存的正文仍然可以打开。
+    return if (result.unavailableCount > 0) {
+        nativePhrase(
+            "正文已保存到本机，但 ${result.unavailableCount} 个媒体未缓存；断网时对应图片、音频、视频或附件可能无法打开。",
+            "The content is saved, but ${result.unavailableCount} media item(s) were not cached; those images, audio, video, or attachments may be unavailable offline.",
+        )
+    } else {
+        nativePhrase("已保存到本机，断网时仍可打开。", "Saved on this device for offline access.")
+    }
+}
+
 @Composable
 private fun ArticleContentPreview(
     article: RemoteArticle,
@@ -5548,34 +5560,32 @@ internal fun DiscoveryDetailScreen(
                 withContext(Dispatchers.IO) {
                     if (currentTopic != null) {
                         NativeOfflineContentStore.saveTopic(context, offlineOwner, currentTopic)
-                        NativeOfflineCache.prefetchImages(
+                        NativeOfflineCache.prefetchMedia(
                             context = context,
                             paths = buildList {
                                 currentTopic.coverPath?.let(::add)
-                                currentTopic.articles.asSequence().flatMap { it.images.asSequence() }.forEach(::add)
+                                currentTopic.articles.asSequence().flatMap(::nativeOfflineArticleMediaPaths).forEach(::add)
                             },
                             accessToken = session?.accessToken,
                             cacheOwner = offlineOwner,
-                            maxItems = 4,
                         )
                     } else {
                         val collection = currentCollection!!
                         NativeOfflineContentStore.saveCollection(context, offlineOwner, collection)
-                        NativeOfflineCache.prefetchImages(
+                        NativeOfflineCache.prefetchMedia(
                             context = context,
                             paths = buildList {
                                 collection.coverPath?.let(::add)
-                                collection.articles.asSequence().flatMap { it.images.asSequence() }.forEach(::add)
+                                collection.articles.asSequence().flatMap(::nativeOfflineArticleMediaPaths).forEach(::add)
                             },
                             accessToken = session?.accessToken,
                             cacheOwner = offlineOwner,
-                            maxItems = 4,
                         )
                     }
                 }
-            }.onSuccess {
+            }.onSuccess { result ->
                 offlineSaved = true
-                offlineNotice = nativePhrase("已保存到本机，断网时仍可打开。", "Saved on this device for offline access.")
+                offlineNotice = nativeOfflineSaveNotice(result)
             }.onFailure { actionError = it.message ?: nativePhrase("保存离线内容失败。", "Failed to save offline content.") }
             offlineBusy = false
         }

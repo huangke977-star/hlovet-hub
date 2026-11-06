@@ -130,6 +130,45 @@ class NativeOfflinePersistenceTest {
         assertEquals(1, server.requestCount)
     }
 
+    /** 核对显式保存最多尝试 40 个媒体，并把失败或超出数量的媒体明确计入未缓存结果。 */
+    @Test
+    fun mediaPrefetchReportsBoundAndUnavailableItems() {
+        // 先提供 40 个成功响应，证明新增上限不会静默请求第 41、42 个媒体。
+        val boundedPaths = (1..42).map { serverUrl("/media/bounded-$it.bin") }
+        repeat(40) { server.enqueue(MockResponse().setBody("cached-$it")) }
+        val bounded = NativeOfflineCache.prefetchMedia(
+            context = context,
+            paths = boundedPaths,
+            accessToken = "test-token",
+            cacheOwner = "prefetch-owner",
+            maxItems = 40,
+        )
+        assertEquals(42, bounded.requestedCount)
+        assertEquals(40, bounded.attemptedCount)
+        assertEquals(40, bounded.cachedCount)
+        assertEquals(2, bounded.unavailableCount)
+        assertEquals(2, bounded.skippedCount)
+
+        // 下载失败也只影响对应媒体，正文保存流程可以根据结果给出提示。
+        val failurePaths = (1..3).map { serverUrl("/media/failure-$it.bin") }
+        server.enqueue(MockResponse().setBody("available-1"))
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(MockResponse().setBody("available-3"))
+        val failed = NativeOfflineCache.prefetchMedia(
+            context = context,
+            paths = failurePaths,
+            accessToken = "test-token",
+            cacheOwner = "prefetch-failure-owner",
+            maxItems = 3,
+        )
+        assertEquals(3, failed.requestedCount)
+        assertEquals(3, failed.attemptedCount)
+        assertEquals(2, failed.cachedCount)
+        assertEquals(1, failed.unavailableCount)
+        assertEquals(0, failed.skippedCount)
+        assertEquals(43, server.requestCount)
+    }
+
     @Test
     fun offlineWebViewReturnsCachedMediaOrExplicitMissWithoutNetworking() {
         val url = serverUrl("/media/document.pdf")
