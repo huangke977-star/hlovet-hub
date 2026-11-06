@@ -19,7 +19,7 @@
 - 文章、专题和合集显式保存时统一最多尝试 40 个去重后的媒体引用；专题和合集不再只预取封面/图片，也会纳入正文中的图片、音频、视频和受支持附件链接。
 - 单个预取媒体仍限制为 4 MB，共享媒体缓存仍限制为 32 MB；超过共享预算的旧媒体按最近使用时间淘汰，正文索引不会被媒体淘汰影响。
 - 保存完成后会复查媒体是否仍在本地缓存：网络失败、单文件超限、共享预算淘汰或超过 40 个上限都会在离线提示中显示未缓存数量，避免用户误以为所有媒体都能断网打开。
-- `NativeOfflinePersistenceTest#mediaPrefetchReportsBoundAndUnavailableItems` 覆盖 42 个引用的 40 项上限、404 媒体失败和最终缓存数量统计；Android 15 `emulator-5560` 与 Android 11 `emulator-5562` 各为 `1/1` 通过，原有 `NativeOfflinePersistenceTest` 两台设备各为 `10/10` 通过。
+- `NativeOfflinePersistenceTest#mediaPrefetchReportsBoundAndUnavailableItems` 覆盖 42 个引用的 40 项上限、404 媒体失败和最终缓存数量统计；`mediaPrefetchCountsPreviouslyCachedItemsOutsideCurrentAttempt` 额外覆盖已有缓存超出本次预取范围的情况。Android 15 `emulator-5560` 与 Android 11 `emulator-5562` 的整类 `NativeOfflinePersistenceTest` 均为 `11/11` 通过。
 - 本轮重新执行 `:prototype:testDebugUnitTest :prototype:compileDebugKotlin :prototype:assembleDebug :prototype:assembleDebugAndroidTest --rerun-tasks`，构建成功；测试只使用设备回环 MockWebServer，不读取或修改生产文章、用户和离线数据。
 
 ## Android 隔离功能跨版本回归（2026-11-06）

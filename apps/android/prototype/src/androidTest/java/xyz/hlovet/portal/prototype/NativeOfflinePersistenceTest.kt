@@ -169,6 +169,38 @@ class NativeOfflinePersistenceTest {
         assertEquals(43, server.requestCount)
     }
 
+    /** 已有缓存即使超出本次 40 个下载范围，也必须被计为断网可用而不是误报缺失。 */
+    @Test
+    fun mediaPrefetchCountsPreviouslyCachedItemsOutsideCurrentAttempt() {
+        val paths = (1..42).map { serverUrl("/media/reused-$it.bin") }
+        server.enqueue(MockResponse().setBody("already-cached-41"))
+        server.enqueue(MockResponse().setBody("already-cached-42"))
+        val initial = NativeOfflineCache.prefetchMedia(
+            context = context,
+            paths = paths.takeLast(2),
+            accessToken = "test-token",
+            cacheOwner = "prefetch-reuse-owner",
+            maxItems = 2,
+        )
+        assertEquals(2, initial.cachedCount)
+
+        // 这次只补前 40 项，但最后两项已经在本地，全部 42 项都应可断网读取。
+        repeat(40) { server.enqueue(MockResponse().setBody("new-$it")) }
+        val refreshed = NativeOfflineCache.prefetchMedia(
+            context = context,
+            paths = paths,
+            accessToken = "test-token",
+            cacheOwner = "prefetch-reuse-owner",
+            maxItems = 40,
+        )
+        assertEquals(42, refreshed.requestedCount)
+        assertEquals(40, refreshed.attemptedCount)
+        assertEquals(42, refreshed.cachedCount)
+        assertEquals(0, refreshed.unavailableCount)
+        assertEquals(2, refreshed.skippedCount)
+        assertEquals(42, server.requestCount)
+    }
+
     @Test
     fun offlineWebViewReturnsCachedMediaOrExplicitMissWithoutNetworking() {
         val url = serverUrl("/media/document.pdf")

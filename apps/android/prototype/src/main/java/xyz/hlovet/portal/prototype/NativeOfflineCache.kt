@@ -300,8 +300,8 @@ internal object NativeOfflineCache {
             )
         }
 
-        // 共享缓存可能在下载过程中淘汰较早媒体，最终命中数才是断网可用数。
-        val cachedCount = selected.count {
+        // 共享缓存可能在下载过程中淘汰较早媒体，也可能已有超出本次预取范围的旧缓存；最终按全部引用统计断网可用数。
+        val cachedCount = candidates.count {
             loadCachedMediaFile(context, it, cacheOwner, apiBaseUrl) != null
         }
         return MediaPrefetchResult(
