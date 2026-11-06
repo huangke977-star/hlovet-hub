@@ -6082,9 +6082,6 @@ internal fun DiscoverScreen(
     onOpenGroup: (NativeRecommendationGroup) -> Unit = {},
 ) {
     var query by remember(initialQuery) { mutableStateOf(initialQuery) }
-    var searchResult by remember { mutableStateOf<NativeDiscoverySearchResult?>(null) }
-    var searchLoading by remember { mutableStateOf(false) }
-    var searchError by remember { mutableStateOf<String?>(null) }
     var subscriptionError by remember { mutableStateOf<String?>(null) }
     var loadMoreError by remember { mutableStateOf<String?>(null) }
     var loadingMore by remember { mutableStateOf(false) }
@@ -6092,6 +6089,7 @@ internal fun DiscoverScreen(
     var articleSort by remember { mutableStateOf("recommended") }
     var discoveryFilterDialogOpen by remember { mutableStateOf(false) }
     var discoveryPage by remember(articles, topics, collections) { mutableIntStateOf(1) }
+    var discoveryRequestId by remember { mutableIntStateOf(0) }
     var canLoadMore by remember(articles, topics, collections) {
         mutableStateOf(articles.size >= 8 || topics.size >= 8 || collections.size >= 8)
     }
@@ -6120,29 +6118,6 @@ internal fun DiscoverScreen(
         }.onSuccess { recommendations = it }
             .onFailure { recommendationsError = it.message ?: nativePhrase("个性化推荐暂时无法加载。", "Personalized recommendations are temporarily unavailable.") }
         recommendationsLoading = false
-    }
-
-    LaunchedEffect(query, session?.accessToken) {
-        val keyword = query.trim()
-        if (keyword.length < 2) {
-            searchResult = null
-            searchError = null
-            searchLoading = false
-            return@LaunchedEffect
-        }
-        delay(350)
-        searchLoading = true
-        searchError = null
-        try {
-            searchResult = withContext(Dispatchers.IO) {
-                NativeDiscoveryApi.search(session?.accessToken, keyword)
-            }
-        } catch (error: Exception) {
-            searchResult = null
-            searchError = error.message ?: nativePhrase("搜索失败，请稍后重试。", "Search failed. Try again later.")
-        } finally {
-            searchLoading = false
-        }
     }
 
     val toggleTopic: (RemoteTopic) -> Unit = { topic ->
@@ -6321,11 +6296,18 @@ internal fun DiscoverScreen(
 
     /** 按内容类型重新读取第一页，并清理旧分页结果，避免筛选切换时混入上一种内容。 */
     fun loadDiscoveryMode(mode: String, force: Boolean = false, sortOverride: String? = null) {
-        if (loadingMore || !force && mode == discoveryMode && discoveryPage == 1) return
+        if (loadingMore && !force || !force && mode == discoveryMode && discoveryPage == 1) return
         discoveryMode = mode
         val requestSort = discoverySort(mode, sortOverride)
+        val requestId = discoveryRequestId + 1
+        discoveryRequestId = requestId
         loadingMore = true
         loadMoreError = null
+        localArticles = emptyList()
+        localTopics = emptyList()
+        localCollections = emptyList()
+        discoveryPage = 1
+        canLoadMore = false
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -6335,28 +6317,37 @@ internal fun DiscoverScreen(
                         pageSize = 8,
                         sort = requestSort,
                         contentMode = mode,
+                        query = query,
                     )
                 }
             }.onSuccess { first ->
-                localArticles = first.articles
-                localTopics = first.topics
-                localCollections = first.collections
-                discoveryPage = 1
-                canLoadMore = first.totalPages > 1
-            }.onFailure { loadMoreError = it.message ?: nativePhrase("切换发现内容失败，请稍后重试。", "Discover content could not be switched. Try again later.") }
-            loadingMore = false
+                if (requestId == discoveryRequestId) {
+                    localArticles = first.articles
+                    localTopics = first.topics
+                    localCollections = first.collections
+                    discoveryPage = 1
+                    canLoadMore = first.totalPages > 1
+                }
+            }.onFailure {
+                if (requestId == discoveryRequestId) {
+                    loadMoreError = it.message ?: nativePhrase("切换发现内容失败，请稍后重试。", "Discover content could not be switched. Try again later.")
+                }
+            }
+            if (requestId == discoveryRequestId) loadingMore = false
         }
     }
 
-    LaunchedEffect(initialMode) {
-        // 进入发现页立即按当前入口读取真实分页；默认文章入口不能继续复用首页的混合推荐快照。
-        loadDiscoveryMode(initialMode, force = true)
+    LaunchedEffect(initialMode, query) {
+        // 初次进入或搜索词变化都重新读取当前模式的第一页，搜索结果沿用同一条分页信息流。
+        delay(if (query.isBlank()) 0 else 300)
+        loadDiscoveryMode(discoveryMode, force = true)
     }
 
     /** 追加当前发现模式的下一页，成功后按稳定 ID 合并并更新是否还有后续数据。 */
     fun loadMoreDiscovery() {
         if (loadingMore || !canLoadMore) return
         val nextPage = discoveryPage + 1
+        val requestId = discoveryRequestId
         loadingMore = true
         loadMoreError = null
         scope.launch {
@@ -6368,16 +6359,23 @@ internal fun DiscoverScreen(
                         pageSize = 8,
                         sort = discoverySort(),
                         contentMode = discoveryMode,
+                        query = query,
                     )
                 }
             }.onSuccess { next ->
-                localArticles = (localArticles + next.articles).distinctBy { it.id }
-                localTopics = (localTopics + next.topics).distinctBy { it.id }
-                localCollections = (localCollections + next.collections).distinctBy { it.id }
-                discoveryPage = nextPage
-                canLoadMore = nextPage < next.totalPages
-            }.onFailure { loadMoreError = it.message ?: nativePhrase("加载更多内容失败，请稍后重试。", "More content could not be loaded. Try again later.") }
-            loadingMore = false
+                if (requestId == discoveryRequestId) {
+                    localArticles = (localArticles + next.articles).distinctBy { it.id }
+                    localTopics = (localTopics + next.topics).distinctBy { it.id }
+                    localCollections = (localCollections + next.collections).distinctBy { it.id }
+                    discoveryPage = nextPage
+                    canLoadMore = nextPage < next.totalPages
+                }
+            }.onFailure {
+                if (requestId == discoveryRequestId) {
+                    loadMoreError = it.message ?: nativePhrase("加载更多内容失败，请稍后重试。", "More content could not be loaded. Try again later.")
+                }
+            }
+            if (requestId == discoveryRequestId) loadingMore = false
         }
     }
 
@@ -6414,75 +6412,14 @@ internal fun DiscoverScreen(
             filterContentDescription = nativePhrase("筛选", "Filter"),
             hasActiveFilter = discoveryMode != "文章" || articleSort != "recommended",
         )
-        HorizontalDivider(color = HlovetUi.divider)
+        // 工具栏与内容流直接衔接，避免无信息分隔线额外占用首屏高度。
         LazyColumn(
             state = discoveryListState,
             modifier = Modifier.fillMaxWidth().weight(1f).testTag("discover-feed-list"),
-            contentPadding = PaddingValues(top = 0.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(top = 0.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-        if (query.trim().length >= 2) {
-            item {
-                when {
-                    searchLoading -> Text(nativePhrase("正在搜索…", "Searching…"), color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp))
-                    searchError != null -> Text(searchError!!, color = Coral, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp))
-                    else -> Spacer(Modifier.height(4.dp))
-                }
-            }
-            val result = searchResult
-            if (result != null) {
-                val visibility = nativeDiscoveryVisibility(discoveryMode)
-                if (visibility.showArticles && result.articles.isNotEmpty()) {
-                    itemsIndexed(result.articles, key = { _, article -> "discover-search-article-${article.id}" }) { index, article ->
-                        ArticleFeedRow(
-                            article = article,
-                            onArticleClick = onArticleClick,
-                            onNotInterested = null,
-                            edgeToEdge = true,
-                            showDivider = index < result.articles.lastIndex,
-                        )
-                    }
-                }
-                if (visibility.showTopics && result.topics.isNotEmpty()) {
-                    item { SectionHeading(nativePhrase("专题", "Topics"), "") }
-                    items(result.topics) { topic ->
-                        TopicRow(
-                            title = topic.title,
-                            meta = nativePhrase("${topic.articleCount} 篇文章 · ${topic.subscriberCount} 人订阅", "${topic.articleCount} articles · ${topic.subscriberCount} subscribers"),
-                            color = Accent,
-                            articles = topic.articles,
-                            coverPath = topic.coverPath,
-                            subscribed = topic.subscribed,
-                            onClick = { onTopicClick(topic) },
-                            onSubscribe = { toggleTopic(topic) },
-                        )
-                    }
-                }
-                if (visibility.showCollections && result.collections.isNotEmpty()) {
-                    item { SectionHeading(nativePhrase("合集", "Collections"), "") }
-                    items(result.collections) { collection ->
-                        TopicRow(
-                            title = collection.name,
-                            meta = nativePhrase("${collection.articleCount} 篇文章 · ${collection.subscriberCount} 人订阅", "${collection.articleCount} articles · ${collection.subscriberCount} subscribers"),
-                            color = Coral,
-                            articles = collection.articles,
-                            coverPath = collection.coverPath,
-                            subscribed = collection.subscribed,
-                            onClick = { onCollectionClick(collection) },
-                            onSubscribe = { toggleCollection(collection) },
-                        )
-                    }
-                }
-                val hasVisibleSearchResult =
-                    (visibility.showArticles && result.articles.isNotEmpty()) ||
-                        (visibility.showTopics && result.topics.isNotEmpty()) ||
-                        (visibility.showCollections && result.collections.isNotEmpty())
-                if (!hasVisibleSearchResult) {
-                    item { EmptyState(nativePhrase("没有找到匹配内容", "No matching content found")) }
-                }
-            }
-        } else {
-            val visibility = nativeDiscoveryVisibility(discoveryMode)
+        val visibility = nativeDiscoveryVisibility(discoveryMode)
             val showTopics = visibility.showTopics
             val showCollections = visibility.showCollections
             val showArticles = visibility.showArticles
@@ -6499,7 +6436,7 @@ internal fun DiscoverScreen(
                     )
                 }
             }
-            if ((showTopics && localTopics.isEmpty()) && (showCollections && localCollections.isEmpty()) && (!showArticles || localArticles.isEmpty())) {
+            if (!loadingMore && (showTopics && localTopics.isEmpty()) && (showCollections && localCollections.isEmpty()) && (!showArticles || localArticles.isEmpty())) {
                 item { EmptyState(if (showArticles && !showTopics && !showCollections) nativePhrase("暂无可展示的文章", "No articles to show") else nativePhrase("暂时没有公开专题或合集", "No public topics or collections yet")) }
             } else {
                 if (showTopics) items(localTopics) { topic ->
@@ -6546,7 +6483,7 @@ internal fun DiscoverScreen(
                 if (discoveryMode !in listOf("文章", "热门", "最新", "推荐")) {
                     item { SectionHeading(if (discoveryMode == "热门") nativePhrase("热门文章", "Popular articles") else if (discoveryMode == "最新") nativePhrase("最新文章", "Latest articles") else nativePhrase("最近更新", "Recently updated"), "") }
                 }
-                if (localArticles.isEmpty()) {
+                if (localArticles.isEmpty() && !loadingMore) {
                     item { EmptyState(nativePhrase("暂无可展示的文章", "No articles to show")) }
                 } else {
                     // 每条文章都是 LazyColumn 的独立元素，滚动时只组合可见行，分页触发点也更准确。
@@ -6571,7 +6508,6 @@ internal fun DiscoverScreen(
                 }
             }
         }
-    }
     }
 
     if (discoveryFilterDialogOpen) {

@@ -497,12 +497,12 @@ internal fun NativeAnonymousTopicsScreen(
                     filterContentDescription = nativePhrase("筛选", "Filter"),
                     hasActiveFilter = sort != "time" || (manager && visibility != "visible"),
                 )
-                HorizontalDivider(color = HlovetUi.divider)
+                // 工具栏与匿名话题流直接衔接，避免分隔线把第一条内容继续向下推。
             }
             LazyColumn(
                 state = topicListState,
                 modifier = Modifier.fillMaxWidth().weight(1f).testTag("anonymous-topic-list"),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 if (managementDenied) {

@@ -299,10 +299,12 @@ internal object NativeDiscoveryApi {
         pageSize: Int = 8,
         sort: String = "latest",
         contentMode: String = "all",
+        query: String = "",
     ): NativeDiscoveryPage {
         // 将界面当前的内容类型转换为请求范围；发现文章流不再为不可见的专题和合集发起额外请求。
         val safePage = page.coerceAtLeast(1)
         val safeSize = pageSize.coerceIn(1, 50)
+        val encodedQuery = URLEncoder.encode(query.trim(), Charsets.UTF_8.name()).replace("+", "%20")
         val authenticated = !accessToken.isNullOrBlank()
         val articlePath = if (authenticated) "/articles/visible" else "/articles"
         val topicPath = if (authenticated) "/discovery/topics/visible" else "/discovery/topics"
@@ -312,13 +314,13 @@ internal object NativeDiscoveryApi {
         val loadCollections = contentMode == "all" || contentMode == "合集"
         // 只请求当前页面会展示的资源，减少切换筛选和滚动加载时的网络与服务端查询量。
         val articleResponse = if (loadArticles) {
-            requestGet("$articlePath?page=$safePage&pageSize=$safeSize&sort=$sort", accessToken)
+            requestGet("$articlePath?page=$safePage&pageSize=$safeSize&sort=$sort&search=$encodedQuery", accessToken)
         } else JSONObject()
         val topicResponse = if (loadTopics) {
-            requestGet("$topicPath?page=$safePage&pageSize=$safeSize", accessToken)
+            requestGet("$topicPath?page=$safePage&pageSize=$safeSize&q=$encodedQuery", accessToken)
         } else JSONObject()
         val collectionResponse = if (loadCollections) {
-            requestGet("$collectionPath?page=$safePage&pageSize=$safeSize", accessToken)
+            requestGet("$collectionPath?page=$safePage&pageSize=$safeSize&q=$encodedQuery", accessToken)
         } else JSONObject()
         // 分页总数只取当前内容范围，避免专题或合集的页数把文章流误判为仍有更多内容。
         val totalPages = listOfNotNull(

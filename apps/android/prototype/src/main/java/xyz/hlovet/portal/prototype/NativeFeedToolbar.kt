@@ -47,27 +47,27 @@ internal fun NativeFeedToolbar(
     filterContentDescription: String,
     hasActiveFilter: Boolean,
 ) {
-    // 工具栏保持资讯应用常用的单行高度，把首屏空间优先留给连续内容流，输入仍限制最大长度避免异常长文本撑开布局。
+    // 工具栏保持资讯应用常用的紧凑单行高度，把首屏空间优先留给连续内容流，输入仍限制最大长度避免异常长文本撑开布局。
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 2.dp),
+            .padding(horizontal = 12.dp, vertical = 1.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         // 搜索使用独立胶囊容器，避免 OutlinedTextField 的默认最小高度裁切占位文字。
         Surface(
-            modifier = Modifier.weight(1f).height(40.dp),
+            modifier = Modifier.weight(1f).height(36.dp),
             shape = RoundedCornerShape(20.dp),
             color = HlovetUi.glassFallback,
             shadowElevation = 0.dp,
             tonalElevation = 0.dp,
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().height(40.dp).padding(start = 12.dp, end = 2.dp),
+                modifier = Modifier.fillMaxWidth().height(36.dp).padding(start = 11.dp, end = 1.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Filled.Search, contentDescription = searchContentDescription, tint = HlovetUi.muted, modifier = Modifier.size(19.dp))
+                Icon(Icons.Filled.Search, contentDescription = searchContentDescription, tint = HlovetUi.muted, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(7.dp))
                 BasicTextField(
                     value = query,
@@ -94,22 +94,22 @@ internal fun NativeFeedToolbar(
                 )
                 if (query.isNotEmpty()) {
                     // 清空按钮只在有输入时出现，避免空状态挤压搜索文本。
-                    IconButton(onClick = onClearQuery, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Filled.Close, contentDescription = clearContentDescription, tint = HlovetUi.muted, modifier = Modifier.size(17.dp))
+                    IconButton(onClick = onClearQuery, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Filled.Close, contentDescription = clearContentDescription, tint = HlovetUi.muted, modifier = Modifier.size(16.dp))
                     }
                 }
             }
         }
         // 筛选使用无背景图标按钮，激活状态只保留小标记，不额外占用列表宽度。
         Box(
-            modifier = Modifier.size(40.dp),
+            modifier = Modifier.size(36.dp),
             contentAlignment = Alignment.Center,
         ) {
             IconButton(
                 onClick = onFilterClick,
-                modifier = Modifier.size(40.dp).testTag(filterTag),
+                modifier = Modifier.size(36.dp).testTag(filterTag),
             ) {
-                Icon(Icons.Filled.Tune, contentDescription = filterContentDescription, tint = HlovetUi.accent, modifier = Modifier.size(22.dp))
+                Icon(Icons.Filled.Tune, contentDescription = filterContentDescription, tint = HlovetUi.accent, modifier = Modifier.size(20.dp))
             }
             if (hasActiveFilter) {
                 Surface(

@@ -24,6 +24,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.net.InetAddress
+import java.util.Collections
 
 /** 在设备内夹具验证发现和匿名页的紧凑工具栏、独立列表及自动分页，不访问生产接口。 */
 @RunWith(AndroidJUnit4::class)
@@ -33,6 +34,7 @@ class NativeDiscoverAnonymousLayoutDeviceTest {
 
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
+    private val requestPaths = Collections.synchronizedList(mutableListOf<String>())
     private var oldLocale = "zh-CN"
 
     /** 只允许专用回环构建启动夹具，避免测试包把请求发往生产站点。 */
@@ -111,6 +113,41 @@ class NativeDiscoverAnonymousLayoutDeviceTest {
         compose.onNodeWithTag("discover-article-1").assertIsDisplayed()
     }
 
+    /** 验证发现搜索把关键词传给分页接口，并且搜索后的结果仍能继续触底加载。 */
+    @Test
+    fun discoverSearchUsesQueryAndLoadsNextPage() {
+        // 直接挂载文章信息流，搜索输入沿用真实工具栏和发现分页请求。
+        host.setContent {
+            HlovetTheme {
+                DiscoverScreen(
+                    scaffoldPadding = PaddingValues(),
+                    session = null,
+                    initialMode = "文章",
+                    articles = emptyList(),
+                    topics = emptyList(),
+                    collections = emptyList(),
+                    onLogin = {},
+                )
+            }
+        }
+        waitTag("discover-search")
+        waitTag("discover-article-1")
+
+        // 输入搜索词后等待带关键词的首屏请求完成，确认不是只在客户端过滤已有列表。
+        compose.onNodeWithTag("discover-search").performTextInput("filter")
+        compose.waitUntil(15_000) {
+            synchronized(requestPaths) { requestPaths.any { it.contains("search=filter") } }
+        }
+        waitTag("discover-article-1")
+
+        // 搜索结果仍使用同一个分页信息流，滚到首屏末尾后应请求并展示第二页。
+        compose.onNodeWithTag("discover-feed-list").performScrollToNode(hasTestTag("discover-article-8"))
+        waitTag("discover-article-9")
+        synchronized(requestPaths) {
+            check(requestPaths.any { it.contains("page=2") && it.contains("search=filter") })
+        }
+    }
+
     /** 验证匿名页搜索筛选首行不被返回按钮挤压，并在触底后追加第二页匿名话题。 */
     @Test
     fun anonymousKeepsToolbarAndLoadsNextTopicPage() {
@@ -143,6 +180,7 @@ class NativeDiscoverAnonymousLayoutDeviceTest {
     private fun respond(request: RecordedRequest): MockResponse {
         // 测试夹具只关心路径和页码，不把请求头、访客标识或正文写入结果文件。
         val path = request.path.orEmpty()
+        requestPaths += path
         val body = when {
             path.startsWith("/articles?") -> articlePage(if (path.contains("page=2")) 2 else 1).toString()
             path.startsWith("/discovery/topics?") || path.startsWith("/discovery/collections?") -> emptyPage().toString()
