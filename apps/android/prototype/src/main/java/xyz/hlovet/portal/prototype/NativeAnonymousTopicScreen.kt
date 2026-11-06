@@ -500,7 +500,7 @@ internal fun NativeAnonymousTopicsScreen(
             LazyColumn(
                 state = topicListState,
                 modifier = Modifier.fillMaxWidth().weight(1f).testTag("anonymous-topic-list"),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 if (managementDenied) {
@@ -658,11 +658,11 @@ private fun AnonymousTopicListRow(
                 .fillMaxWidth()
                 .clickable(onClick = onOpen)
                 .testTag("anonymous-topic-open-${item.id}")
-                .padding(horizontal = 4.dp, vertical = 10.dp),
+                .padding(horizontal = 4.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(item.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(item.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     buildString {
                         append(formatAnonymousTime(item.updatedAt))
@@ -677,7 +677,7 @@ private fun AnonymousTopicListRow(
                 )
                 item.topLikedMessage?.let { Text("👍 #${it.sequence}: ${it.body}", color = HlovetUi.accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
-            IconButton(onClick = onFavorite, modifier = Modifier.size(38.dp).testTag("anonymous-topic-favorite-${item.id}")) {
+            IconButton(onClick = onFavorite, modifier = Modifier.size(34.dp).testTag("anonymous-topic-favorite-${item.id}")) {
                 Icon(if (item.favorited) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, contentDescription = if (item.favorited) nativePhrase("取消喜欢", "Unfavorite") else nativePhrase("喜欢话题", "Favorite topic"), tint = if (item.favorited) HlovetUi.secondaryAccent else HlovetUi.muted, modifier = Modifier.size(18.dp))
             }
             Text("${item.favoriteCount}", color = HlovetUi.muted, fontSize = 10.sp)

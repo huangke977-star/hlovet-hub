@@ -9,6 +9,8 @@
 
 ## Android 信息流布局独立包双设备复验（2026-11-06）
 
+- 在该布局基础上进一步收紧发现与匿名页：共用搜索/筛选首行改为 `40dp` 单行控件，文章和匿名话题行减少上下留白并保持全宽连续分隔，首屏可以展示更多内容；搜索、筛选、分页和权限请求逻辑不变。
+- 本轮执行 `:prototype:testDebugUnitTest :prototype:compileDebugKotlin :prototype:assembleDebug :prototype:assembleDebugAndroidTest --rerun-tasks`，以及指定 `NativeDiscoverAnonymousLayoutDeviceTest` 的 `:prototype:connectedDebugAndroidTest`，Android 15 `HlovetChatUi15` 和 Android 11 `HlovetChatUi11` 各 `2/2` 通过，失败、错误和跳过均为 `0`。
 - 使用独立测试包 `xyz.hlovet.portal.feedtest` 构建当前源码，API 指向设备内 `127.0.0.1:39871` 的 MockWebServer，不覆盖现有生产 Debug 包，也不读取或写入服务器业务数据。
 - Android 15 `emulator-5560` 与 Android 11 `emulator-5562` 各执行 `NativeDiscoverAnonymousLayoutDeviceTest`，均为 `2/2`，失败、错误和跳过均为 `0`。发现页和匿名页分别核对了首行搜索/筛选控件、独立懒列表、筛选后列表保持可用，以及滚动到末项自动请求第二页。
 - 当前源码不依赖外部服务的回归同时为 JVM `337/337`，`:prototype:compileDebugKotlin`、`:prototype:assembleDebug`、`:prototype:assembleDebugAndroidTest` 均成功；路由与 API 对齐审计仍为 PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27` 且确认缺失为 `0`。

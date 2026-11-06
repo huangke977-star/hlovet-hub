@@ -5984,31 +5984,31 @@ private fun ArticleFeedRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onArticleClick(article) }
-                .padding(horizontal = if (edgeToEdge) 12.dp else 16.dp, vertical = 12.dp),
+                .padding(horizontal = if (edgeToEdge) 12.dp else 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 作者头像使用后两位兜底，保证没有头像时仍有稳定的视觉锚点。
             Avatar(article.authorName.takeLast(2), Coral)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(article.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(4.dp))
+                Text(article.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(article.authorName, color = TextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(" · ", color = TextMuted, fontSize = 11.sp)
-                    Text(articleReadTime(article), color = TextMuted, fontSize = 11.sp)
-                    Spacer(Modifier.width(7.dp))
-                    Text(article.category, color = Accent, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(article.authorName, color = TextMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(" · ", color = TextMuted, fontSize = 10.sp)
+                    Text(articleReadTime(article), color = TextMuted, fontSize = 10.sp)
+                    Spacer(Modifier.width(6.dp))
+                    Text(article.category, color = Accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (onNotInterested != null) {
-                    IconButton(onClick = { onNotInterested(article) }, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.Filled.VisibilityOff, contentDescription = nativePhrase("不感兴趣", "Not interested"), tint = TextMuted, modifier = Modifier.size(17.dp))
+                    IconButton(onClick = { onNotInterested(article) }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Filled.VisibilityOff, contentDescription = nativePhrase("不感兴趣", "Not interested"), tint = TextMuted, modifier = Modifier.size(16.dp))
                     }
                 }
-                Icon(Icons.Filled.BookmarkBorder, contentDescription = null, tint = TextMuted, modifier = Modifier.size(21.dp))
+                Icon(Icons.Filled.BookmarkBorder, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
             }
         }
         // 分隔线只保留在相邻文章之间，使列表像资讯流而不是一组大卡片。
