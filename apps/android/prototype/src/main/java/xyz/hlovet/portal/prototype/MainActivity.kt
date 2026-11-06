@@ -6296,7 +6296,13 @@ internal fun DiscoverScreen(
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    NativeDiscoveryApi.listDiscoveryPage(session?.accessToken, page = 1, pageSize = 8, sort = requestSort)
+                    NativeDiscoveryApi.listDiscoveryPage(
+                        session?.accessToken,
+                        page = 1,
+                        pageSize = 8,
+                        sort = requestSort,
+                        contentMode = mode,
+                    )
                 }
             }.onSuccess { first ->
                 localArticles = first.articles
@@ -6323,7 +6329,13 @@ internal fun DiscoverScreen(
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    NativeDiscoveryApi.listDiscoveryPage(session?.accessToken, nextPage, pageSize = 8, sort = discoverySort())
+                    NativeDiscoveryApi.listDiscoveryPage(
+                        session?.accessToken,
+                        nextPage,
+                        pageSize = 8,
+                        sort = discoverySort(),
+                        contentMode = discoveryMode,
+                    )
                 }
             }.onSuccess { next ->
                 localArticles = (localArticles + next.articles).distinctBy { it.id }

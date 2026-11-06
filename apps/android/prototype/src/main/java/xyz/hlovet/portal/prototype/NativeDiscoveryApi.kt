@@ -298,25 +298,39 @@ internal object NativeDiscoveryApi {
         page: Int,
         pageSize: Int = 8,
         sort: String = "latest",
+        contentMode: String = "all",
     ): NativeDiscoveryPage {
+        // 将界面当前的内容类型转换为请求范围；发现文章流不再为不可见的专题和合集发起额外请求。
         val safePage = page.coerceAtLeast(1)
         val safeSize = pageSize.coerceIn(1, 50)
         val authenticated = !accessToken.isNullOrBlank()
         val articlePath = if (authenticated) "/articles/visible" else "/articles"
         val topicPath = if (authenticated) "/discovery/topics/visible" else "/discovery/topics"
         val collectionPath = if (authenticated) "/discovery/collections/visible" else "/discovery/collections"
-        val articleResponse = requestGet("$articlePath?page=$safePage&pageSize=$safeSize&sort=$sort", accessToken)
-        val topicResponse = requestGet("$topicPath?page=$safePage&pageSize=$safeSize", accessToken)
-        val collectionResponse = requestGet("$collectionPath?page=$safePage&pageSize=$safeSize", accessToken)
+        val loadArticles = contentMode == "all" || contentMode in listOf("文章", "热门", "最新", "推荐")
+        val loadTopics = contentMode == "all" || contentMode == "专题"
+        val loadCollections = contentMode == "all" || contentMode == "合集"
+        // 只请求当前页面会展示的资源，减少切换筛选和滚动加载时的网络与服务端查询量。
+        val articleResponse = if (loadArticles) {
+            requestGet("$articlePath?page=$safePage&pageSize=$safeSize&sort=$sort", accessToken)
+        } else JSONObject()
+        val topicResponse = if (loadTopics) {
+            requestGet("$topicPath?page=$safePage&pageSize=$safeSize", accessToken)
+        } else JSONObject()
+        val collectionResponse = if (loadCollections) {
+            requestGet("$collectionPath?page=$safePage&pageSize=$safeSize", accessToken)
+        } else JSONObject()
+        // 分页总数只取当前内容范围，避免专题或合集的页数把文章流误判为仍有更多内容。
+        val totalPages = listOfNotNull(
+            articleResponse.takeIf { loadArticles }?.optInt("totalPages", 1),
+            topicResponse.takeIf { loadTopics }?.optInt("totalPages", 1),
+            collectionResponse.takeIf { loadCollections }?.optInt("totalPages", 1),
+        ).maxOrNull()?.coerceAtLeast(1) ?: 1
         return NativeDiscoveryPage(
             articles = articleResponse.optJSONArray("items").toArticles(),
             topics = topicResponse.optJSONArray("items").toTopics(),
             collections = collectionResponse.optJSONArray("items").toCollections(),
-            totalPages = maxOf(
-                articleResponse.optInt("totalPages", 1),
-                topicResponse.optInt("totalPages", 1),
-                collectionResponse.optInt("totalPages", 1),
-            ),
+            totalPages = totalPages,
         )
     }
 
