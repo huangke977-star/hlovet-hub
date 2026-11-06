@@ -5750,8 +5750,9 @@ internal fun DiscoveryDetailScreen(
     }
 }
 
+/** 展示首页混合内容，并让推荐文章区按连续信息流自动分页。 */
 @Composable
-private fun HomeScreen(
+internal fun HomeScreen(
     scaffoldPadding: PaddingValues,
     session: NativeSession?,
     articles: List<RemoteArticle>,
@@ -5834,8 +5835,22 @@ private fun HomeScreen(
         .distinctBy { article -> if (article.authorId > 0) "id:${article.authorId}" else "name:${article.authorUsername.ifBlank { article.authorName }}" }
         .take(8)
 
+    // 推荐区与首页其它区块共用外层懒列表，但通过独立行键识别推荐末项，避免误把关注区或建议区当成分页触发点。
+    val homeListState = rememberLazyListState()
+    val homeArticleEndKey = homeArticles.lastOrNull()?.let { article -> "home-article-${article.id}" }
+    LaunchedEffect(homeListState, homeArticleEndKey, canLoadMore, loadingMore) {
+        snapshotFlow {
+            val endKey = homeArticleEndKey
+            endKey != null && homeListState.layoutInfo.visibleItemsInfo.any { item -> item.key == endKey }
+        }.collect { nearEnd ->
+            // 末条推荐文章进入可见区域后自动加载，避免首页还要寻找“更多”按钮。
+            if (nearEnd && canLoadMore && !loadingMore) loadMoreHome()
+        }
+    }
+
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
+        state = homeListState,
+        modifier = Modifier.fillMaxSize().padding(scaffoldPadding).testTag("home-feed-list"),
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -5872,14 +5887,21 @@ private fun HomeScreen(
                 }
             }
         }
-        item { SectionHeading(nativePhrase("为你推荐", "Recommended for you"), if (canLoadMore) nativePhrase("更多", "More") else "", onAction = if (canLoadMore) ::loadMoreHome else null) }
-        item {
-            if (homeArticles.isEmpty()) EmptyState(nativePhrase("暂时没有公开文章", "No public articles yet"))
-            else ArticleGroup(
-                homeArticles,
-                onArticleClick = onArticleClick,
-                onNotInterested = ::markNotInterested,
-            )
+        item { SectionHeading(nativePhrase("为你推荐", "Recommended for you"), "") }
+        if (homeArticles.isEmpty()) {
+            item { EmptyState(nativePhrase("暂时没有公开文章", "No public articles yet")) }
+        } else {
+            // 每篇推荐文章独立成为 LazyColumn 元素，让长首页也能按行回收并精确触发下一页。
+            itemsIndexed(homeArticles, key = { _, article -> "home-article-${article.id}" }) { index, article ->
+                ArticleFeedRow(
+                    article = article,
+                    onArticleClick = onArticleClick,
+                    onNotInterested = ::markNotInterested,
+                    edgeToEdge = false,
+                    showDivider = index < homeArticles.lastIndex,
+                    tagPrefix = "home-article",
+                )
+            }
         }
         recommendationNotice?.let { message -> item { Text(message, color = if (recommendationNoticeIsError) Coral else Accent, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 20.dp)) } }
         if (loadingMore) item { Text(nativePhrase("正在加载更多推荐…", "Loading more recommendations…"), color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 20.dp)) }
@@ -5977,9 +5999,10 @@ private fun ArticleFeedRow(
     onNotInterested: ((RemoteArticle) -> Unit)?,
     edgeToEdge: Boolean,
     showDivider: Boolean,
+    tagPrefix: String = "discover-article",
 ) {
     // 行内容直接占用列表宽度，避免外层卡片或额外标题压缩文章阅读区域。
-    Column(modifier = Modifier.fillMaxWidth().testTag("discover-article-${article.id}")) {
+    Column(modifier = Modifier.fillMaxWidth().testTag("$tagPrefix-${article.id}")) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()

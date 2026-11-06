@@ -18,6 +18,13 @@
 - 当前源码不依赖外部服务的回归同时为 JVM `337/337`，`:prototype:compileDebugKotlin`、`:prototype:assembleDebug`、`:prototype:assembleDebugAndroidTest` 均成功；路由与 API 对齐审计仍为 PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27` 且确认缺失为 `0`。
 - 测试结束后已卸载 `xyz.hlovet.portal.feedtest` 及其测试包；本轮没有清理生产应用、账号、离线内容或历史 `tmp-*` 证据。Docker 引擎未运行，因此本轮没有把本地真实 API 联调扩大为生产数据验收。
 
+## Android 首页推荐信息流懒加载复验（2026-11-06）
+
+- 首页“为你推荐”不再把文章包成一个不可拆分的大块，也不再依赖标题右侧的“更多”按钮；每篇推荐文章现在是外层 `LazyColumn` 的独立行，滚动到推荐区末尾会自动请求并追加下一页，第一页内容不会被替换。
+- 首页的匿名入口、关注动态、建议预览和其它混合区块顺序保持不变；分页监听只识别推荐文章的稳定末行 key，不会把后续关注或建议区块误判为推荐分页触发点。
+- 新增 `NativeHomeRecommendationLayoutDeviceTest`，使用设备内回环 MockWebServer 验证首条/末条推荐文章、第二页自动追加、第一页保留；Android 15 `HlovetChatUi15(AVD)` 与 Android 11 `HlovetChatUi11(AVD)` 各 `1/1` 通过，失败、错误和跳过均为 `0`。与既有发现/匿名夹具合并执行时，两台设备各 `3/3` 通过。
+- 本轮 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:assembleDebug` 和 `:prototype:assembleDebugAndroidTest` 均成功；设备夹具只使用 `127.0.0.1:39871`，不访问生产数据，也没有清理账号、离线内容或历史 `tmp-*` 证据。
+
 ## Android 离线媒体预取边界补充（2026-11-06）
 
 - 文章、专题和合集显式保存时统一最多尝试 40 个去重后的媒体引用；专题和合集不再只预取封面/图片，也会纳入正文中的图片、音频、视频和受支持附件链接。
