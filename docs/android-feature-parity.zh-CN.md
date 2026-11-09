@@ -3375,3 +3375,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 修复从离线列表打开文章、专题或合集时仍先请求在线详情的问题：离线入口现在显式传递 `offlineOnly`，文章详情直接使用已保存正文，专题/合集详情直接使用已保存文章清单；媒体继续通过账号与服务器来源隔离的本地缓存读取，不触发在线刷新。
 - 新增 `NativeOfflineDetailDeviceTest`，在 Android 11 与 Android 15 的设备内 MockWebServer 构建中各 `2/2` 通过，失败、错误和跳过均为 `0`；文章和专题详情均确认离线提示、原生标题/收录文章标题可见，夹具请求数为 `0`。
 - 本轮不扩展为物理断网、生产账号或外部媒体服务验收；线上文章权限、评论和互动在离线模式下继续按设计禁用。设备内夹具只在 `127.0.0.1:39871` 运行。
+
+## Android 全站搜索设备回环复验（2026-11-09）
+
+- 新增 `NativeSearchDeviceTest`，使用设备内 `127.0.0.1:39871` MockWebServer 在 Android 11 `emulator-5554` 和 Android 15 `emulator-5556` 各执行 `2/2`，失败、错误和跳过均为 `0`。
+- 回归覆盖公开全站搜索文章结果点击分发、列表底部翻页后回到第二页文章、用户/专题范围切换，以及文章分类和最新排序参数均传入真实 `NativeSearchApi` 请求；夹具不访问生产 API、不写入业务数据。
+- 搜索列表增加稳定语义标签，懒列表翻页后按总数与页大小兜底推导页数，兼容旧响应缺少 `totalPages` 的情况。`:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 和 `git diff --check` 均通过。

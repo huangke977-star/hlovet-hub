@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -49,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,6 +60,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** 展示全站搜索及历史、热门、范围、排序、分类和多类型结果；点击结果交给宿主分发。 */
 @Composable
 internal fun NativeSearchScreen(
     session: NativeSession?,
@@ -141,14 +144,14 @@ internal fun NativeSearchScreen(
     } ?: 0
     val maxPages = result?.let {
         maxOf(
-            it.articles.totalPages,
-            it.users.totalPages,
-            it.navigation.totalPages,
-            it.tools.totalPages,
-            it.topics.totalPages,
-            it.collections.totalPages,
-            it.groups.totalPages,
-            it.announcements.totalPages,
+            it.articles.effectiveTotalPages(),
+            it.users.effectiveTotalPages(),
+            it.navigation.effectiveTotalPages(),
+            it.tools.effectiveTotalPages(),
+            it.topics.effectiveTotalPages(),
+            it.collections.effectiveTotalPages(),
+            it.groups.effectiveTotalPages(),
+            it.announcements.effectiveTotalPages(),
         )
     } ?: 1
     val scopeOptions = listOf(
@@ -164,6 +167,7 @@ internal fun NativeSearchScreen(
     )
 
     LazyColumn(
+        modifier = Modifier.fillMaxSize().testTag("native-search-list"),
         contentPadding = PaddingValues(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -178,7 +182,7 @@ internal fun NativeSearchScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it.take(80); page = 1 },
-                modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().testTag("native-search-input"),
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Filled.Search, null, tint = HlovetUi.accent) },
                 trailingIcon = if (query.isNotBlank()) ({
@@ -228,7 +232,13 @@ internal fun NativeSearchScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     scopeOptions.forEach { (value, label) ->
-                        FilterChip(selected = scopeFilter == value, onClick = { chooseScope(value) }, label = { Text(label, fontSize = 10.sp) }, border = null)
+                        FilterChip(
+                            selected = scopeFilter == value,
+                            onClick = { chooseScope(value) },
+                            label = { Text(label, fontSize = 10.sp) },
+                            border = null,
+                            modifier = Modifier.testTag("native-search-scope-$value"),
+                        )
                     }
                 }
             }
@@ -240,7 +250,13 @@ internal fun NativeSearchScreen(
                 ) {
                     Text(nativePhrase("排序", "Sort"), color = HlovetUi.muted, fontSize = 11.sp)
                     listOf("relevance" to nativePhrase("综合", "Relevance"), "latest" to nativePhrase("最新", "Latest"), "popular" to nativePhrase("热门", "Popular")).forEach { (value, label) ->
-                        FilterChip(selected = sort == value, onClick = { sort = value; page = 1 }, label = { Text(label, fontSize = 10.sp) }, border = null)
+                        FilterChip(
+                            selected = sort == value,
+                            onClick = { sort = value; page = 1 },
+                            label = { Text(label, fontSize = 10.sp) },
+                            border = null,
+                            modifier = Modifier.testTag("native-search-sort-$value"),
+                        )
                     }
                 }
             }
@@ -257,9 +273,21 @@ internal fun NativeSearchScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(nativePhrase("分类", "Category"), color = HlovetUi.muted, fontSize = 11.sp)
-                        FilterChip(selected = category.isBlank(), onClick = { category = ""; page = 1 }, label = { Text(nativePhrase("全部", "All"), fontSize = 10.sp) }, border = null)
+                        FilterChip(
+                            selected = category.isBlank(),
+                            onClick = { category = ""; page = 1 },
+                            label = { Text(nativePhrase("全部", "All"), fontSize = 10.sp) },
+                            border = null,
+                            modifier = Modifier.testTag("native-search-category-all"),
+                        )
                         categoryFilters.forEach { (label, value) ->
-                            FilterChip(selected = category == value, onClick = { category = value; page = 1 }, label = { Text(label, fontSize = 10.sp) }, border = null)
+                            FilterChip(
+                                selected = category == value,
+                                onClick = { category = value; page = 1 },
+                                label = { Text(label, fontSize = 10.sp) },
+                                border = null,
+                                modifier = Modifier.testTag("native-search-category-$value"),
+                            )
                         }
                     }
                 }
@@ -271,7 +299,13 @@ internal fun NativeSearchScreen(
                 if ((scopeFilter == "all" || scopeFilter == "articles") && data.articles.items.isNotEmpty()) {
                     item { SearchGroupHeader(nativePhrase("文章", "Articles"), data.articles.total, Icons.Filled.Article) }
                     items(data.articles.items, key = { "article-${it.id}" }) { article ->
-                        SearchRow(article.title, "${article.authorName} · ${article.category.ifBlank { nativePhrase("随笔", "Notes") }} · ${article.viewCount} ${nativePhrase("阅读", "views")} · ${article.commentCount} ${nativePhrase("评论", "comments")}", Icons.Filled.Article) { onOpenArticle(article.slug) }
+                        SearchRow(
+                            article.title,
+                            "${article.authorName} · ${article.category.ifBlank { nativePhrase("随笔", "Notes") }} · ${article.viewCount} ${nativePhrase("阅读", "views")} · ${article.commentCount} ${nativePhrase("评论", "comments")}",
+                            Icons.Filled.Article,
+                            onClick = { onOpenArticle(article.slug) },
+                            testTag = "native-search-article-${article.id}",
+                        )
                     }
                 }
                 if ((scopeFilter == "all" || scopeFilter == "users") && data.users.items.isNotEmpty()) {
@@ -322,7 +356,11 @@ internal fun NativeSearchScreen(
                             Text(nativePhrase("第 $page / $maxPages 页", "Page $page / $maxPages"), color = HlovetUi.muted, fontSize = 11.sp)
                             Row {
                                 TextButton(onClick = { page -= 1 }, enabled = !loading && page > 1) { Text(nativePhrase("上一页", "Previous"), fontSize = 11.sp) }
-                                TextButton(onClick = { page += 1 }, enabled = !loading && page < maxPages) { Text(nativePhrase("下一页", "Next"), fontSize = 11.sp) }
+                                TextButton(
+                                    onClick = { page += 1 },
+                                    enabled = !loading && page < maxPages,
+                                    modifier = Modifier.testTag("native-search-next-page"),
+                                ) { Text(nativePhrase("下一页", "Next"), fontSize = 11.sp) }
                             }
                         }
                     }
@@ -346,6 +384,13 @@ internal fun NativeSearchScreen(
         },
         dismissButton = { TextButton(onClick = { clearHistoryConfirm = false }) { Text(nativePhrase("取消", "Cancel")) } },
     )
+}
+
+/** 用服务端页数和总数/页大小共同推导可用页数，兼容旧接口缺少页数元数据的响应。 */
+private fun NativeSearchGroup<*>.effectiveTotalPages(): Int {
+    // 总数为零时仍保留一页，避免空结果状态被错误地判定为不可分页。
+    val derived = if (pageSize > 0) ((total + pageSize - 1) / pageSize).coerceAtLeast(1) else 1
+    return maxOf(totalPages.coerceAtLeast(1), derived)
 }
 
 @Composable
@@ -392,8 +437,9 @@ private fun SearchKeywordRow(
 }
 
 @Composable
-private fun SearchRow(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: (() -> Unit)? = null) {
-    val base = Modifier.padding(horizontal = 20.dp).fillMaxWidth()
+/** 渲染带可选点击行为和测试语义标签的搜索结果行。 */
+private fun SearchRow(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, testTag: String? = null, onClick: (() -> Unit)? = null) {
+    val base = Modifier.padding(horizontal = 20.dp).fillMaxWidth().let { modifier -> testTag?.let { modifier.testTag(it) } ?: modifier }
     val rowModifier = onClick?.let { base.clickable(onClick = it) } ?: base
     GlassCard(rowModifier, HlovetUi.rowShape) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
