@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -134,7 +136,13 @@ internal fun NativeRecommendationFeedbackScreen(
                 Text(nativePhrase("标记为不感兴趣的内容会暂时退出你的推荐。恢复后，它们可以重新参与推荐。", "Items marked not interested leave your recommendations temporarily and can reappear after you restore them."), color = HlovetUi.muted, fontSize = 12.sp, lineHeight = 18.sp)
             }
             item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // 类型数量固定但移动端宽度不固定，使用横向滚动保留每个筛选项的完整触摸区域。
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     listOf(
                         NativeRecommendationTargetType.ALL,
                         NativeRecommendationTargetType.ARTICLE,

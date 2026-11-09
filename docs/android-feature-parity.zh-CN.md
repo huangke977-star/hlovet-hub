@@ -22,9 +22,9 @@
 
 - 发现和匿名页统一采用“首行搜索、右侧筛选、下方连续列表”的结构；发现文章模式和热门/最新模式不再在列表中插入额外标题，筛选内容类型与排序继续在筛选弹层中选择，不挤占文章首屏。
 - 文章行保持无卡片的整行点击与分隔线布局；有首图时使用本地媒体缓存显示右侧缩略图，没有图片不保留空占位；首页文章行仍保留“不感兴趣”操作。匿名话题行统一左右边距，标题允许两行显示。
-- 共用搜索/筛选首行收紧为 `40dp`，列表继续使用独立 `LazyColumn` 和接近底部自动分页；资源中心不再混入发现筛选弹层，仍从“更多”入口进入。
-- 本轮在 Android 11 `HlovetChatUi11(AVD)` 与 Android 15 `HlovetChatUi15(AVD)` 执行 `NativeDiscoverAnonymousLayoutDeviceTest`，各 `3/3` 通过，失败、错误和跳过均为 `0`；覆盖搜索、筛选、回到顶部和第二页自动加载。
-- `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin` 与设备回环 `:prototype:connectedDebugAndroidTest` 均成功；设备夹具只绑定 `127.0.0.1:39871`，不访问生产数据。
+- 共用搜索/筛选首行收紧为固定 `38dp`，搜索胶囊为 `32dp`，筛选使用独立紧凑触摸区，不再被 Material 按钮默认最小尺寸撑高；列表继续使用独立 `LazyColumn` 和接近底部自动分页，资源中心不再混入发现筛选弹层，仍从“更多”入口进入。
+- 本轮在 Android 11 `HlovetChatUi11(AVD)`、Android 15 `HlovetChatUi15(AVD)` 和 Android 16 `medium_phone(AVD)` 执行 `NativeDiscoverAnonymousLayoutDeviceTest`，各 `3/3` 通过，失败、错误和跳过均为 `0`；覆盖搜索、筛选、回到顶部和第二页自动加载。
+- `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与设备回环 `:prototype:connectedDebugAndroidTest` 均成功；生产地址 Debug 包已增量安装到 Android 15 `emulator-5556` 完成发现/匿名视觉检查。设备夹具只绑定 `127.0.0.1:39871`，不访问生产数据。
 
 ## Android 首页推荐信息流懒加载复验（2026-11-06）
 
