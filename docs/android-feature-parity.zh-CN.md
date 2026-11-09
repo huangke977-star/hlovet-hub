@@ -32,6 +32,12 @@
 - 排序变化会把订阅动态列表回到第一条；刷新第一页时会同步结束旧的加载更多状态，避免底部进度状态阻塞新的分页请求。
 - 本轮执行 `:prototype:testDebugUnitTest :prototype:compileDebugKotlin :prototype:compileDebugAndroidTestKotlin --no-daemon`，均成功；本地 `3001/health/ready` 当前不可用，因此没有把 `NativeLocalSubscriptionFeedTest` 的真实数据库链路误报为本轮通过，既有真实订阅回归记录保持不变。
 
+## Android 资源与积分请求竞态收口（2026-11-09）
+
+- 资源中心、积分明细、兑换记录和资源收益页现在统一使用请求版本保护；快速翻页、刷新、兑换后重载或账号切换时，迟到的旧响应不会覆盖当前列表、余额、流水或收益。
+- 兑换记录的刷新和分页继续沿用既有服务端状态、下载、失败重试和交付记录逻辑，本轮只收紧异步状态写回边界，没有改变积分扣除、退款或权限规则。
+- 本轮资源页源码通过 `:prototype:testDebugUnitTest :prototype:compileDebugKotlin :prototype:compileDebugAndroidTestKotlin --no-daemon`；本地真实资源 API 当前不可用，未把历史资源兑换/管理员联调证据扩大为本轮真实数据库通过。
+
 ## Android 首页推荐信息流懒加载复验（2026-11-06）
 
 - 首页“为你推荐”不再把文章包成一个不可拆分的大块，也不再依赖标题右侧的“更多”按钮；每篇推荐文章现在是外层 `LazyColumn` 的独立行，滚动到推荐区末尾会自动请求并追加下一页，第一页内容不会被替换。

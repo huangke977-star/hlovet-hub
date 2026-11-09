@@ -121,21 +121,29 @@ internal fun ResourceCenterScreen(
     var summary by remember(token) { mutableStateOf<NativeResourceSummary?>(null) }
     var loading by remember(token) { mutableStateOf(true) }
     var error by remember(token) { mutableStateOf<String?>(null) }
+    var requestVersion by remember(token) { mutableIntStateOf(0) }
 
     LaunchedEffect(token, query, sort, page, reloadKey) {
+        // 查询、排序、分页或刷新变化后，迟到的旧请求不能覆盖当前资源目录。
+        val currentRequestVersion = requestVersion + 1
+        requestVersion = currentRequestVersion
         if (query.isNotBlank()) delay(260)
+        if (currentRequestVersion != requestVersion) return@LaunchedEffect
         loading = true
         error = null
-        runCatching {
+        val result = runCatching {
             withContext(Dispatchers.IO) {
                 val nextCatalog = NativeResourceApi.listCatalog(token, query, sort, page, 12)
                 val nextSummary = token?.let { NativeResourceApi.getSummary(it) }
                 nextCatalog to nextSummary
             }
-        }.onSuccess { (nextCatalog, nextSummary) ->
+        }
+        // 只有最后一次目录请求可以写入列表和积分概况，避免旧排序回写。
+        if (currentRequestVersion != requestVersion) return@LaunchedEffect
+        result.onSuccess { (nextCatalog, nextSummary) ->
             catalog = nextCatalog
             summary = nextSummary
-            }.onFailure { error = it.message ?: nativePhrase("资源中心加载失败，请稍后重试。", "Could not load the resource center. Please try again.") }
+        }.onFailure { error = it.message ?: nativePhrase("资源中心加载失败，请稍后重试。", "Could not load the resource center. Please try again.") }
         loading = false
     }
 
@@ -303,9 +311,13 @@ internal fun PointsScreen(session: NativeSession?, onBack: () -> Unit) {
     var page by remember(token) { mutableIntStateOf(1) }
     var loading by remember(token) { mutableStateOf(true) }
     var error by remember(token) { mutableStateOf<String?>(null) }
+    var requestVersion by remember(token) { mutableIntStateOf(0) }
 
     // 翻页时按服务器分页范围读取，未登录和加载失败均明确反馈。
     LaunchedEffect(token, page) {
+        // 账号或页码变化后，旧流水响应不再拥有更新当前页面的资格。
+        val currentRequestVersion = requestVersion + 1
+        requestVersion = currentRequestVersion
         val currentToken = token ?: run {
             loading = false
             error = nativePhrase("请先登录后查看积分明细。", "Sign in to view your points.")
@@ -313,11 +325,14 @@ internal fun PointsScreen(session: NativeSession?, onBack: () -> Unit) {
         }
         loading = true
         error = null
-        runCatching {
+        val result = runCatching {
             withContext(Dispatchers.IO) {
                 NativeResourceApi.getReputation(currentToken) to NativeResourceApi.getReputationLedger(currentToken, page, 20)
             }
-        }.onSuccess { (nextSummary, nextLedger) ->
+        }
+        // 翻页期间如果账号已经切换，丢弃旧账号的余额和流水，避免跨账号串数据。
+        if (currentRequestVersion != requestVersion) return@LaunchedEffect
+        result.onSuccess { (nextSummary, nextLedger) ->
             summary = nextSummary
             ledger = nextLedger
         }.onFailure { error = it.message ?: nativePhrase("积分明细加载失败，请稍后重试。", "Could not load points. Please try again.") }
@@ -405,9 +420,14 @@ internal fun ResourceOrdersScreen(session: NativeSession?, onBack: () -> Unit) {
     var expandedId by remember(token) { mutableIntStateOf(0) }
     var error by remember(token) { mutableStateOf<String?>(null) }
     var notice by remember(token) { mutableStateOf<String?>(null) }
+    var requestVersion by remember(token) { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
 
+    /** 读取当前页兑换记录；刷新或操作后的迟到响应不能覆盖最新页面。 */
     fun load() {
+        // 刷新、翻页和操作后的重载共享版本号，旧列表不能覆盖最新状态。
+        val currentRequestVersion = requestVersion + 1
+        requestVersion = currentRequestVersion
         val currentToken = token ?: run {
             loading = false
             error = nativePhrase("请先登录后查看兑换记录。", "Sign in to view redemptions.")
@@ -416,8 +436,10 @@ internal fun ResourceOrdersScreen(session: NativeSession?, onBack: () -> Unit) {
         scope.launch {
             loading = true
             error = null
-            runCatching { withContext(Dispatchers.IO) { NativeResourceApi.listDeliveries(currentToken, page, 20) } }
-                .onSuccess { deliveries = it }
+            val result = runCatching { withContext(Dispatchers.IO) { NativeResourceApi.listDeliveries(currentToken, page, 20) } }
+            // 只有最后一次兑换记录请求可以写回，避免旧页或旧账号覆盖当前内容。
+            if (currentRequestVersion != requestVersion) return@launch
+            result.onSuccess { deliveries = it }
                 .onFailure { error = it.message ?: nativePhrase("兑换记录加载失败，请稍后重试。", "Could not load redemptions. Please try again.") }
             loading = false
         }
@@ -544,17 +566,23 @@ internal fun ResourceEarningsScreen(
     var earnings by remember(token) { mutableStateOf<NativeResourceEarnings?>(null) }
     var loading by remember(token) { mutableStateOf(true) }
     var error by remember(token) { mutableStateOf<String?>(null) }
+    var requestVersion by remember(token) { mutableIntStateOf(0) }
 
     // 重新进入页面时读取服务端结算与退款结果，不在客户端快进 72 小时结算。
     LaunchedEffect(token) {
+        // 账号变化时只允许最后一次收益查询更新汇总和明细。
+        val currentRequestVersion = requestVersion + 1
+        requestVersion = currentRequestVersion
         val currentToken = token ?: run {
             loading = false
             error = nativePhrase("请先登录后查看资源收益。", "Sign in to view resource earnings.")
             return@LaunchedEffect
         }
         loading = true
-        runCatching { withContext(Dispatchers.IO) { NativeResourceApi.getCreatorEarnings(currentToken) } }
-            .onSuccess { earnings = it }
+        val result = runCatching { withContext(Dispatchers.IO) { NativeResourceApi.getCreatorEarnings(currentToken) } }
+        // 旧作者的迟到响应不能覆盖当前账号的收益。
+        if (currentRequestVersion != requestVersion) return@LaunchedEffect
+        result.onSuccess { earnings = it }
             .onFailure { error = it.message ?: nativePhrase("资源收益加载失败，请稍后重试。", "Could not load resource earnings. Please try again.") }
         loading = false
     }
