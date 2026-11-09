@@ -2688,7 +2688,6 @@ private fun HlovetMobilePreview(
                         topics = state.data.topics,
                         collections = state.data.collections,
                         onLogin = { loginVisible = true },
-                        onResourceCenterClick = { accountTarget = AccountTarget.ResourceCenter },
                         onTopicClick = { topic -> openDetailTarget(DetailTarget.Topic(topic)) },
                         onCollectionClick = { collection -> openDetailTarget(DetailTarget.Collection(collection)) },
                         onArticleClick = { openDetailTarget(DetailTarget.Article(it)) },
@@ -6001,6 +6000,7 @@ private fun ArticleFeedRow(
     showDivider: Boolean,
     tagPrefix: String = "discover-article",
 ) {
+    val thumbnailPath = article.images.firstOrNull()?.takeIf(String::isNotBlank)
     // 行内容直接占用列表宽度，避免外层卡片或额外标题压缩文章阅读区域。
     Column(modifier = Modifier.fillMaxWidth().testTag("$tagPrefix-${article.id}")) {
         Row(
@@ -6011,10 +6011,10 @@ private fun ArticleFeedRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 作者头像使用后两位兜底，保证没有头像时仍有稳定的视觉锚点。
-            Avatar(article.authorName.takeLast(2), Coral)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(article.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Avatar(article.authorName.takeLast(2), Coral, modifier = Modifier.size(34.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(article.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(article.authorName, color = TextMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -6024,14 +6024,20 @@ private fun ArticleFeedRow(
                     Text(article.category, color = Accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Spacer(Modifier.width(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (onNotInterested != null) {
-                    IconButton(onClick = { onNotInterested(article) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.VisibilityOff, contentDescription = nativePhrase("不感兴趣", "Not interested"), tint = TextMuted, modifier = Modifier.size(16.dp))
-                    }
+            if (thumbnailPath != null) {
+                Spacer(Modifier.width(10.dp))
+                NativeCoverImage(
+                    path = thumbnailPath,
+                    modifier = Modifier.size(width = 72.dp, height = 54.dp),
+                    fallbackText = article.title,
+                    tint = Accent,
+                )
+            }
+            if (onNotInterested != null) {
+                Spacer(Modifier.width(4.dp))
+                IconButton(onClick = { onNotInterested(article) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.VisibilityOff, contentDescription = nativePhrase("不感兴趣", "Not interested"), tint = TextMuted, modifier = Modifier.size(16.dp))
                 }
-                Icon(Icons.Filled.BookmarkBorder, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
             }
         }
         // 分隔线只保留在相邻文章之间，使列表像资讯流而不是一组大卡片。
@@ -6074,7 +6080,6 @@ internal fun DiscoverScreen(
     topics: List<RemoteTopic>,
     collections: List<RemoteCollection>,
     onLogin: () -> Unit,
-    onResourceCenterClick: () -> Unit = {},
     onTopicClick: (RemoteTopic) -> Unit = {},
     onCollectionClick: (RemoteCollection) -> Unit = {},
     onArticleClick: (RemoteArticle) -> Unit = {},
@@ -6423,19 +6428,6 @@ internal fun DiscoverScreen(
             val showTopics = visibility.showTopics
             val showCollections = visibility.showCollections
             val showArticles = visibility.showArticles
-            if (!showArticles || discoveryMode !in listOf("文章", "热门", "最新", "推荐")) {
-                item {
-                    // 只有专题、合集或混合内容需要标题，纯文章流把首屏空间留给内容本身。
-                    SectionHeading(
-                        when (discoveryMode) {
-                            "专题" -> nativePhrase("专题", "Topics")
-                            "合集" -> nativePhrase("合集", "Collections")
-                            else -> nativePhrase("专题与合集", "Topics and collections")
-                        },
-                        "",
-                    )
-                }
-            }
             if (!loadingMore && (showTopics && localTopics.isEmpty()) && (showCollections && localCollections.isEmpty()) && (!showArticles || localArticles.isEmpty())) {
                 item { EmptyState(if (showArticles && !showTopics && !showCollections) nativePhrase("暂无可展示的文章", "No articles to show") else nativePhrase("暂时没有公开专题或合集", "No public topics or collections yet")) }
             } else {
@@ -6480,9 +6472,6 @@ internal fun DiscoverScreen(
                 item { Text(message, color = Coral, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp)) }
             }
             if (showArticles) {
-                if (discoveryMode !in listOf("文章", "热门", "最新", "推荐")) {
-                    item { SectionHeading(if (discoveryMode == "热门") nativePhrase("热门文章", "Popular articles") else if (discoveryMode == "最新") nativePhrase("最新文章", "Latest articles") else nativePhrase("最近更新", "Recently updated"), "") }
-                }
                 if (localArticles.isEmpty() && !loadingMore) {
                     item { EmptyState(nativePhrase("暂无可展示的文章", "No articles to show")) }
                 } else {
@@ -6556,19 +6545,6 @@ internal fun DiscoverScreen(
                                     if (articleSort == option.value) Icon(Icons.Filled.Check, contentDescription = nativePhrase("当前排序", "Current sorting"), tint = Accent, modifier = Modifier.size(16.dp))
                                 }
                             }
-                        }
-                    }
-                    TextButton(
-                        onClick = {
-                            discoveryFilterDialogOpen = false
-                            onResourceCenterClick()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = Accent, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(nativePhrase("资源中心", "Resource center"), fontSize = 13.sp)
                         }
                     }
                 }

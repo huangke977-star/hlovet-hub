@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
 
-/** 展示发现类信息流的固定首行工具栏，统一搜索、清空和筛选控件的尺寸与语义标签。 */
+/** 展示发现类信息流的固定首行工具栏；首行只承载搜索与筛选，内容流从下一行开始。 */
 @Composable
 internal fun NativeFeedToolbar(
     query: String,
@@ -51,20 +51,21 @@ internal fun NativeFeedToolbar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 1.dp),
+            .height(40.dp)
+            .padding(start = 12.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         // 搜索使用独立胶囊容器，避免 OutlinedTextField 的默认最小高度裁切占位文字。
         Surface(
-            modifier = Modifier.weight(1f).height(36.dp),
+            modifier = Modifier.weight(1f).height(34.dp),
             shape = RoundedCornerShape(20.dp),
             color = HlovetUi.glassFallback,
             shadowElevation = 0.dp,
             tonalElevation = 0.dp,
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().height(36.dp).padding(start = 11.dp, end = 1.dp),
+                modifier = Modifier.fillMaxWidth().height(34.dp).padding(start = 11.dp, end = 1.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Filled.Search, contentDescription = searchContentDescription, tint = HlovetUi.muted, modifier = Modifier.size(18.dp))
@@ -102,12 +103,12 @@ internal fun NativeFeedToolbar(
         }
         // 筛选使用无背景图标按钮，激活状态只保留小标记，不额外占用列表宽度。
         Box(
-            modifier = Modifier.size(36.dp),
+            modifier = Modifier.size(34.dp),
             contentAlignment = Alignment.Center,
         ) {
             IconButton(
                 onClick = onFilterClick,
-                modifier = Modifier.size(36.dp).testTag(filterTag),
+                modifier = Modifier.size(34.dp).testTag(filterTag),
             ) {
                 Icon(Icons.Filled.Tune, contentDescription = filterContentDescription, tint = HlovetUi.accent, modifier = Modifier.size(20.dp))
             }

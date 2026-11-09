@@ -660,11 +660,11 @@ private fun AnonymousTopicListRow(
                 .fillMaxWidth()
                 .clickable(onClick = onOpen)
                 .testTag("anonymous-topic-open-${item.id}")
-                .padding(horizontal = 4.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(item.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
                     buildString {
                         append(formatAnonymousTime(item.updatedAt))
@@ -684,7 +684,7 @@ private fun AnonymousTopicListRow(
             }
             Text("${item.favoriteCount}", color = HlovetUi.muted, fontSize = 10.sp)
         }
-        HorizontalDivider(color = HlovetUi.divider, thickness = 1.dp, modifier = Modifier.padding(horizontal = 4.dp))
+        HorizontalDivider(color = HlovetUi.divider, thickness = 1.dp, modifier = Modifier.padding(horizontal = 12.dp))
     }
 }
 

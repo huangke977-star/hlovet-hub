@@ -18,6 +18,14 @@
 - 当前源码不依赖外部服务的回归同时为 JVM `337/337`，`:prototype:compileDebugKotlin`、`:prototype:assembleDebug`、`:prototype:assembleDebugAndroidTest` 均成功；路由与 API 对齐审计仍为 PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27` 且确认缺失为 `0`。
 - 测试结束后已卸载 `xyz.hlovet.portal.feedtest` 及其测试包；本轮没有清理生产应用、账号、离线内容或历史 `tmp-*` 证据。Docker 引擎未运行，因此本轮没有把本地真实 API 联调扩大为生产数据验收。
 
+## Android 发现与匿名列表信息流收口（2026-11-09）
+
+- 发现和匿名页统一采用“首行搜索、右侧筛选、下方连续列表”的结构；发现文章模式和热门/最新模式不再在列表中插入额外标题，筛选内容类型与排序继续在筛选弹层中选择，不挤占文章首屏。
+- 文章行保持无卡片的整行点击与分隔线布局；有首图时使用本地媒体缓存显示右侧缩略图，没有图片不保留空占位；首页文章行仍保留“不感兴趣”操作。匿名话题行统一左右边距，标题允许两行显示。
+- 共用搜索/筛选首行收紧为 `40dp`，列表继续使用独立 `LazyColumn` 和接近底部自动分页；资源中心不再混入发现筛选弹层，仍从“更多”入口进入。
+- 本轮在 Android 11 `HlovetChatUi11(AVD)` 与 Android 15 `HlovetChatUi15(AVD)` 执行 `NativeDiscoverAnonymousLayoutDeviceTest`，各 `3/3` 通过，失败、错误和跳过均为 `0`；覆盖搜索、筛选、回到顶部和第二页自动加载。
+- `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin` 与设备回环 `:prototype:connectedDebugAndroidTest` 均成功；设备夹具只绑定 `127.0.0.1:39871`，不访问生产数据。
+
 ## Android 首页推荐信息流懒加载复验（2026-11-06）
 
 - 首页“为你推荐”不再把文章包成一个不可拆分的大块，也不再依赖标题右侧的“更多”按钮；每篇推荐文章现在是外层 `LazyColumn` 的独立行，滚动到推荐区末尾会自动请求并追加下一页，第一页内容不会被替换。
