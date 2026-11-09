@@ -26,6 +26,12 @@
 - 本轮在 Android 11 `HlovetChatUi11(AVD)`、Android 15 `HlovetChatUi15(AVD)` 和 Android 16 `medium_phone(AVD)` 执行 `NativeDiscoverAnonymousLayoutDeviceTest`，各 `3/3` 通过，失败、错误和跳过均为 `0`；覆盖搜索、筛选、回到顶部和第二页自动加载。
 - `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与设备回环 `:prototype:connectedDebugAndroidTest` 均成功；生产地址 Debug 包已增量安装到 Android 15 `emulator-5556` 完成发现/匿名视觉检查。设备夹具只绑定 `127.0.0.1:39871`，不访问生产数据。
 
+## Android 订阅动态请求竞态收口（2026-11-09）
+
+- 订阅动态第一页和加载更多现在使用请求版本号保护：快速切换“最新/未读/热度”、刷新或账号变化后，迟到的旧请求不能覆盖当前列表，也不能把旧分页拼接到新排序结果中。
+- 排序变化会把订阅动态列表回到第一条；刷新第一页时会同步结束旧的加载更多状态，避免底部进度状态阻塞新的分页请求。
+- 本轮执行 `:prototype:testDebugUnitTest :prototype:compileDebugKotlin :prototype:compileDebugAndroidTestKotlin --no-daemon`，均成功；本地 `3001/health/ready` 当前不可用，因此没有把 `NativeLocalSubscriptionFeedTest` 的真实数据库链路误报为本轮通过，既有真实订阅回归记录保持不变。
+
 ## Android 首页推荐信息流懒加载复验（2026-11-06）
 
 - 首页“为你推荐”不再把文章包成一个不可拆分的大块，也不再依赖标题右侧的“更多”按钮；每篇推荐文章现在是外层 `LazyColumn` 的独立行，滚动到推荐区末尾会自动请求并追加下一页，第一页内容不会被替换。

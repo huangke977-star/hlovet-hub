@@ -95,20 +95,27 @@ internal fun SubscriptionFeedScreen(
     var loadingMore by remember(token) { mutableStateOf(false) }
     var error by remember(token) { mutableStateOf<String?>(null) }
     var notice by remember(token) { mutableStateOf<String?>(null) }
+    var requestVersion by remember(token) { mutableIntStateOf(0) }
     val feedListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
     /** 重新读取第一页及所有订阅配置，筛选或刷新后清理旧的分页内容。 */
     fun loadInitial(showLoading: Boolean = true) {
+        // 每次重载都推进版本号，让较早排序、账号或刷新请求失去写回资格。
+        val currentRequestVersion = requestVersion + 1
+        requestVersion = currentRequestVersion
         val currentToken = token ?: run {
             loading = false
+            loadingMore = false
             error = nativePhrase("请先登录后查看订阅动态。", "Sign in to view subscription updates.")
             return
         }
         scope.launch {
+            // 新的第一页请求开始后，旧的“加载更多”状态不能继续占用列表底部。
+            loadingMore = false
             if (showLoading) loading = true
             error = null
-            runCatching {
+            val result = runCatching {
                 withContext(Dispatchers.IO) {
                     NativeSubscriptionScreenLoad(
                         feed = NativeDiscoveryApi.listSubscriptionFeed(currentToken, 1, 12, sort),
@@ -117,7 +124,10 @@ internal fun SubscriptionFeedScreen(
                         emailSettings = NativeDiscoveryApi.getSubscriptionEmailSettings(currentToken),
                     )
                 }
-            }.onSuccess { next ->
+            }
+            // 只允许最后一次请求更新状态，避免快速切换排序时旧响应覆盖新列表。
+            if (currentRequestVersion != requestVersion) return@launch
+            result.onSuccess { next ->
                 feed = next.feed
                 page = 1
                 settings = next.settings
@@ -134,12 +144,16 @@ internal fun SubscriptionFeedScreen(
         val currentFeed = feed ?: return
         if (loading || loadingMore || currentFeed.page >= currentFeed.totalPages) return
         val nextPage = currentFeed.page + 1
+        val currentRequestVersion = requestVersion
         loadingMore = true
         error = null
         scope.launch {
-            runCatching {
+            val result = runCatching {
                 withContext(Dispatchers.IO) { NativeDiscoveryApi.listSubscriptionFeed(currentToken, nextPage, 12, sort) }
-            }.onSuccess { next ->
+            }
+            // 若期间触发了刷新或切换排序，旧分页结果只需丢弃，不能拼接到新列表。
+            if (currentRequestVersion != requestVersion) return@launch
+            result.onSuccess { next ->
                 feed = currentFeed.copy(
                     items = (currentFeed.items + next.items).distinctBy { it.article.id },
                     page = next.page,
@@ -157,6 +171,8 @@ internal fun SubscriptionFeedScreen(
     // 语言、会话或排序变化时从第一页开始，避免新筛选混入旧列表。
     LaunchedEffect(token, sort) {
         page = 1
+        // 新的排序必须从首条内容开始，不能沿用上一种排序的滚动位置。
+        feedListState.scrollToItem(0)
         loadInitial()
     }
 
