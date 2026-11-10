@@ -6007,12 +6007,12 @@ private fun ArticleFeedRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onArticleClick(article) }
-                .padding(horizontal = if (edgeToEdge) 12.dp else 16.dp, vertical = 8.dp),
+                .padding(horizontal = if (edgeToEdge) 10.dp else 14.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 作者头像使用后两位兜底，保证没有头像时仍有稳定的视觉锚点。
-            Avatar(article.authorName.takeLast(2), Coral, modifier = Modifier.size(34.dp))
-            Spacer(Modifier.width(10.dp))
+            Avatar(article.authorName.takeLast(2), Coral, modifier = Modifier.size(32.dp))
+            Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(article.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(2.dp))
@@ -6025,17 +6025,17 @@ private fun ArticleFeedRow(
                 }
             }
             if (thumbnailPath != null) {
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 NativeCoverImage(
                     path = thumbnailPath,
-                    modifier = Modifier.size(width = 72.dp, height = 54.dp),
+                    modifier = Modifier.size(width = 68.dp, height = 50.dp),
                     fallbackText = article.title,
                     tint = Accent,
                 )
             }
             if (onNotInterested != null) {
-                Spacer(Modifier.width(4.dp))
-                IconButton(onClick = { onNotInterested(article) }, modifier = Modifier.size(32.dp)) {
+                Spacer(Modifier.width(2.dp))
+                IconButton(onClick = { onNotInterested(article) }, modifier = Modifier.size(30.dp)) {
                     Icon(Icons.Filled.VisibilityOff, contentDescription = nativePhrase("不感兴趣", "Not interested"), tint = TextMuted, modifier = Modifier.size(16.dp))
                 }
             }
@@ -6045,7 +6045,7 @@ private fun ArticleFeedRow(
             HorizontalDivider(
                 color = HlovetUi.divider,
                 thickness = 1.dp,
-                modifier = Modifier.padding(horizontal = if (edgeToEdge) 12.dp else 16.dp),
+                modifier = Modifier.padding(horizontal = if (edgeToEdge) 10.dp else 14.dp),
             )
         }
     }

@@ -21,6 +21,13 @@
 - 新增 `NativeIntegrationsRequestTest`，覆盖当前读取可写回、旧读取代际丢弃和写操作后旧读取丢弃三条边界；已有设备测试继续覆盖账号切换、读取失败、创建/验证/删除失败重试和一次性令牌显示。
 - 本轮执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与 `:prototype:assembleDebug` 均成功；外部 Google、Webhook 的真实供应商投递仍不在本地 Mock 回归范围内。
 
+## Android 发现与匿名资讯流紧凑布局（2026-11-10）
+
+- 发现和匿名页继续统一为资讯流布局：首行只保留搜索框和右侧筛选图标，筛选类型与排序仍在弹层中选择；首行下方直接进入连续列表，不再插入额外标题、筛选标签或内容卡片。
+- 发现文章行和匿名话题行统一收紧左右边距、上下留白、头像/操作图标和右侧缩略图尺寸；文章列表与匿名列表都直接占满剩余页面高度，保持独立 `LazyColumn` 滚动和接近底部自动加载，不改变分页请求、搜索重置和筛选回到顶部规则。
+- 最新 Debug APK 已覆盖安装到 `emulator-5562`，实际打开发现和匿名页核对了搜索首行、筛选入口、列表连续展示和底部导航占用；生产数据截图验证未发现应用崩溃。此次设备检查只验证可视布局和已存在的列表加载入口，不把生产网络数据结果扩大为完整业务联调。
+- 本轮 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:assembleDebug`、`:prototype:compileDebugAndroidTestKotlin` 与 `:prototype:assembleDebugAndroidTest` 均成功；Gradle 使用本机 JDK 17 和 Android SDK，未改动生产数据库或账号数据。
+
 ## Android 社区详情请求竞态收口（2026-11-10）
 
 - 反馈和建议详情读取现在按账号、目标请求代际写回；快速打开不同记录时，旧详情或旧错误不会重新打开当前弹窗。

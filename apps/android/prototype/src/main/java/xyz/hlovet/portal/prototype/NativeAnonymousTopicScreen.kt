@@ -660,11 +660,11 @@ private fun AnonymousTopicListRow(
                 .fillMaxWidth()
                 .clickable(onClick = onOpen)
                 .testTag("anonymous-topic-open-${item.id}")
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(item.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(item.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
                     buildString {
                         append(formatAnonymousTime(item.updatedAt))
@@ -679,12 +679,12 @@ private fun AnonymousTopicListRow(
                 )
                 item.topLikedMessage?.let { Text("👍 #${it.sequence}: ${it.body}", color = HlovetUi.accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
-            IconButton(onClick = onFavorite, modifier = Modifier.size(34.dp).testTag("anonymous-topic-favorite-${item.id}")) {
+            IconButton(onClick = onFavorite, modifier = Modifier.size(30.dp).testTag("anonymous-topic-favorite-${item.id}")) {
                 Icon(if (item.favorited) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, contentDescription = if (item.favorited) nativePhrase("取消喜欢", "Unfavorite") else nativePhrase("喜欢话题", "Favorite topic"), tint = if (item.favorited) HlovetUi.secondaryAccent else HlovetUi.muted, modifier = Modifier.size(18.dp))
             }
             Text("${item.favoriteCount}", color = HlovetUi.muted, fontSize = 10.sp)
         }
-        HorizontalDivider(color = HlovetUi.divider, thickness = 1.dp, modifier = Modifier.padding(horizontal = 12.dp))
+        HorizontalDivider(color = HlovetUi.divider, thickness = 1.dp, modifier = Modifier.padding(horizontal = 10.dp))
     }
 }
 
