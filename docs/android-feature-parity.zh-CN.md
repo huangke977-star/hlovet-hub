@@ -3453,3 +3453,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 新增 `NativeSearchDeviceTest`，使用设备内 `127.0.0.1:39871` MockWebServer 在 Android 11 `emulator-5554` 和 Android 15 `emulator-5556` 各执行 `2/2`，失败、错误和跳过均为 `0`。
 - 回归覆盖公开全站搜索文章结果点击分发、列表底部翻页后回到第二页文章、用户/专题范围切换，以及文章分类和最新排序参数均传入真实 `NativeSearchApi` 请求；夹具不访问生产 API、不写入业务数据。
 - 搜索列表增加稳定语义标签，懒列表翻页后按总数与页大小兜底推导页数，兼容旧响应缺少 `totalPages` 的情况。`:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 和 `git diff --check` 均通过。
+
+## Android 匿名信息流请求代际保护（2026-11-10）
+
+- 匿名话题列表现在为每次搜索、排序、可见性筛选和分页请求登记代际；新条件开始时立即清除旧结果，旧条件的异步回包不会覆盖当前列表，也不会错误关闭新请求的加载状态。触底分页仍保持同一代际内的串行追加和稳定编号去重。
+- 新增 `NativeRequestGeneration` 及 `NativeRequestGenerationTest`，覆盖新请求使旧回包失效、当前请求保持有效两个边界；未改变匿名话题接口参数、权限判断、详情刷新或业务数据。
+- 本轮验证：`:prototype:testDebugUnitTest`、`:prototype:compileDebugAndroidTestKotlin`、`:prototype:assembleDebug` 和 `git diff --check` 均通过。未执行真实 API/生产账号写操作；设备信息流夹具回归仍以 2026-11-06 记录为准。

@@ -144,6 +144,7 @@ internal fun NativeAnonymousTopicsScreen(
     var pendingFiles by remember { mutableStateOf<List<NativeUploadFile>>(emptyList()) }
     var filterDialogOpen by remember { mutableStateOf(false) }
     val topicListState = rememberLazyListState()
+    val listRequestGeneration = remember { NativeRequestGeneration() }
 
     // 系统多选文件返回后统一检查数量和总大小，拒绝时保留现有附件与正文。
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -177,16 +178,25 @@ internal fun NativeAnonymousTopicsScreen(
 
     /** 按 reset 重读第一页或追加下一页，仅请求当前公开/管理范围内的话题。 */
     fun loadTopics(reset: Boolean = true) {
-        // 列表请求互斥；管理权限拒绝不能降级成公开列表。
-        if (loading) return
+        // 只有追加分页需要等待当前请求结束；新的搜索或筛选条件必须开启新代际，不能被旧请求阻塞。
+        if (!reset && loading) return
+        // 管理权限拒绝不能降级成公开列表。
         if (managementDenied) {
             error = nativePhrase("需要管理员权限才能打开匿名话题管理。", "Administrator access is required to manage anonymous topics.")
             loading = false
             return
         }
+        // 每次重读或分页都登记请求代际，回包只允许更新当前条件对应的列表。
+        val requestGeneration = listRequestGeneration.begin()
         loading = true
         error = null
         val targetPage = if (reset) 1 else page + 1
+        if (reset) {
+            // 新条件开始后立即移除旧结果，避免旧关键词的内容在等待期间继续显示。
+            page = 1
+            pageTotal = 1
+            items = emptyList()
+        }
         // 网络在 IO 线程执行，成功后以稳定编号合并；失败保留当前列表并反馈原因。
         scope.launch {
             runCatching {
@@ -198,11 +208,19 @@ internal fun NativeAnonymousTopicsScreen(
                     }
                 }
             }.onSuccess { result ->
-                items = if (reset) result.items else (items + result.items).distinctBy { it.id }
-                page = result.page
-                pageTotal = result.totalPages
-            }.onFailure { error = it.message ?: nativePhrase("匿名话题加载失败，请稍后重试。", "Could not load anonymous topics. Please try again later.") }
-            loading = false
+                if (listRequestGeneration.isCurrent(requestGeneration)) {
+                    // 第一页替换旧条件，后续页按稳定话题编号合并，避免分页重复。
+                    items = if (reset) result.items else (items + result.items).distinctBy { it.id }
+                    page = result.page
+                    pageTotal = result.totalPages
+                }
+            }.onFailure {
+                if (listRequestGeneration.isCurrent(requestGeneration)) {
+                    error = it.message ?: nativePhrase("匿名话题加载失败，请稍后重试。", "Could not load anonymous topics. Please try again later.")
+                }
+            }
+            // 旧请求结束时不能关闭新请求的加载状态。
+            if (listRequestGeneration.isCurrent(requestGeneration)) loading = false
         }
     }
 
