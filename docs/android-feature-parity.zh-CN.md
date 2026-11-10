@@ -3459,3 +3459,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 匿名话题列表现在为每次搜索、排序、可见性筛选和分页请求登记代际；新条件开始时立即清除旧结果，旧条件的异步回包不会覆盖当前列表，也不会错误关闭新请求的加载状态。触底分页仍保持同一代际内的串行追加和稳定编号去重。
 - 新增 `NativeRequestGeneration` 及 `NativeRequestGenerationTest`，覆盖新请求使旧回包失效、当前请求保持有效两个边界；未改变匿名话题接口参数、权限判断、详情刷新或业务数据。
 - 本轮验证：`:prototype:testDebugUnitTest`、`:prototype:compileDebugAndroidTestKotlin`、`:prototype:assembleDebug` 和 `git diff --check` 均通过。未执行真实 API/生产账号写操作；设备信息流夹具回归仍以 2026-11-06 记录为准。
+
+## Android 全站搜索请求代际保护（2026-11-10）
+
+- 全站搜索复用请求代际保护：关键词、范围、排序、分类或页码变化后，只有当前条件的回包可以更新结果、错误状态和搜索记录；旧请求结束时不会误关闭新请求的加载状态。
+- 该修复与发现/匿名信息流共用 `NativeRequestGeneration`，不改变搜索范围、排序参数、分页协议或结果跳转行为。
+- 本轮追加修改后重新执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugAndroidTestKotlin`、`:prototype:assembleDebug`、PC 路由/API 审计和 `git diff --check`；`NativeSearchDeviceTest` 在 4 台在线模拟器上共 `8/8` 通过，0 失败、0 跳过，覆盖文章点击分发、第二页、范围、分类和排序参数。夹具只运行设备内 MockWebServer，不执行真实生产搜索写操作；测试结束后已恢复默认生产地址 Debug APK 并增量安装到在线模拟器。

@@ -88,6 +88,7 @@ internal fun NativeSearchScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var clearHistoryConfirm by remember { mutableStateOf(false) }
     var lastRecorded by remember { mutableStateOf("") }
+    val searchRequestGeneration = remember { NativeRequestGeneration() }
 
     LaunchedEffect(token) {
         page = 1
@@ -100,6 +101,8 @@ internal fun NativeSearchScreen(
     }
 
     LaunchedEffect(query, scopeFilter, sort, category, page, token) {
+        // 每次搜索条件变化都开启新代际，旧关键词或旧筛选条件的回包不得覆盖当前结果。
+        val requestGeneration = searchRequestGeneration.begin()
         val keyword = query.trim()
         if (keyword.isBlank()) {
             result = null
@@ -115,13 +118,21 @@ internal fun NativeSearchScreen(
                 NativeSearchApi.search(token, keyword, scopeFilter, sort, category.takeIf { it.isNotBlank() }, page)
             }
         }.onSuccess {
-            result = it
-            if (!token.isNullOrBlank() && keyword != lastRecorded) {
+            if (searchRequestGeneration.isCurrent(requestGeneration)) {
+                // 只有当前条件的结果才能更新界面，避免快速输入时出现错配结果。
+                result = it
+            }
+            if (searchRequestGeneration.isCurrent(requestGeneration) && !token.isNullOrBlank() && keyword != lastRecorded) {
                 lastRecorded = keyword
                 scope.launch(Dispatchers.IO) { runCatching { NativeSearchApi.record(token, keyword) } }
             }
-        }.onFailure { error = it.message ?: nativePhrase("搜索失败，请稍后重试。", "Search failed. Please try again later.") }
-        loading = false
+        }.onFailure {
+            if (searchRequestGeneration.isCurrent(requestGeneration)) {
+                error = it.message ?: nativePhrase("搜索失败，请稍后重试。", "Search failed. Please try again later.")
+            }
+        }
+        // 旧请求结束时不能把新请求误标记为已完成。
+        if (searchRequestGeneration.isCurrent(requestGeneration)) loading = false
     }
 
     fun chooseKeyword(keyword: String) {
