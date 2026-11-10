@@ -25,6 +25,12 @@
 - 消息搜索首屏和加载更多共享请求代际，并同时校验会话、查询词和令牌；切换搜索词或关闭搜索时，迟到结果不会覆盖新结果，也不会遗留旧的加载状态。
 - 新增 `NativeConversationRequestTest` 覆盖当前请求、会话/查询变化和账号变化三条边界；本轮同步通过 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与 `:prototype:assembleDebug`。
 
+## Android 群聊管理请求竞态收口（2026-11-10）
+
+- 群聊管理的列表刷新、群详情、群搜索和邀请成员搜索现在分别记录请求代际，并校验当前群、查询词和访问令牌；快速刷新或切换目标时，旧结果不会覆盖新列表或详情。
+- 关闭详情、退出/解散群聊或关闭邀请弹窗会使相应的旧请求失效，迟到回包不会重新打开已关闭的群详情、成员候选或忙状态。
+- 新增 `NativeGroupRequestTest` 覆盖当前群、目标/查询变化和账号变化三条边界；本轮执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与 `:prototype:assembleDebug` 均成功。
+
 ## Android 公开个人主页分页请求竞态收口（2026-11-10）
 
 - 公开个人主页的首屏资料、代表内容和文章列表现在使用统一请求代际；切换用户名、登录会话或重新发起加载后，旧回包不能覆盖当前主页，也不能提前关闭当前加载状态。

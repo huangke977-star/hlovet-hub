@@ -58,6 +58,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -134,6 +135,11 @@ private fun NativeGroupContent(
     var inviteCandidates by remember(accessToken) { mutableStateOf<List<NativeGroupUser>>(emptyList()) }
     var inviteSelectedIds by remember(accessToken) { mutableStateOf<Set<Int>>(emptySet()) }
     var confirmAction by remember(accessToken) { mutableStateOf<String?>(null) }
+    var listRequestId by remember(accessToken) { mutableIntStateOf(0) }
+    var detailRequestId by remember(accessToken) { mutableIntStateOf(0) }
+    var activeDetailGroupId by remember(accessToken) { mutableStateOf<Int?>(null) }
+    var searchRequestId by remember(accessToken) { mutableIntStateOf(0) }
+    var inviteSearchRequestId by remember(accessToken) { mutableIntStateOf(0) }
     var createName by remember(accessToken) { mutableStateOf("") }
     var createTemporary by remember(accessToken) { mutableStateOf(false) }
     var createJoinMode by remember(accessToken) { mutableStateOf("approval") }
@@ -164,6 +170,9 @@ private fun NativeGroupContent(
     }
 
     fun refreshAll() {
+        // 刷新和分页结果必须按当前账号与列表请求代际写回，避免旧快照恢复已更新的群聊。
+        val requestId = listRequestId + 1
+        listRequestId = requestId
         scope.launch {
             loading = true
             error = null
@@ -172,14 +181,25 @@ private fun NativeGroupContent(
                     NativeGroupApi.listMine(accessToken) to NativeGroupApi.listApprovals(accessToken)
                 }
             }.onSuccess { (loadedGroups, loadedApprovals) ->
-                groups = loadedGroups
-                approvals = loadedApprovals
-            }.onFailure { error = it.message ?: nativePhrase("群聊加载失败。", "Unable to load groups.") }
-            loading = false
+                if (isCurrentGroupRequest(requestId, listRequestId, null, null, "", "", accessToken, session?.accessToken)) {
+                    groups = loadedGroups
+                    approvals = loadedApprovals
+                }
+            }.onFailure { failure ->
+                if (isCurrentGroupRequest(requestId, listRequestId, null, null, "", "", accessToken, session?.accessToken)) {
+                    error = failure.message ?: nativePhrase("群聊加载失败。", "Unable to load groups.")
+                }
+            }
+            if (isCurrentGroupRequest(requestId, listRequestId, null, null, "", "", accessToken, session?.accessToken)) loading = false
         }
     }
 
+    /** 打开指定群聊详情，旧群聊回包不能覆盖当前详情。 */
     fun openGroup(groupId: Int) {
+        // 每次打开都切换详情代际，支持快速切换群聊并保持旧请求可安全完成。
+        val requestId = detailRequestId + 1
+        detailRequestId = requestId
+        activeDetailGroupId = groupId
         scope.launch {
             busy = true
             error = null
@@ -192,15 +212,21 @@ private fun NativeGroupContent(
                     Triple(detail.copy(banRecords = banRecords), requests, loadedReports)
                 }
             }.onSuccess { (detail, requests, loadedReports) ->
-                selected = detail
-                joinRequests = requests
-                reports = loadedReports
-                alias = detail.summary.currentAlias.orEmpty()
-                if (initialReportId != null && loadedReports.any { it.id == initialReportId }) {
-                    notice = nativePhrase("已打开待处理举报。", "Opened the pending report.")
+                if (isCurrentGroupRequest(requestId, detailRequestId, groupId, activeDetailGroupId, "", "", accessToken, session?.accessToken)) {
+                    selected = detail
+                    joinRequests = requests
+                    reports = loadedReports
+                    alias = detail.summary.currentAlias.orEmpty()
+                    if (initialReportId != null && loadedReports.any { it.id == initialReportId }) {
+                        notice = nativePhrase("已打开待处理举报。", "Opened the pending report.")
+                    }
                 }
-            }.onFailure { error = it.message ?: nativePhrase("群聊详情加载失败。", "Unable to load group details.") }
-            busy = false
+            }.onFailure { failure ->
+                if (isCurrentGroupRequest(requestId, detailRequestId, groupId, activeDetailGroupId, "", "", accessToken, session?.accessToken)) {
+                    error = failure.message ?: nativePhrase("群聊详情加载失败。", "Unable to load group details.")
+                }
+            }
+            if (isCurrentGroupRequest(requestId, detailRequestId, groupId, activeDetailGroupId, "", "", accessToken, session?.accessToken)) busy = false
         }
     }
 
@@ -252,7 +278,16 @@ private fun NativeGroupContent(
             session = requireNotNull(session),
             alias = alias,
             onAliasChange = { alias = it },
-            onBack = { selected = null; joinRequests = emptyList(); reports = emptyList(); refreshAll() },
+            onBack = {
+                // 关闭详情同时使旧详情、成员搜索和举报结果失效。
+                detailRequestId += 1
+                activeDetailGroupId = null
+                inviteSearchRequestId += 1
+                selected = null
+                joinRequests = emptyList()
+                reports = emptyList()
+                refreshAll()
+            },
             onOpenConversation = {
                 onOpenConversation(
                     NativeConversationPreview(
@@ -281,6 +316,7 @@ private fun NativeGroupContent(
                 editVisible = true
             },
             onInvite = {
+                inviteSearchRequestId += 1
                 inviteVisible = true
                 inviteQuery = ""
                 inviteCandidates = emptyList()
@@ -405,13 +441,22 @@ private fun NativeGroupContent(
                     accessToken = accessToken,
                     onQueryChange = { searchQuery = it },
                     onSearch = {
+                        val query = searchQuery.trim()
+                        val requestId = searchRequestId + 1
+                        searchRequestId = requestId
                         scope.launch {
                             busy = true
                             error = null
-                            runCatching { withContext(Dispatchers.IO) { NativeGroupApi.search(accessToken, searchQuery) } }
-                                .onSuccess { searchResults = it }
-                                .onFailure { error = it.message ?: nativePhrase("群聊搜索失败。", "Unable to search groups.") }
-                            busy = false
+                            runCatching { withContext(Dispatchers.IO) { NativeGroupApi.search(accessToken, query) } }
+                                .onSuccess { result ->
+                                    if (isCurrentGroupRequest(requestId, searchRequestId, null, null, query, searchQuery.trim(), accessToken, session?.accessToken)) searchResults = result
+                                }
+                                .onFailure { failure ->
+                                    if (isCurrentGroupRequest(requestId, searchRequestId, null, null, query, searchQuery.trim(), accessToken, session?.accessToken)) {
+                                        error = failure.message ?: nativePhrase("群聊搜索失败。", "Unable to search groups.")
+                                    }
+                                }
+                            if (isCurrentGroupRequest(requestId, searchRequestId, null, null, query, searchQuery.trim(), accessToken, session?.accessToken)) busy = false
                         }
                     },
                     onJoin = { group -> joinVisible = group },
@@ -521,7 +566,7 @@ private fun NativeGroupContent(
 
     if (inviteVisible && selected != null) {
         HlovetAlertDialog(
-            onDismissRequest = { if (!busy) inviteVisible = false },
+            onDismissRequest = { if (!busy) { inviteSearchRequestId += 1; inviteVisible = false } },
             title = { Text(nativePhrase("邀请成员", "Invite members")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -536,13 +581,23 @@ private fun NativeGroupContent(
                         )
                         IconButton(
                             onClick = {
+                                val query = inviteQuery.trim()
+                                val requestId = inviteSearchRequestId + 1
+                                inviteSearchRequestId = requestId
+                                val requestedGroupId = activeDetailGroupId
                                 scope.launch {
                                     busy = true
                                     error = null
-                                    runCatching { withContext(Dispatchers.IO) { NativeGroupApi.searchUsers(accessToken, inviteQuery) } }
-                                        .onSuccess { inviteCandidates = it }
-                                        .onFailure { error = it.message ?: nativePhrase("用户搜索失败。", "Unable to search users.") }
-                                    busy = false
+                                    runCatching { withContext(Dispatchers.IO) { NativeGroupApi.searchUsers(accessToken, query) } }
+                                        .onSuccess { result ->
+                                            if (isCurrentGroupRequest(requestId, inviteSearchRequestId, requestedGroupId, activeDetailGroupId, query, inviteQuery.trim(), accessToken, session?.accessToken)) inviteCandidates = result
+                                        }
+                                        .onFailure { failure ->
+                                            if (isCurrentGroupRequest(requestId, inviteSearchRequestId, requestedGroupId, activeDetailGroupId, query, inviteQuery.trim(), accessToken, session?.accessToken)) {
+                                                error = failure.message ?: nativePhrase("用户搜索失败。", "Unable to search users.")
+                                            }
+                                        }
+                                    if (isCurrentGroupRequest(requestId, inviteSearchRequestId, requestedGroupId, activeDetailGroupId, query, inviteQuery.trim(), accessToken, session?.accessToken)) busy = false
                                 }
                             },
                             enabled = !busy && inviteQuery.trim().isNotBlank(),
@@ -582,6 +637,7 @@ private fun NativeGroupContent(
                         val groupId = selected!!.summary.id
                         val ids = inviteSelectedIds.toList()
                         mutate(nativePhrase("群邀请已发送。", "Group invitation sent."), { NativeGroupApi.invite(accessToken, groupId, ids) }, {
+                            inviteSearchRequestId += 1
                             inviteVisible = false
                             inviteSelectedIds = emptySet()
                             openGroup(groupId)
@@ -593,7 +649,7 @@ private fun NativeGroupContent(
                     )
                 }
             },
-            dismissButton = { TextButton(enabled = !busy, onClick = { inviteVisible = false }) { Text(nativePhrase("取消", "Cancel")) } },
+            dismissButton = { TextButton(enabled = !busy, onClick = { inviteSearchRequestId += 1; inviteVisible = false }) { Text(nativePhrase("取消", "Cancel")) } },
         )
     }
 
@@ -655,8 +711,20 @@ private fun NativeGroupContent(
                                 openGroup(groupId)
                             }
                         }
-                        "leave" -> mutate(nativePhrase("已退出群聊。", "Left the group."), { NativeGroupApi.leave(accessToken, groupId) }, { confirmAction = null; selected = null; refreshAll() })
-                        else -> mutate(nativePhrase("群聊已解散。", "Group dissolved."), { NativeGroupApi.dissolve(accessToken, groupId) }, { confirmAction = null; selected = null; refreshAll() })
+                        "leave" -> mutate(nativePhrase("已退出群聊。", "Left the group."), { NativeGroupApi.leave(accessToken, groupId) }, {
+                            confirmAction = null
+                            detailRequestId += 1
+                            activeDetailGroupId = null
+                            selected = null
+                            refreshAll()
+                        })
+                        else -> mutate(nativePhrase("群聊已解散。", "Group dissolved."), { NativeGroupApi.dissolve(accessToken, groupId) }, {
+                            confirmAction = null
+                            detailRequestId += 1
+                            activeDetailGroupId = null
+                            selected = null
+                            refreshAll()
+                        })
                     }
                 }) { Text(if (busy) nativePhrase("处理中…", "Processing...") else nativePhrase("确认", "Confirm")) }
             },
