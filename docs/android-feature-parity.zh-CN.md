@@ -3465,3 +3465,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 全站搜索复用请求代际保护：关键词、范围、排序、分类或页码变化后，只有当前条件的回包可以更新结果、错误状态和搜索记录；旧请求结束时不会误关闭新请求的加载状态。
 - 该修复与发现/匿名信息流共用 `NativeRequestGeneration`，不改变搜索范围、排序参数、分页协议或结果跳转行为。
 - 本轮追加修改后重新执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugAndroidTestKotlin`、`:prototype:assembleDebug`、PC 路由/API 审计和 `git diff --check`；`NativeSearchDeviceTest` 在 4 台在线模拟器上共 `8/8` 通过，0 失败、0 跳过，覆盖文章点击分发、第二页、范围、分类和排序参数。夹具只运行设备内 MockWebServer，不执行真实生产搜索写操作；测试结束后已恢复默认生产地址 Debug APK 并增量安装到在线模拟器。
+
+## Android 门户内容请求代际保护（2026-11-10）
+
+- 站内导航和工具中心刷新、模式切换及账号切换现在使用请求代际保护；只有当前模式和会话的门户内容、工具偏好和错误状态可以更新页面，旧回包不会覆盖新内容或提前结束加载状态。
+- 该行为复用 `NativeRequestGeneration`，不改变门户分类、工具收藏、首页快捷方式和真实接口参数。
+- 本轮验证以完整 JVM 单测、AndroidTest 编译、Debug 构建、PC 路由/API 审计和 `git diff --check` 为准；未执行门户生产写操作。

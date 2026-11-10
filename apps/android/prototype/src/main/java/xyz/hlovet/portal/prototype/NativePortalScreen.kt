@@ -71,8 +71,11 @@ internal fun NativePortalScreen(
     var error by remember(mode, token) { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
+    val portalRequestGeneration = remember { NativeRequestGeneration() }
 
     LaunchedEffect(mode, token, reloadKey) {
+        // 刷新、切换模式或会话变化都开启新代际，旧门户回包不得覆盖当前内容。
+        val requestGeneration = portalRequestGeneration.begin()
         loading = true
         error = null
         runCatching {
@@ -91,12 +94,18 @@ internal fun NativePortalScreen(
                 nextContent to nextPreferences
             }
         }.onSuccess { (nextContent, nextPreferences) ->
-            content = nextContent
-            preferences = nextPreferences
+            if (portalRequestGeneration.isCurrent(requestGeneration)) {
+                // 仅使用当前模式和会话的结果更新门户与工具偏好。
+                content = nextContent
+                preferences = nextPreferences
+            }
         }.onFailure {
-            error = it.message ?: nativePhrase("门户内容加载失败，请稍后重试。", "Could not load portal content. Please try again.")
+            if (portalRequestGeneration.isCurrent(requestGeneration)) {
+                error = it.message ?: nativePhrase("门户内容加载失败，请稍后重试。", "Could not load portal content. Please try again.")
+            }
         }
-        loading = false
+        // 旧请求结束时不能误关闭新请求的加载状态。
+        if (portalRequestGeneration.isCurrent(requestGeneration)) loading = false
     }
 
     val categories = content?.categories.orEmpty()
