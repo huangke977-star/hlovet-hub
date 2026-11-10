@@ -61,7 +61,7 @@ internal fun NativeFeedToolbar(
     filterContentDescription: String,
     hasActiveFilter: Boolean,
 ) {
-    // 工具栏只保留一行搜索和筛选，固定紧凑高度，避免首屏被操作控件吞掉。
+    // 工具栏只保留一行搜索和筛选，使用资讯流常见的紧凑首行，避免首屏被操作控件吞掉。
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -79,10 +79,10 @@ internal fun NativeFeedToolbar(
             tonalElevation = 0.dp,
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().height(30.dp).padding(start = 9.dp, end = 1.dp),
+                modifier = Modifier.fillMaxWidth().height(30.dp).padding(start = 8.dp, end = 1.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Filled.Search, contentDescription = searchContentDescription, tint = HlovetUi.muted, modifier = Modifier.size(17.dp))
+                Icon(Icons.Filled.Search, contentDescription = searchContentDescription, tint = HlovetUi.muted, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(5.dp))
                 BasicTextField(
                     value = query,

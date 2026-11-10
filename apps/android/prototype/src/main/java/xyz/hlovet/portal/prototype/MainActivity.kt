@@ -6048,15 +6048,15 @@ private fun ArticleFeedRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onArticleClick(article) }
-                .padding(horizontal = if (edgeToEdge) 10.dp else 14.dp, vertical = 6.dp),
+                .padding(horizontal = if (edgeToEdge) 10.dp else 14.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 作者头像使用后两位兜底，保证没有头像时仍有稳定的视觉锚点。
-            Avatar(article.authorName.takeLast(2), Coral, modifier = Modifier.size(32.dp))
-            Spacer(Modifier.width(8.dp))
+            Avatar(article.authorName.takeLast(2), Coral, modifier = Modifier.size(30.dp))
+            Spacer(Modifier.width(7.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(article.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(2.dp))
+                Text(article.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(1.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(article.authorName, color = TextMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(" · ", color = TextMuted, fontSize = 10.sp)
@@ -6442,7 +6442,9 @@ internal fun DiscoverScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(bottom = scaffoldPadding.calculateBottomPadding()),
     ) {
         // 搜索工具栏固定在信息流上方，滚动时只移动文章内容，避免用户回不到筛选入口。
         NativeFeedToolbar(
@@ -6452,7 +6454,11 @@ internal fun DiscoverScreen(
             onFilterClick = { discoveryFilterDialogOpen = true },
             queryTag = "discover-search",
             filterTag = "discover-filter",
-            placeholder = nativePhrase("搜索文章、专题和合集", "Search articles, topics, and collections"),
+                     placeholder = when (discoveryMode) {
+                         "专题" -> nativePhrase("搜索专题", "Search topics")
+                         "合集" -> nativePhrase("搜索合集", "Search collections")
+                         else -> nativePhrase("搜索文章", "Search articles")
+                     },
             searchContentDescription = nativePhrase("搜索", "Search"),
             clearContentDescription = nativePhrase("清除搜索", "Clear search"),
             filterContentDescription = nativePhrase("筛选", "Filter"),
@@ -6462,6 +6468,7 @@ internal fun DiscoverScreen(
         LazyColumn(
             state = discoveryListState,
             modifier = Modifier.fillMaxWidth().weight(1f).testTag("discover-feed-list"),
+            // 搜索行之后立即进入文章流，底部只为导航栏和最后一行保留安全空间。
             contentPadding = PaddingValues(top = 0.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
@@ -6469,7 +6476,7 @@ internal fun DiscoverScreen(
             val showTopics = visibility.showTopics
             val showCollections = visibility.showCollections
             val showArticles = visibility.showArticles
-            if (!loadingMore && (showTopics && localTopics.isEmpty()) && (showCollections && localCollections.isEmpty()) && (!showArticles || localArticles.isEmpty())) {
+            if (!loadingMore && !showArticles && (showTopics && localTopics.isEmpty()) && (showCollections && localCollections.isEmpty())) {
                 item { EmptyState(if (showArticles && !showTopics && !showCollections) nativePhrase("暂无可展示的文章", "No articles to show") else nativePhrase("暂时没有公开专题或合集", "No public topics or collections yet")) }
             } else {
                 if (showTopics) items(localTopics) { topic ->
@@ -6917,8 +6924,30 @@ private fun MessagesScreen(
     var notificationSelectionMode by remember(sessionKey) { mutableStateOf(false) }
     var selectedNotificationIds by remember(sessionKey) { mutableStateOf<Set<Int>>(emptySet()) }
     var notificationLoadingMore by remember(sessionKey) { mutableStateOf(false) }
+    var inboxRequestId by remember(sessionKey) { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val latestSessionKey = rememberUpdatedState(sessionKey)
+    val latestAccessToken = rememberUpdatedState(session?.accessToken)
+
+    /** 为收件箱操作生成新的请求代际，使刷新、分页和写操作互相隔离。 */
+    fun issueInboxRequest(accessToken: String): NativeInboxRequest {
+        // 每个新的网络操作都会淘汰更早的回包，避免旧列表覆盖刚完成的本地状态更新。
+        inboxRequestId += 1
+        // 新操作拥有收件箱的最新写入权，旧操作的忙碌标记不能阻塞当前账号继续使用页面。
+        notificationActionBusy = false
+        notificationSettingsBusy = null
+        notificationLoadingMore = false
+        return NativeInboxRequest(inboxRequestId, sessionKey, accessToken)
+    }
+
+    /** 判断异步回包是否仍可写入当前页面，账号切换和令牌轮换都会使旧回包失效。 */
+    fun canApplyInboxRequest(request: NativeInboxRequest): Boolean = isCurrentInboxRequest(
+        request = request,
+        activeRequestId = inboxRequestId,
+        activeSessionKey = latestSessionKey.value,
+        activeAccessToken = latestAccessToken.value,
+    )
 
     val notificationChannelOptions = listOf(
         Triple("system", nativePhrase("系统消息", "System"), nativePhrase("好友申请结果和内容处理通知", "Friend request results and content moderation updates")),
@@ -6927,35 +6956,50 @@ private fun MessagesScreen(
     )
 
     LaunchedEffect(session?.accessToken, refreshKey, localRefreshKey) {
-        val accessToken = session?.accessToken ?: run {
+        val accessToken = session?.accessToken?.takeIf { it.isNotBlank() }
+        if (accessToken == null) {
+            // 注销或会话恢复失败时先淘汰所有在途收件箱请求，再清理当前账号的界面状态。
+            inboxRequestId += 1
             inbox = null
             notificationSelectionMode = false
             selectedNotificationIds = emptySet()
             notificationDeleteSelection = null
             return@LaunchedEffect
         }
+        val request = issueInboxRequest(accessToken)
         loading = true
         error = null
+        // 新一轮刷新以服务端完整快照为准，释放旧操作的忙碌标记并阻止旧回包继续控制界面。
+        notificationActionBusy = false
+        notificationLoadingMore = false
+        notificationSettingsBusy = null
         try {
             val refreshed = withContext(Dispatchers.IO) { NativeSocialApi.loadInbox(accessToken) }
-            inbox = refreshed
-            notificationSelectionMode = false
-            selectedNotificationIds = emptySet()
-            notificationDeleteSelection = null
-            onInboxSummaryChanged(refreshed.toSummary())
+            if (canApplyInboxRequest(request)) {
+                inbox = refreshed
+                notificationSelectionMode = false
+                selectedNotificationIds = emptySet()
+                notificationDeleteSelection = null
+                onInboxSummaryChanged(refreshed.toSummary())
+            }
         } catch (exception: Exception) {
-            error = exception.message ?: nativePhrase("消息加载失败，请稍后重试。", "Messages could not be loaded. Try again later.")
+            if (canApplyInboxRequest(request)) {
+                error = exception.message ?: nativePhrase("消息加载失败，请稍后重试。", "Messages could not be loaded. Try again later.")
+            }
         } finally {
-            loading = false
+            if (canApplyInboxRequest(request)) loading = false
         }
     }
 
+    /** 删除单条通知，并在服务端确认后从当前收件箱移除。 */
     fun deleteNotification(target: NativeNotificationPreview) {
         val accessToken = session?.accessToken ?: return
+        val request = issueInboxRequest(accessToken)
         notificationActionBusy = true
         scope.launch {
             runCatching { withContext(Dispatchers.IO) { NativeSocialApi.deleteNotification(accessToken, target.id) } }
                 .onSuccess {
+                    if (!canApplyInboxRequest(request)) return@onSuccess
                     val updated = inbox?.copy(
                         unreadNotifications = ((inbox?.unreadNotifications ?: 0) - if (target.unread) 1 else 0).coerceAtLeast(0),
                         notifications = inbox?.notifications.orEmpty().filterNot { it.id == target.id },
@@ -6967,14 +7011,20 @@ private fun MessagesScreen(
                     notificationDeleteTarget = null
                     onNotice(nativePhrase("通知已删除。", "Notification deleted."))
                 }
-                .onFailure { onNotice(it.message ?: nativePhrase("通知删除失败。", "Failed to delete the notification.")) }
-            notificationActionBusy = false
+                .onFailure {
+                    if (canApplyInboxRequest(request)) {
+                        onNotice(it.message ?: nativePhrase("通知删除失败。", "Failed to delete the notification."))
+                    }
+                }
+            if (canApplyInboxRequest(request)) notificationActionBusy = false
         }
     }
 
+    /** 处理好友、群聊或举报通知的操作，并在成功后删除对应通知。 */
     fun handleNotificationAction(target: NativeNotificationPreview, accepted: Boolean) {
         val accessToken = session?.accessToken ?: return
         if (notificationActionBusy || target.actionType == NativeNotificationActionType.None) return
+        val request = issueInboxRequest(accessToken)
         notificationActionBusy = true
         scope.launch {
             runCatching {
@@ -7028,6 +7078,7 @@ private fun MessagesScreen(
                     NativeSocialApi.deleteNotification(accessToken, target.id)
                 }
             }.onSuccess {
+                if (!canApplyInboxRequest(request)) return@onSuccess
                 val updated = inbox?.copy(
                     unreadNotifications = ((inbox?.unreadNotifications ?: 0) - if (target.unread) 1 else 0).coerceAtLeast(0),
                     notifications = inbox?.notifications.orEmpty().filterNot { it.id == target.id },
@@ -7048,16 +7099,22 @@ private fun MessagesScreen(
                         }
                     },
                 )
-            }.onFailure { onNotice(it.message ?: nativePhrase("通知操作失败。", "Notification action failed.")) }
-            notificationActionBusy = false
+            }.onFailure {
+                if (canApplyInboxRequest(request)) {
+                    onNotice(it.message ?: nativePhrase("通知操作失败。", "Notification action failed."))
+                }
+            }
+            if (canApplyInboxRequest(request)) notificationActionBusy = false
         }
     }
 
+    /** 按当前通知最早编号读取下一页，并合并到仍有效的收件箱快照。 */
     fun loadMoreNotifications() {
         val accessToken = session?.accessToken ?: return
         val current = inbox ?: return
         if (notificationLoadingMore || !current.notificationsHasMore) return
         val beforeId = current.notifications.lastOrNull()?.id ?: return
+        val request = issueInboxRequest(accessToken)
         notificationLoadingMore = true
         scope.launch {
             runCatching {
@@ -7065,6 +7122,7 @@ private fun MessagesScreen(
                     NativeSocialApi.listNotifications(accessToken, beforeId = beforeId)
                 }
             }.onSuccess { page ->
+                if (!canApplyInboxRequest(request)) return@onSuccess
                 val latest = inbox ?: current
                 val merged = (latest.notifications + page.items)
                     .distinctBy { it.id }
@@ -7073,15 +7131,48 @@ private fun MessagesScreen(
                     notifications = merged,
                     notificationsHasMore = page.hasMore,
                 )
-            }.onFailure { onNotice(it.message ?: nativePhrase("更多通知加载失败。", "Failed to load more notifications.")) }
-            notificationLoadingMore = false
+            }.onFailure {
+                if (canApplyInboxRequest(request)) {
+                    onNotice(it.message ?: nativePhrase("更多通知加载失败。", "Failed to load more notifications."))
+                }
+            }
+            if (canApplyInboxRequest(request)) notificationLoadingMore = false
         }
     }
 
+    /** 将当前账号全部通知标为已读，并只在请求仍属于当前收件箱时更新摘要。 */
+    fun markAllNotificationsRead() {
+        val accessToken = session?.accessToken ?: return
+        if (notificationActionBusy) return
+        val request = issueInboxRequest(accessToken)
+        notificationActionBusy = true
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { NativeSocialApi.markAllNotificationsRead(accessToken) }
+            }.onSuccess {
+                if (!canApplyInboxRequest(request)) return@onSuccess
+                val updated = inbox?.copy(
+                    unreadNotifications = 0,
+                    notifications = inbox?.notifications.orEmpty().map { it.copy(unread = false) },
+                )
+                inbox = updated
+                updated?.let { onInboxSummaryChanged(it.toSummary()) }
+                onNotice(nativePhrase("通知已全部标为已读。", "All notifications marked as read."))
+            }.onFailure {
+                if (canApplyInboxRequest(request)) {
+                    onNotice(it.message ?: nativePhrase("通知状态更新失败。", "Failed to update notification status."))
+                }
+            }
+            if (canApplyInboxRequest(request)) notificationActionBusy = false
+        }
+    }
+
+    /** 将当前选中的通知批量标为已读，并同步未读摘要。 */
     fun markSelectedNotificationsRead() {
         val accessToken = session?.accessToken ?: return
         val ids = selectedNotificationIds.toList()
         if (ids.isEmpty() || notificationActionBusy) return
+        val request = issueInboxRequest(accessToken)
         notificationActionBusy = true
         scope.launch {
             runCatching {
@@ -7089,6 +7180,7 @@ private fun MessagesScreen(
                     NativeSocialApi.markSelectedNotificationsRead(accessToken, ids)
                 }
             }.onSuccess { count ->
+                if (!canApplyInboxRequest(request) || selectedNotificationIds != ids.toSet()) return@onSuccess
                 val selected = ids.toSet()
                 val unreadChanged = inbox?.notifications.orEmpty().count { it.id in selected && it.unread }
                 val updated = inbox?.copy(
@@ -7106,13 +7198,19 @@ private fun MessagesScreen(
                         nativePhrase("所选通知均已是已读状态。", "The selected notifications are already read.")
                     },
                 )
-            }.onFailure { onNotice(it.message ?: nativePhrase("通知状态更新失败。", "Failed to update notification status.")) }
-            notificationActionBusy = false
+            }.onFailure {
+                if (canApplyInboxRequest(request)) {
+                    onNotice(it.message ?: nativePhrase("通知状态更新失败。", "Failed to update notification status."))
+                }
+            }
+            if (canApplyInboxRequest(request)) notificationActionBusy = false
         }
     }
 
+    /** 清空指定通知频道后重新读取完整收件箱，避免残留旧分页和隐藏状态。 */
     fun clearNotificationChannel(channel: String, label: String) {
         val accessToken = session?.accessToken ?: return
+        val request = issueInboxRequest(accessToken)
         notificationActionBusy = true
         scope.launch {
             runCatching {
@@ -7121,14 +7219,19 @@ private fun MessagesScreen(
                     NativeSocialApi.loadInbox(accessToken)
                 }
             }.onSuccess { refreshed ->
+                if (!canApplyInboxRequest(request)) return@onSuccess
                 inbox = refreshed
                 notificationSelectionMode = false
                 selectedNotificationIds = emptySet()
                 onInboxSummaryChanged(refreshed.toSummary())
                 notificationClearChannel = null
                 onNotice(nativePhrase("${label}通知已清空。", "$label notifications cleared."))
-            }.onFailure { onNotice(it.message ?: nativePhrase("通知清空失败。", "Failed to clear notifications.")) }
-            notificationActionBusy = false
+            }.onFailure {
+                if (canApplyInboxRequest(request)) {
+                    onNotice(it.message ?: nativePhrase("通知清空失败。", "Failed to clear notifications."))
+                }
+            }
+            if (canApplyInboxRequest(request)) notificationActionBusy = false
         }
     }
 
@@ -7220,18 +7323,7 @@ private fun MessagesScreen(
                             },
                             leadingContent = { Icon(Icons.Filled.NotificationsNone, contentDescription = null, tint = Accent) },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable {
-                                val token = session?.accessToken ?: return@clickable
-                                scope.launch {
-                                    runCatching { withContext(Dispatchers.IO) { NativeSocialApi.markAllNotificationsRead(token) } }
-                                     val updated = inbox?.copy(
-                                        unreadNotifications = 0,
-                                        notifications = inbox?.notifications?.map { it.copy(unread = false) }.orEmpty(),
-                                    )
-                                     inbox = updated
-                                     updated?.let { onInboxSummaryChanged(it.toSummary()) }
-                                }
-                            },
+                            modifier = Modifier.clickable(onClick = ::markAllNotificationsRead),
                         )
                     }
                 }
@@ -7444,30 +7536,40 @@ private fun MessagesScreen(
                                                 return@clickable
                                             }
                                             val token = session?.accessToken ?: return@clickable
+                                            val request = issueInboxRequest(token)
                                             scope.launch {
-                                                // 每次点击都读取实时通知，已读缓存也可能在之后被删除或屏蔽。
-                                                val currentNotification = try {
+                                                runCatching {
+                                                    // 每次点击都读取实时通知，已读缓存也可能在之后被删除或屏蔽。
                                                     withContext(Dispatchers.IO) { NativeSocialApi.markNotificationRead(token, notification.id) }
-                                                } catch (exception: Exception) {
-                                                    error = exception.message ?: nativePhrase("通知状态读取失败，请稍后重试。", "Unable to check this notification. Try again shortly.")
-                                                    return@launch
-                                                }
-                                                if (notification.unread) {
-                                                     val updated = inbox?.copy(
-                                                        unreadNotifications = (inbox?.unreadNotifications ?: 0).coerceAtLeast(1) - 1,
+                                                }.onSuccess { currentNotification ->
+                                                    if (!canApplyInboxRequest(request)) return@onSuccess
+                                                    // 删除或刷新后目标可能已不在当前列表，不能把失效通知再次打开。
+                                                    if (inbox?.notifications.orEmpty().none { it.id == notification.id }) return@onSuccess
+                                                    if (currentNotification.id != notification.id) return@onSuccess
+                                                    val wasUnread = inbox?.notifications.orEmpty().firstOrNull { it.id == notification.id }?.unread == true
+                                                    val updated = inbox?.copy(
+                                                        unreadNotifications = if (wasUnread) {
+                                                            ((inbox?.unreadNotifications ?: 0) - 1).coerceAtLeast(0)
+                                                        } else {
+                                                            inbox?.unreadNotifications ?: 0
+                                                        },
                                                         notifications = inbox?.notifications?.map {
                                                             if (it.id == notification.id) currentNotification else it
                                                         }.orEmpty(),
                                                     )
-                                                     inbox = updated
-                                                     updated?.let { onInboxSummaryChanged(it.toSummary()) }
+                                                    inbox = updated
+                                                    updated?.let { onInboxSummaryChanged(it.toSummary()) }
+                                                    onOpenNotification(
+                                                        currentNotification,
+                                                        (currentNotification.conversationId ?: notification.conversationId)?.let { conversationId ->
+                                                            inbox?.conversations?.firstOrNull { it.id == conversationId }
+                                                        },
+                                                    )
+                                                }.onFailure {
+                                                    if (canApplyInboxRequest(request)) {
+                                                        error = it.message ?: nativePhrase("通知状态读取失败，请稍后重试。", "Unable to check this notification. Try again shortly.")
+                                                    }
                                                 }
-                                                onOpenNotification(
-                                                    currentNotification,
-                                                    notification.conversationId?.let { conversationId ->
-                                                        currentInbox.conversations.firstOrNull { it.id == conversationId }
-                                                    },
-                                                )
                                             }
                                         },
                                     )
@@ -7527,6 +7629,7 @@ private fun MessagesScreen(
                     onClick = {
                         val accessToken = session?.accessToken
                         if (accessToken == null || selectedIds.isEmpty() || notificationActionBusy) return@TextButton
+                        val request = issueInboxRequest(accessToken)
                         notificationActionBusy = true
                         scope.launch {
                             runCatching {
@@ -7534,6 +7637,7 @@ private fun MessagesScreen(
                                     NativeSocialApi.deleteSelectedNotifications(accessToken, selectedIds)
                                 }
                             }.onSuccess { count ->
+                                if (!canApplyInboxRequest(request) || selectedNotificationIds != selectedIds.toSet()) return@onSuccess
                                 val deleted = selectedIds.toSet()
                                 val unreadDeleted = inbox?.notifications.orEmpty().count { it.id in deleted && it.unread }
                                 val updated = inbox?.copy(
@@ -7546,8 +7650,12 @@ private fun MessagesScreen(
                                 notificationSelectionMode = false
                                 selectedNotificationIds = emptySet()
                                 onNotice(nativePhrase("已删除 $count 条通知。", "$count notifications deleted."))
-                            }.onFailure { onNotice(it.message ?: nativePhrase("通知删除失败。", "Failed to delete notifications.")) }
-                            notificationActionBusy = false
+                            }.onFailure {
+                                if (canApplyInboxRequest(request)) {
+                                    onNotice(it.message ?: nativePhrase("通知删除失败。", "Failed to delete notifications."))
+                                }
+                            }
+                            if (canApplyInboxRequest(request)) notificationActionBusy = false
                         }
                     },
                     enabled = !notificationActionBusy,
@@ -7623,6 +7731,7 @@ private fun MessagesScreen(
                                     enabled = notificationSettingsBusy == null,
                                     onCheckedChange = { enabled ->
                                         val token = session.accessToken
+                                        val request = issueInboxRequest(token)
                                         notificationSettingsBusy = channel
                                         notificationSettingsError = null
                                         scope.launch {
@@ -7631,6 +7740,7 @@ private fun MessagesScreen(
                                                     NativeSocialApi.updateNotificationChannelSettings(token, channel, pushEnabled = enabled)
                                                 }
                                             }.onSuccess { updated ->
+                                                if (!canApplyInboxRequest(request)) return@onSuccess
                                                 inbox = inbox?.copy(
                                                     notificationChannelStates = inbox?.notificationChannelStates.orEmpty().map {
                                                         if (it.channel == channel) updated else it
@@ -7641,9 +7751,11 @@ private fun MessagesScreen(
                                                     else nativePhrase("${label}已暂停推送。", "$label notifications paused."),
                                                 )
                                             }.onFailure {
-                                                notificationSettingsError = it.message ?: nativePhrase("通知设置更新失败。", "Failed to update notification settings.")
+                                                if (canApplyInboxRequest(request)) {
+                                                    notificationSettingsError = it.message ?: nativePhrase("通知设置更新失败。", "Failed to update notification settings.")
+                                                }
                                             }
-                                            notificationSettingsBusy = null
+                                            if (canApplyInboxRequest(request)) notificationSettingsBusy = null
                                         }
                                     },
                                 )
@@ -7651,20 +7763,24 @@ private fun MessagesScreen(
                             TextButton(
                                 onClick = {
                                     val token = session.accessToken
+                                    val request = issueInboxRequest(token)
                                     notificationSettingsBusy = channel
                                     notificationSettingsError = null
                                     scope.launch {
                                         runCatching {
                                             withContext(Dispatchers.IO) { NativeSocialApi.hideNotificationChannel(token, channel) }
                                         }.onSuccess {
+                                            if (!canApplyInboxRequest(request)) return@onSuccess
                                             inbox = inbox?.copy(
                                                 hiddenNotificationChannels = (inbox?.hiddenNotificationChannels.orEmpty() + channel).distinct(),
                                             )
                                             onNotice(nativePhrase("${label}已清除并隐藏，收到新通知后会重新出现。", "$label was cleared and hidden. It will reappear when a new notification arrives."))
                                         }.onFailure {
-                                            notificationSettingsError = it.message ?: nativePhrase("通知频道处理失败。", "Failed to update the notification channel.")
+                                            if (canApplyInboxRequest(request)) {
+                                                notificationSettingsError = it.message ?: nativePhrase("通知频道处理失败。", "Failed to update the notification channel.")
+                                            }
                                         }
-                                        notificationSettingsBusy = null
+                                        if (canApplyInboxRequest(request)) notificationSettingsBusy = null
                                     }
                                 },
                                 enabled = notificationSettingsBusy == null && channel !in (inbox?.hiddenNotificationChannels.orEmpty()),
@@ -7707,6 +7823,7 @@ private fun MessagesScreen(
                             enabled = notificationSettingsBusy == null,
                             onCheckedChange = { enabled ->
                                 val token = session.accessToken
+                                val request = issueInboxRequest(token)
                                 notificationSettingsBusy = "subscription-digest"
                                 notificationSettingsError = null
                                 scope.launch {
@@ -7715,6 +7832,7 @@ private fun MessagesScreen(
                                             NativeSocialApi.updateNotificationChannelSettings(token, "subscription", digestEnabled = enabled)
                                         }
                                     }.onSuccess { updated ->
+                                        if (!canApplyInboxRequest(request)) return@onSuccess
                                         inbox = inbox?.copy(
                                             notificationChannelStates = inbox?.notificationChannelStates.orEmpty().map {
                                                 if (it.channel == "subscription") updated else it
@@ -7722,9 +7840,11 @@ private fun MessagesScreen(
                                         )
                                         onNotice(if (enabled) nativePhrase("订阅日报已开启。", "Subscription digest enabled.") else nativePhrase("订阅日报已暂停。", "Subscription digest paused."))
                                     }.onFailure {
-                                        notificationSettingsError = it.message ?: nativePhrase("订阅日报更新失败。", "Failed to update the subscription digest.")
+                                        if (canApplyInboxRequest(request)) {
+                                            notificationSettingsError = it.message ?: nativePhrase("订阅日报更新失败。", "Failed to update the subscription digest.")
+                                        }
                                     }
-                                    notificationSettingsBusy = null
+                                    if (canApplyInboxRequest(request)) notificationSettingsBusy = null
                                 }
                             },
                         )
