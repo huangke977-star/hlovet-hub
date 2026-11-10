@@ -21,6 +21,13 @@
 - 新增 `NativeIntegrationsRequestTest`，覆盖当前读取可写回、旧读取代际丢弃和写操作后旧读取丢弃三条边界；已有设备测试继续覆盖账号切换、读取失败、创建/验证/删除失败重试和一次性令牌显示。
 - 本轮执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与 `:prototype:assembleDebug` 均成功；外部 Google、Webhook 的真实供应商投递仍不在本地 Mock 回归范围内。
 
+## Android 社区详情请求竞态收口（2026-11-10）
+
+- 反馈和建议详情读取现在按账号、目标请求代际写回；快速打开不同记录时，旧详情或旧错误不会重新打开当前弹窗。
+- 关闭详情、切换账号或切换到另一条记录后，迟到的回复提交、建议状态更新和反馈回复结果不会重新写入已关闭/已替换的详情；当前列表摘要仍只在目标详情有效时同步。
+- 反馈和建议的详情草稿、回复内容及保存状态按账号隔离，避免账号切换后沿用上一个账号的弹窗内容。
+- 新增 `NativeCommunityRequestTest`，覆盖当前详情可写回、旧请求代际丢弃和账号变化丢弃；本轮执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与 `:prototype:assembleDebug` 均成功。
+
 ## Android 信息流布局独立包双设备复验（2026-11-06）
 
 - 本轮补齐信息流查询状态切换的滚动边界：发现页切换内容类型/文章排序、匿名页修改搜索/筛选条件时，都会先把懒列表回到第一条，避免沿用上一组结果的深滚动位置；用户继续向下滚动时仍按接近底部自动加载下一页。

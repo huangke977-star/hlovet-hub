@@ -71,6 +71,14 @@ private val CommunityAccent: Color get() = HlovetUi.accent
 private val CommunityMuted: Color get() = HlovetUi.muted
 private val CommunityCoral: Color get() = HlovetUi.secondaryAccent
 
+/** 判断社区详情回包是否仍属于当前请求代际和当前账号。 */
+internal fun isCurrentCommunityDetailRequest(
+    requestId: Int,
+    activeRequestId: Int,
+    requestedToken: String?,
+    activeToken: String?,
+): Boolean = requestId == activeRequestId && requestedToken == activeToken
+
 /** 保存本次公告打开失败的稳定目标和用户提示；只允许临时故障由用户明确重试。 */
 private data class NativeAnnouncementOpenFailure(val id: Int, val message: String, val retryable: Boolean)
 
@@ -373,15 +381,16 @@ internal fun NativeFeedbackScreen(
     var search by remember(token) { mutableStateOf("") }
     var loadGeneration by remember(token) { mutableIntStateOf(0) }
     var reloadKey by remember(token) { mutableIntStateOf(0) }
-    var detail by remember { mutableStateOf<NativeFeedbackDetail?>(null) }
-    var detailLoading by remember { mutableStateOf(false) }
-    var createOpen by remember { mutableStateOf(false) }
-    var category by remember { mutableStateOf("bug") }
-    var title by remember { mutableStateOf("") }
-    var content by remember { mutableStateOf("") }
-    var reply by remember { mutableStateOf("") }
-    var saving by remember { mutableStateOf(false) }
-    var actionError by remember { mutableStateOf<String?>(null) }
+    var detail by remember(token) { mutableStateOf<NativeFeedbackDetail?>(null) }
+    var detailLoading by remember(token) { mutableStateOf(false) }
+    var detailRequestId by remember(token) { mutableIntStateOf(0) }
+    var createOpen by remember(token) { mutableStateOf(false) }
+    var category by remember(token) { mutableStateOf("bug") }
+    var title by remember(token) { mutableStateOf("") }
+    var content by remember(token) { mutableStateOf("") }
+    var reply by remember(token) { mutableStateOf("") }
+    var saving by remember(token) { mutableStateOf(false) }
+    var actionError by remember(token) { mutableStateOf<String?>(null) }
 
     fun load() {
         val generation = ++loadGeneration
@@ -453,12 +462,22 @@ internal fun NativeFeedbackScreen(
             item { Text(nativePhrase("我的反馈 · ${data?.total ?: 0} 条", "My feedback · ${data?.total ?: 0}"), color = CommunityMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 22.dp)) }
             items(data?.items.orEmpty(), key = { it.id }) { item ->
                 CommunityFeedbackRow(item) {
+                    val requestId = detailRequestId + 1
+                    detailRequestId = requestId
+                    val requestedToken = token
+                    detail = null
                     scope.launch {
                         detailLoading = true; actionError = null
                         runCatching { withContext(Dispatchers.IO) { NativeCommunityApi.getFeedback(token, item.id) } }
-                            .onSuccess { detail = it }
-                            .onFailure { actionError = it.message ?: nativePhrase("反馈详情读取失败。", "Feedback details could not be loaded.") }
-                        detailLoading = false
+                            .onSuccess { loaded ->
+                                if (isCurrentCommunityDetailRequest(requestId, detailRequestId, requestedToken, token)) detail = loaded
+                            }
+                            .onFailure { failure ->
+                                if (isCurrentCommunityDetailRequest(requestId, detailRequestId, requestedToken, token)) {
+                                    actionError = failure.message ?: nativePhrase("反馈详情读取失败。", "Feedback details could not be loaded.")
+                                }
+                            }
+                        if (isCurrentCommunityDetailRequest(requestId, detailRequestId, requestedToken, token)) detailLoading = false
                     }
                 }
             }
@@ -530,14 +549,26 @@ internal fun NativeFeedbackScreen(
             },
             confirmButton = { TextButton(enabled = !saving && reply.isNotBlank(), onClick = {
                 saving = true; actionError = null
+                val requestId = detailRequestId
+                val requestedToken = token
+                val targetId = current.summary.id
                 scope.launch {
-                    runCatching { withContext(Dispatchers.IO) { NativeCommunityApi.replyFeedback(token, current.summary.id, reply) } }
-                        .onSuccess { detail = it; reply = "" }
-                        .onFailure { actionError = it.message ?: nativePhrase("回复提交失败。", "The reply could not be submitted.") }
-                    saving = false
+                    runCatching { withContext(Dispatchers.IO) { NativeCommunityApi.replyFeedback(requestedToken, targetId, reply) } }
+                        .onSuccess { updated ->
+                            if (isCurrentCommunityDetailRequest(requestId, detailRequestId, requestedToken, token) && detail?.summary?.id == targetId) {
+                                detail = updated
+                                reply = ""
+                            }
+                        }
+                        .onFailure { failure ->
+                            if (isCurrentCommunityDetailRequest(requestId, detailRequestId, requestedToken, token) && detail?.summary?.id == targetId) {
+                                actionError = failure.message ?: nativePhrase("回复提交失败。", "The reply could not be submitted.")
+                            }
+                        }
+                    if (isCurrentCommunityDetailRequest(requestId, detailRequestId, requestedToken, token) && detail?.summary?.id == targetId) saving = false
                 }
             }) { Icon(Icons.AutoMirrored.Filled.Send, null, modifier = Modifier.size(15.dp)); Spacer(Modifier.width(4.dp)); Text(nativePhrase("回复", "Reply")) } },
-            dismissButton = { TextButton(onClick = { detail = null }) { Text(nativePhrase("关闭", "Close")) } },
+            dismissButton = { TextButton(onClick = { detailRequestId += 1; detail = null; saving = false; actionError = null; reply = "" }) { Text(nativePhrase("关闭", "Close")) } },
         )
     }
     if (detailLoading) communityLoadingDialog()
@@ -636,14 +667,15 @@ internal fun NativeSuggestionsScreen(
     var search by remember(token) { mutableStateOf("") }
     var loadGeneration by remember(token) { mutableIntStateOf(0) }
     var reloadKey by remember(token) { mutableIntStateOf(0) }
-    var detail by remember { mutableStateOf<NativeSuggestionDetail?>(null) }
-    var detailLoading by remember { mutableStateOf(false) }
-    var createOpen by remember { mutableStateOf(false) }
-    var title by remember { mutableStateOf("") }
-    var content by remember { mutableStateOf("") }
-    var saving by remember { mutableStateOf(false) }
-    var actionError by remember { mutableStateOf<String?>(null) }
-    var reply by remember { mutableStateOf("") }
+    var detail by remember(token) { mutableStateOf<NativeSuggestionDetail?>(null) }
+    var detailLoading by remember(token) { mutableStateOf(false) }
+    var detailRequestId by remember(token) { mutableIntStateOf(0) }
+    var createOpen by remember(token) { mutableStateOf(false) }
+    var title by remember(token) { mutableStateOf("") }
+    var content by remember(token) { mutableStateOf("") }
+    var saving by remember(token) { mutableStateOf(false) }
+    var actionError by remember(token) { mutableStateOf<String?>(null) }
+    var reply by remember(token) { mutableStateOf("") }
 
     val modes = buildList {
         add("public" to nativePhrase("公开建议", "Public suggestions"))
@@ -747,13 +779,26 @@ internal fun NativeSuggestionsScreen(
             items(data?.items.orEmpty(), key = { it.id }) { item ->
                 GlassCard(Modifier.padding(horizontal = 20.dp).fillMaxWidth()) {
                     SuggestionSummaryRow(item) {
-                    scope.launch {
-                        detailLoading = true; actionError = null
-                        runCatching { withContext(Dispatchers.IO) { NativeCommunityApi.getSuggestion(item.id) } }
-                            .onSuccess { detail = it; reply = "" }
-                            .onFailure { actionError = it.message ?: nativePhrase("建议详情读取失败。", "Suggestion details could not be loaded.") }
-                        detailLoading = false
-                    }
+                        val requestId = detailRequestId + 1
+                        detailRequestId = requestId
+                        val requestedToken = token
+                        detail = null
+                        scope.launch {
+                            detailLoading = true; actionError = null
+                            runCatching { withContext(Dispatchers.IO) { NativeCommunityApi.getSuggestion(item.id) } }
+                                .onSuccess { loaded ->
+                                    if (isCurrentCommunityDetailRequest(requestId, detailRequestId, requestedToken, token)) {
+                                        detail = loaded
+                                        reply = ""
+                                    }
+                                }
+                                .onFailure { failure ->
+                                    if (isCurrentCommunityDetailRequest(requestId, detailRequestId, requestedToken, token)) {
+                                        actionError = failure.message ?: nativePhrase("建议详情读取失败。", "Suggestion details could not be loaded.")
+                                    }
+                                }
+                            if (isCurrentCommunityDetailRequest(requestId, detailRequestId, requestedToken, token)) detailLoading = false
+                        }
                     }
                 }
             }
@@ -777,6 +822,7 @@ internal fun NativeSuggestionsScreen(
                     scope.launch {
                         runCatching { withContext(Dispatchers.IO) { NativeCommunityApi.createSuggestion(currentToken, title, content) } }
                             .onSuccess { created ->
+                                detailRequestId += 1
                                 detail = created
                                 createOpen = false
                                 title = ""
@@ -808,14 +854,22 @@ internal fun NativeSuggestionsScreen(
                 token?.let { currentToken ->
                     saving = true
                     actionError = null
+                    val requestId = detailRequestId
+                    val targetId = current.summary.id
                     scope.launch {
                         runCatching { withContext(Dispatchers.IO) { NativeCommunityApi.updateSuggestionStatus(currentToken, current.summary.id, status) } }
                             .onSuccess { updated ->
-                                detail = updated
-                                data = data?.copy(items = data?.items.orEmpty().map { if (it.id == updated.summary.id) updated.summary else it })
+                                if (isCurrentCommunityDetailRequest(requestId, detailRequestId, currentToken, token) && detail?.summary?.id == targetId) {
+                                    detail = updated
+                                    data = data?.copy(items = data?.items.orEmpty().map { if (it.id == updated.summary.id) updated.summary else it })
+                                }
                             }
-                            .onFailure { actionError = it.message ?: nativePhrase("更新建议进度失败。", "Suggestion progress could not be updated.") }
-                        saving = false
+                            .onFailure { failure ->
+                                if (isCurrentCommunityDetailRequest(requestId, detailRequestId, currentToken, token) && detail?.summary?.id == targetId) {
+                                    actionError = failure.message ?: nativePhrase("更新建议进度失败。", "Suggestion progress could not be updated.")
+                                }
+                            }
+                        if (isCurrentCommunityDetailRequest(requestId, detailRequestId, currentToken, token) && detail?.summary?.id == targetId) saving = false
                     }
                 }
             },
@@ -823,19 +877,27 @@ internal fun NativeSuggestionsScreen(
                 if (reply.isNotBlank()) token?.let { currentToken ->
                     saving = true
                     actionError = null
+                    val requestId = detailRequestId
+                    val targetId = current.summary.id
                     scope.launch {
                         runCatching { withContext(Dispatchers.IO) { NativeCommunityApi.replyToSuggestion(currentToken, current.summary.id, reply) } }
                             .onSuccess { updated ->
-                                detail = updated
-                                reply = ""
-                                data = data?.copy(items = data?.items.orEmpty().map { if (it.id == updated.summary.id) updated.summary else it })
+                                if (isCurrentCommunityDetailRequest(requestId, detailRequestId, currentToken, token) && detail?.summary?.id == targetId) {
+                                    detail = updated
+                                    reply = ""
+                                    data = data?.copy(items = data?.items.orEmpty().map { if (it.id == updated.summary.id) updated.summary else it })
+                                }
                             }
-                            .onFailure { actionError = it.message ?: nativePhrase("回复建议失败。", "The suggestion reply could not be sent.") }
-                        saving = false
+                            .onFailure { failure ->
+                                if (isCurrentCommunityDetailRequest(requestId, detailRequestId, currentToken, token) && detail?.summary?.id == targetId) {
+                                    actionError = failure.message ?: nativePhrase("回复建议失败。", "The suggestion reply could not be sent.")
+                                }
+                            }
+                        if (isCurrentCommunityDetailRequest(requestId, detailRequestId, currentToken, token) && detail?.summary?.id == targetId) saving = false
                     }
                 }
             },
-            onDismiss = { detail = null; actionError = null; reply = "" },
+            onDismiss = { detailRequestId += 1; detail = null; saving = false; actionError = null; reply = "" },
         )
     }
     if (detailLoading) communityLoadingDialog()
