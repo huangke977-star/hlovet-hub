@@ -41,6 +41,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -64,6 +65,16 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** 判断公开主页请求是否仍属于当前用户名和登录会话，防止迟到回包污染新页面。 */
+internal fun isCurrentPublicProfileRequest(
+    requestId: Int,
+    activeRequestId: Int,
+    requestUsername: String,
+    activeUsername: String,
+    requestAccessToken: String?,
+    activeAccessToken: String?,
+): Boolean = requestId == activeRequestId && requestUsername == activeUsername && requestAccessToken == activeAccessToken
+
 @Composable
 internal fun NativePublicProfileScreen(
     username: String,
@@ -82,6 +93,7 @@ internal fun NativePublicProfileScreen(
     var loading by remember(username, session?.accessToken) { mutableStateOf(true) }
     var loadingMore by remember(username, session?.accessToken) { mutableStateOf(false) }
     var error by remember(username, session?.accessToken) { mutableStateOf<String?>(null) }
+    var articleRequestId by remember { mutableIntStateOf(0) }
     var acting by remember(username, session?.accessToken) { mutableStateOf(false) }
     var friendDialog by remember { mutableStateOf(false) }
     var messageDialog by remember { mutableStateOf(false) }
@@ -92,6 +104,9 @@ internal fun NativePublicProfileScreen(
 
     LaunchedEffect(username, session?.accessToken) {
         // 记录本次请求的会话来源，避免匿名请求或旧令牌的迟到响应覆盖已登录关系状态。
+        val requestId = articleRequestId + 1
+        articleRequestId = requestId
+        val requestUsername = username
         val requestAccessToken = session?.accessToken
         loading = true
         error = null
@@ -109,7 +124,7 @@ internal fun NativePublicProfileScreen(
             }
             // 网络请求可能在取消后才返回，先确认协程仍有效，再提交页面状态。
             currentCoroutineContext().ensureActive()
-            if (requestAccessToken != session?.accessToken) return@LaunchedEffect
+            if (!isCurrentPublicProfileRequest(requestId, articleRequestId, requestUsername, username, requestAccessToken, session?.accessToken)) return@LaunchedEffect
             profile = loaded.first
             showcase = loaded.second
             articles = loaded.third
@@ -118,12 +133,12 @@ internal fun NativePublicProfileScreen(
             throw cancelled
         } catch (failure: Exception) {
             // 只有当前会话仍然有效时才展示本次请求的错误，避免旧请求污染新页面。
-            if (requestAccessToken == session?.accessToken) {
+            if (isCurrentPublicProfileRequest(requestId, articleRequestId, requestUsername, username, requestAccessToken, session?.accessToken)) {
                 error = failure.message ?: nativePhrase("用户主页暂时无法查看。", "This profile is temporarily unavailable.")
             }
         } finally {
             // 加载状态同样按当前会话归属更新，旧请求结束不能提前关闭新请求的加载提示。
-            if (requestAccessToken == session?.accessToken) loading = false
+            if (isCurrentPublicProfileRequest(requestId, articleRequestId, requestUsername, username, requestAccessToken, session?.accessToken)) loading = false
         }
     }
 
@@ -221,15 +236,28 @@ internal fun NativePublicProfileScreen(
         if (loadingMore || current.page >= current.totalPages) return
         loadingMore = true
         val nextPage = current.page + 1
+        val requestId = articleRequestId
+        val requestUsername = username
+        val requestAccessToken = session?.accessToken
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    NativeArticleApi.listByAuthor(session?.accessToken, username, nextPage)
+                    NativeArticleApi.listByAuthor(requestAccessToken, requestUsername, nextPage)
                 }
             }.onSuccess { next ->
-                articles = next.copy(items = (current.items + next.items).distinctBy { it.id })
-            }.onFailure { error = it.message ?: nativePhrase("更多文章加载失败。", "Could not load more articles.") }
-            loadingMore = false
+                // 只有同一主页、同一会话且当前页仍未变化时，才允许追加分页结果。
+                val activeArticles = articles
+                if (isCurrentPublicProfileRequest(requestId, articleRequestId, requestUsername, username, requestAccessToken, session?.accessToken) && activeArticles?.page == current.page) {
+                    articles = next.copy(items = (activeArticles.items + next.items).distinctBy { it.id })
+                }
+            }.onFailure { failure ->
+                // 旧用户的网络错误不能覆盖新主页的内容或错误提示。
+                if (isCurrentPublicProfileRequest(requestId, articleRequestId, requestUsername, username, requestAccessToken, session?.accessToken)) {
+                    error = failure.message ?: nativePhrase("更多文章加载失败。", "Could not load more articles.")
+                }
+            }
+            // 旧分页结束时不能提前关闭新用户的加载状态。
+            if (isCurrentPublicProfileRequest(requestId, articleRequestId, requestUsername, username, requestAccessToken, session?.accessToken)) loadingMore = false
         }
     }
 
