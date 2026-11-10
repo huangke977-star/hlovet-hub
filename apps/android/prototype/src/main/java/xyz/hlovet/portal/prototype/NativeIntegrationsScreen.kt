@@ -81,6 +81,16 @@ import kotlin.coroutines.coroutineContext
 
 private val integrationScopes = listOf("read_articles", "read_profile", "read_notifications")
 
+/** 判断集成列表读取是否仍属于当前账号、当前读取代际和当前列表版本。 */
+internal fun isCurrentIntegrationsListRequest(
+    requestId: Int,
+    activeRequestId: Int,
+    requestToken: String,
+    activeToken: String?,
+    mutationVersionAtStart: Int,
+    activeMutationVersion: Int,
+): Boolean = requestId == activeRequestId && requestToken == activeToken && mutationVersionAtStart == activeMutationVersion
+
 /** 保存当前账号待验证的 Google 关联请求，不跨账号复用。 */
 private data class NativePendingGoogleLink(
     val pendingToken: String,
@@ -125,6 +135,8 @@ private fun NativeIntegrationsContent(
     var dialogError by remember { mutableStateOf<String?>(null) }
     var notice by remember(token) { mutableStateOf<String?>(null) }
     var reloadKey by remember(token) { mutableIntStateOf(0) }
+    var loadRequestId by remember { mutableIntStateOf(0) }
+    var listMutationVersion by remember { mutableIntStateOf(0) }
     var tokenDialog by remember { mutableStateOf(false) }
     var channelDialog by remember { mutableStateOf(false) }
     var tokenName by remember { mutableStateOf("") }
@@ -157,6 +169,18 @@ private fun NativeIntegrationsContent(
             error = nativePhrase("请先登录后管理外部集成。", "Sign in to manage integrations.")
             return
         }
+        // 每次刷新生成独立读取代际；旧刷新即使晚返回，也不能关闭新刷新状态或覆盖列表。
+        val requestId = loadRequestId + 1
+        loadRequestId = requestId
+        val mutationVersionAtStart = listMutationVersion
+        fun canApplyRead(): Boolean = isCurrentIntegrationsListRequest(
+            requestId = requestId,
+            activeRequestId = loadRequestId,
+            requestToken = currentToken,
+            activeToken = token,
+            mutationVersionAtStart = mutationVersionAtStart,
+            activeMutationVersion = listMutationVersion,
+        )
         coroutineScope {
             loading = true
             tokenLoadError = null
@@ -165,24 +189,29 @@ private fun NativeIntegrationsContent(
                 // 两个子任务均受 LaunchedEffect 生命周期控制，旧会话取消不能写入新页面。
                 val tokenRead = launch {
                     runCatching { withContext(Dispatchers.IO) { NativeIntegrationsApi.listTokens(currentToken) } }
-                        .onSuccess { tokens = it }
+                        .onSuccess { loaded -> if (canApplyRead()) tokens = loaded }
                         .onFailure {
-                            coroutineContext.ensureActive()
-                            tokenLoadError = it.message ?: nativePhrase("令牌读取失败，请刷新重试。", "Could not load tokens. Refresh to retry.")
+                            if (canApplyRead()) {
+                                coroutineContext.ensureActive()
+                                tokenLoadError = it.message ?: nativePhrase("令牌读取失败，请刷新重试。", "Could not load tokens. Refresh to retry.")
+                            }
                         }
                 }
                 val channelRead = launch {
                     runCatching { withContext(Dispatchers.IO) { NativeIntegrationsApi.listChannels(currentToken) } }
-                        .onSuccess { channels = it }
+                        .onSuccess { loaded -> if (canApplyRead()) channels = loaded }
                         .onFailure {
-                            coroutineContext.ensureActive()
-                            channelLoadError = it.message ?: nativePhrase("通知通道读取失败，请刷新重试。", "Could not load channels. Refresh to retry.")
+                            if (canApplyRead()) {
+                                coroutineContext.ensureActive()
+                                channelLoadError = it.message ?: nativePhrase("通知通道读取失败，请刷新重试。", "Could not load channels. Refresh to retry.")
+                            }
                         }
                 }
                 tokenRead.join()
                 channelRead.join()
             } finally {
-                loading = false
+                // 旧读取结束不能提前关闭当前刷新进度指示。
+                if (canApplyRead()) loading = false
             }
         }
     }
@@ -425,6 +454,7 @@ private fun NativeIntegrationsContent(
                     NativeIntegrationsApi.createToken(currentToken, tokenName, tokenScopes, expiry)
                 }
             }.onSuccess {
+                listMutationVersion += 1
                 createdToken = it
                 tokens = listOf(NativeReadOnlyToken(it.id, it.name, it.tokenPrefix, it.scopes, it.expiresAt, null, null, it.createdAt)) + tokens.filterNot { row -> row.id == it.id }
                 tokenDialog = false
@@ -455,6 +485,7 @@ private fun NativeIntegrationsContent(
                     NativeIntegrationsApi.createChannel(currentToken, endpoint, secret.takeIf(String::isNotBlank))
                 }
             }.onSuccess {
+                listMutationVersion += 1
                 channelDialog = false
                 endpoint = ""
                 secret = ""
@@ -482,6 +513,7 @@ private fun NativeIntegrationsContent(
             runCatching {
                 withContext(Dispatchers.IO) { NativeIntegrationsApi.verifyChannel(currentToken, verifyChannelId, code) }
             }.onSuccess {
+                listMutationVersion += 1
                 channels = channels.map { row -> if (row.id == it.id) it else row }
                 verifyChannelId = 0
                 verifyCode = ""
@@ -505,6 +537,7 @@ private fun NativeIntegrationsContent(
             runCatching {
                 withContext(Dispatchers.IO) { NativeIntegrationsApi.updateChannel(currentToken, channel.id, enabled) }
             }.onSuccess { updated ->
+                listMutationVersion += 1
                 channels = channels.map { if (it.id == updated.id) updated else it }
                 notice = if (enabled) nativePhrase("外部通知通道已启用。", "External notification channel enabled.") else nativePhrase("外部通知通道已停用。", "External notification channel disabled.")
             }.onFailure { error = it.message ?: nativePhrase("通道状态更新失败。", "Failed to update channel status.") }
@@ -522,6 +555,7 @@ private fun NativeIntegrationsContent(
         scope.launch {
             runCatching { withContext(Dispatchers.IO) { NativeIntegrationsApi.revokeToken(currentToken, selected.id) } }
                 .onSuccess {
+                    listMutationVersion += 1
                     deleteToken = null
                     tokens = tokens.map { if (it.id == selected.id) it.copy(revokedAt = Instant.now().toString()) else it }
                     notice = nativePhrase("只读令牌已撤销。", "Read-only token revoked.")
@@ -541,6 +575,7 @@ private fun NativeIntegrationsContent(
         scope.launch {
             runCatching { withContext(Dispatchers.IO) { NativeIntegrationsApi.deleteChannel(currentToken, selected.id) } }
                 .onSuccess {
+                    listMutationVersion += 1
                     deleteChannel = null
                     channels = channels.filterNot { it.id == selected.id }
                     notice = nativePhrase("外部通知通道已删除。", "External notification channel deleted.")

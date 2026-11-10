@@ -14,6 +14,13 @@
 - 新增 `NativePublicProfileRequestTest`，覆盖当前请求可写回、旧请求代际丢弃以及用户/令牌变化丢弃三条纯逻辑边界；本轮未改变订阅、好友申请、消息请求或拉黑接口规则。
 - 本轮执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与 `:prototype:assembleDebug` 均成功；真实个人主页 API 依赖的本地 Docker 服务当前未启动，因此没有把本地数据库联调冒充为本轮真实业务通过。
 
+## Android 外部集成列表请求竞态收口（2026-11-10）
+
+- 外部集成页的令牌和通知通道读取现在各自保留成功数据，同时共享读取代际和列表变更版本；连续刷新时旧回包不能覆盖新列表，也不能提前关闭当前刷新状态。
+- 创建、验证、启停、撤销或删除成功后会使写操作之前开始的列表读取失效，避免迟到快照把刚确认的状态或新行覆盖掉；失败反馈和现有重试行为保持不变。
+- 新增 `NativeIntegrationsRequestTest`，覆盖当前读取可写回、旧读取代际丢弃和写操作后旧读取丢弃三条边界；已有设备测试继续覆盖账号切换、读取失败、创建/验证/删除失败重试和一次性令牌显示。
+- 本轮执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与 `:prototype:assembleDebug` 均成功；外部 Google、Webhook 的真实供应商投递仍不在本地 Mock 回归范围内。
+
 ## Android 信息流布局独立包双设备复验（2026-11-06）
 
 - 本轮补齐信息流查询状态切换的滚动边界：发现页切换内容类型/文章排序、匿名页修改搜索/筛选条件时，都会先把懒列表回到第一条，避免沿用上一组结果的深滚动位置；用户继续向下滚动时仍按接近底部自动加载下一页。
