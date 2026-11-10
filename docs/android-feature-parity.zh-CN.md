@@ -13,6 +13,12 @@
 - 公告附件下载和标记已读沿用当前公告请求代际；关闭详情、切换公告或切换账号后，旧附件和阅读回包不会重新打开面板、修改新详情或恢复旧状态。
 - 新增 `NativeCommunityRequestTest` 的公告目标与账号边界用例；本轮执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与 `:prototype:assembleDebug` 均成功，未改变公告权限和阅读接口规则。
 
+## Android 文章详情评论请求竞态收口（2026-11-10）
+
+- 文章详情按文章 slug、评论定位、离线模式和访问令牌建立独立 Compose 作用域；切换文章、账号或离线入口时，旧详情协程会被取消，不会把文章内容、附件或互动结果写入新页面。
+- 评论首屏、刷新和加载更多现在共享请求代际；删除评论触发刷新时会使正在进行的旧分页失效，迟到的评论页不会覆盖首屏、游标、总数或错误状态。
+- 新增 `NativeArticleDetailRequestTest` 覆盖当前请求、切换文章/请求代际和账号变化三条边界；本轮同时通过 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与 `:prototype:assembleDebug`。
+
 ## Android 公开个人主页分页请求竞态收口（2026-11-10）
 
 - 公开个人主页的首屏资料、代表内容和文章列表现在使用统一请求代际；切换用户名、登录会话或重新发起加载后，旧回包不能覆盖当前主页，也不能提前关闭当前加载状态。

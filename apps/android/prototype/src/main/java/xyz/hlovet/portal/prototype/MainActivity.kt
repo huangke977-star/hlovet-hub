@@ -2590,17 +2590,25 @@ private fun HlovetMobilePreview(
                     )
                 } else if (detailTarget != null) {
                     when (val target = detailTarget!!) {
-                        is DetailTarget.Article -> ArticleDetailScreen(
-                            initialArticle = target.article,
-                            focusCommentId = target.focusCommentId,
-                            offlineOnly = target.offlineOnly,
-                            session = session,
-                            onLogin = { loginVisible = true },
-                            onBack = ::closeDetailTarget,
-                            onOpenUser = { username ->
-                                openProfileFromDetail(username, target, detailBackTarget)
-                            },
-                        )
+                        is DetailTarget.Article -> androidx.compose.runtime.key(
+                            target.article.slug,
+                            target.focusCommentId,
+                            target.offlineOnly,
+                            session?.accessToken,
+                        ) {
+                            // 文章、评论定位、离线模式或账号变化时重建作用域，自动取消旧详情协程。
+                            ArticleDetailScreen(
+                                initialArticle = target.article,
+                                focusCommentId = target.focusCommentId,
+                                offlineOnly = target.offlineOnly,
+                                session = session,
+                                onLogin = { loginVisible = true },
+                                onBack = ::closeDetailTarget,
+                                onOpenUser = { username ->
+                                    openProfileFromDetail(username, target, detailBackTarget)
+                                },
+                            )
+                        }
                         is DetailTarget.Topic,
                         is DetailTarget.Collection -> DiscoveryDetailScreen(
                             target = target,
@@ -4235,6 +4243,7 @@ internal fun ArticleDetailScreen(
     var commentTotal by remember(initialArticle.slug, session?.accessToken) { mutableIntStateOf(initialArticle.commentCount) }
     var nextCommentCursor by remember(initialArticle.slug, session?.accessToken) { mutableStateOf<Int?>(null) }
     var hasMoreComments by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
+    var commentsRequestId by remember(initialArticle.slug, session?.accessToken) { mutableIntStateOf(0) }
     var loading by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(true) }
     var loadingMore by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
     var actionBusy by remember(initialArticle.slug, session?.accessToken) { mutableStateOf("") }
@@ -4332,6 +4341,10 @@ internal fun ArticleDetailScreen(
     }
 
     LaunchedEffect(initialArticle.slug, session?.accessToken, offlineOwner, focusCommentId, offlineOnly) {
+        // 文章或账号变化时使旧评论分页结果失效，避免迟到回包混入新文章。
+        val requestId = commentsRequestId + 1
+        commentsRequestId = requestId
+        val requestToken = session?.accessToken
         loading = true
         error = null
         notice = null
@@ -4356,41 +4369,44 @@ internal fun ArticleDetailScreen(
             return@LaunchedEffect
         }
         try {
-            val token = session?.accessToken
-            val loadedArticle = withContext(Dispatchers.IO) { NativeArticleApi.getArticle(token, initialArticle.slug) }
+            val loadedArticle = withContext(Dispatchers.IO) { NativeArticleApi.getArticle(requestToken, initialArticle.slug) }
             val loadedComments = withContext(Dispatchers.IO) {
-                NativeArticleApi.listComments(token, initialArticle.slug, focusId = focusCommentId)
+                NativeArticleApi.listComments(requestToken, initialArticle.slug, focusId = focusCommentId)
             }
-            article = loadedArticle
-            comments = loadedComments.items
-            commentTotal = loadedComments.totalThreads
-            nextCommentCursor = loadedComments.nextCursor
-            hasMoreComments = loadedComments.hasMore
-            if (focusCommentId != null && loadedComments.items.any { it.id == focusCommentId }) {
-                highlightCommentId = focusCommentId
-            } else if (focusCommentId != null) {
-                notice = nativePhrase("该评论已删除或当前不可见，无法定位。", "The comment was deleted or is not visible, so it cannot be located.")
+            if (isCurrentArticleDetailRequest(requestId, commentsRequestId, initialArticle.slug, article.slug, requestToken, session?.accessToken)) {
+                article = loadedArticle
+                comments = loadedComments.items
+                commentTotal = loadedComments.totalThreads
+                nextCommentCursor = loadedComments.nextCursor
+                hasMoreComments = loadedComments.hasMore
+                if (focusCommentId != null && loadedComments.items.any { it.id == focusCommentId }) {
+                    highlightCommentId = focusCommentId
+                } else if (focusCommentId != null) {
+                    notice = nativePhrase("该评论已删除或当前不可见，无法定位。", "The comment was deleted or is not visible, so it cannot be located.")
+                }
             }
         } catch (exception: Exception) {
-            val cached = withContext(Dispatchers.IO) { NativeOfflineContentStore.loadArticle(context, offlineOwner, initialArticle.slug) }
-            if (cached != null) {
-                article = cached
-                comments = emptyList()
-                commentTotal = cached.commentCount
-                nextCommentCursor = null
-                hasMoreComments = false
-                highlightCommentId = null
-                offlineSaved = true
-                showingOfflineContent = true
-                offlineNotice = nativePhrase(
-                    "当前网络不可用，正在显示已保存的离线内容。评论和互动暂不可用。",
-                    "You are offline. Saved content is shown, while comments and interactions are unavailable.",
-                )
-            } else {
-                error = exception.message ?: nativePhrase("文章详情加载失败。", "Failed to load the article.")
+            if (isCurrentArticleDetailRequest(requestId, commentsRequestId, initialArticle.slug, article.slug, requestToken, session?.accessToken)) {
+                val cached = withContext(Dispatchers.IO) { NativeOfflineContentStore.loadArticle(context, offlineOwner, initialArticle.slug) }
+                if (cached != null) {
+                    article = cached
+                    comments = emptyList()
+                    commentTotal = cached.commentCount
+                    nextCommentCursor = null
+                    hasMoreComments = false
+                    highlightCommentId = null
+                    offlineSaved = true
+                    showingOfflineContent = true
+                    offlineNotice = nativePhrase(
+                        "当前网络不可用，正在显示已保存的离线内容。评论和互动暂不可用。",
+                        "You are offline. Saved content is shown, while comments and interactions are unavailable.",
+                    )
+                } else {
+                    error = exception.message ?: nativePhrase("文章详情加载失败。", "Failed to load the article.")
+                }
             }
         } finally {
-            loading = false
+            if (isCurrentArticleDetailRequest(requestId, commentsRequestId, initialArticle.slug, article.slug, requestToken, session?.accessToken)) loading = false
         }
     }
 
@@ -4543,34 +4559,51 @@ internal fun ArticleDetailScreen(
         }
     }
 
+    /** 刷新当前文章评论首屏，并使之前的分页请求失效。 */
     suspend fun refreshComments(token: String, focusId: Int? = null) {
+        // 删除或发布后的刷新必须成为新的评论请求代际，不能被旧分页结果覆盖。
+        val requestId = commentsRequestId + 1
+        commentsRequestId = requestId
+        loadingMore = false
+        val requestedSlug = article.slug
         val refreshed = withContext(Dispatchers.IO) {
-            NativeArticleApi.listComments(token, article.slug, focusId = focusId)
+            NativeArticleApi.listComments(token, requestedSlug, focusId = focusId)
         }
-        comments = refreshed.items
-        nextCommentCursor = refreshed.nextCursor
-        hasMoreComments = refreshed.hasMore
-        commentTotal = refreshed.totalThreads
+        // 只有当前请求仍有效时才替换评论首屏及分页游标。
+        if (isCurrentArticleDetailRequest(requestId, commentsRequestId, requestedSlug, article.slug, token, session?.accessToken)) {
+            comments = refreshed.items
+            nextCommentCursor = refreshed.nextCursor
+            hasMoreComments = refreshed.hasMore
+            commentTotal = refreshed.totalThreads
+        }
     }
 
+    /** 追加当前文章评论的下一页，旧分页响应不能覆盖刷新后的列表。 */
     fun loadMoreComments() {
         val cursor = nextCommentCursor ?: return
         if (loadingMore || !hasMoreComments) return
+        val requestId = commentsRequestId
+        val requestedSlug = article.slug
+        val requestedToken = session?.accessToken
         scope.launch {
             loadingMore = true
             error = null
             try {
                 val page = withContext(Dispatchers.IO) {
-                    NativeArticleApi.listComments(session?.accessToken, article.slug, cursor = cursor)
+                    NativeArticleApi.listComments(requestedToken, requestedSlug, cursor = cursor)
                 }
-                comments = (comments + page.items).distinctBy { it.id }
-                nextCommentCursor = page.nextCursor
-                hasMoreComments = page.hasMore
-                commentTotal = page.totalThreads
+                if (isCurrentArticleDetailRequest(requestId, commentsRequestId, requestedSlug, article.slug, requestedToken, session?.accessToken)) {
+                    comments = (comments + page.items).distinctBy { it.id }
+                    nextCommentCursor = page.nextCursor
+                    hasMoreComments = page.hasMore
+                    commentTotal = page.totalThreads
+                }
             } catch (exception: Exception) {
-                error = exception.message ?: nativePhrase("更多评论加载失败。", "Failed to load more comments.")
+                if (isCurrentArticleDetailRequest(requestId, commentsRequestId, requestedSlug, article.slug, requestedToken, session?.accessToken)) {
+                    error = exception.message ?: nativePhrase("更多评论加载失败。", "Failed to load more comments.")
+                }
             } finally {
-                loadingMore = false
+                if (isCurrentArticleDetailRequest(requestId, commentsRequestId, requestedSlug, article.slug, requestedToken, session?.accessToken)) loadingMore = false
             }
         }
     }
