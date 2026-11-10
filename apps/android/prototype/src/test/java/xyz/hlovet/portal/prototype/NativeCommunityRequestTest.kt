@@ -23,4 +23,22 @@ class NativeCommunityRequestTest {
     fun changedAccountCannotUpdateDetail() {
         assertFalse(isCurrentCommunityDetailRequest(5, 5, "token-a", "token-b"))
     }
+
+    /** 当前公告、请求代际和账号均一致时，公告详情及其附属操作允许写回。 */
+    @Test
+    fun currentAnnouncementDetailCanUpdate() {
+        assertTrue(isCurrentAnnouncementDetailRequest(7, 7, 31, 31, "token-a", "token-a"))
+    }
+
+    /** 快速切换到另一条公告后，旧公告详情不能覆盖当前目标。 */
+    @Test
+    fun changedAnnouncementCannotUpdateDetail() {
+        assertFalse(isCurrentAnnouncementDetailRequest(7, 7, 31, 32, "token-a", "token-a"))
+    }
+
+    /** 公告账号变化后，旧账号的详情、附件或阅读结果必须被丢弃。 */
+    @Test
+    fun changedAnnouncementAccountCannotUpdateDetail() {
+        assertFalse(isCurrentAnnouncementDetailRequest(7, 7, 31, 31, "token-a", "token-b"))
+    }
 }
