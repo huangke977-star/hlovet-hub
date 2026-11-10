@@ -3471,3 +3471,10 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 站内导航和工具中心刷新、模式切换及账号切换现在使用请求代际保护；只有当前模式和会话的门户内容、工具偏好和错误状态可以更新页面，旧回包不会覆盖新内容或提前结束加载状态。
 - 该行为复用 `NativeRequestGeneration`，不改变门户分类、工具收藏、首页快捷方式和真实接口参数。
 - 本轮验证以完整 JVM 单测、AndroidTest 编译、Debug 构建、PC 路由/API 审计和 `git diff --check` 为准；未执行门户生产写操作。
+
+## Android 发现与匿名信息流竞态及分页错误处理（2026-11-10）
+
+- 发现页在上一组请求尚未完成时允许立即切换筛选；请求编号继续隔离旧回包，旧条件不会阻塞新条件，也不会在新结果渲染后覆盖文章列表。
+- 发现页和匿名话题页的触底分页失败后停止自动循环重试，保留当前内容并显示明确的“重试”操作；首屏失败和追加失败使用独立列表错误状态，不再与详情或编辑弹窗错误混用。
+- 新增设备回归场景 `discoverFilterReplacesSlowPreviousRequest`，使用延迟的推荐请求和先完成的最新请求验证筛选乱序保护；既有搜索分页、筛选重置和匿名分页场景继续保留。
+- `:prototype:compileDebugAndroidTestKotlin`、`:prototype:testDebugUnitTest`、`:prototype:assembleDebug` 通过；设备内 MockWebServer 回归在 Android 11（`emulator-5554`）和 Android 16（`emulator-5566`）各 `4/4` 通过，未访问生产 API、未写入业务数据。`git diff --check` 通过。

@@ -130,6 +130,7 @@ internal fun NativeAnonymousTopicsScreen(
     var loading by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var listError by remember { mutableStateOf<String?>(null) }
     var topic by remember { mutableStateOf<NativeAnonymousTopicDetail?>(null) }
     var topicLoading by remember { mutableStateOf(false) }
     var createOpen by remember { mutableStateOf(false) }
@@ -190,6 +191,7 @@ internal fun NativeAnonymousTopicsScreen(
         val requestGeneration = listRequestGeneration.begin()
         loading = true
         error = null
+        if (reset) listError = null
         val targetPage = if (reset) 1 else page + 1
         if (reset) {
             // 新条件开始后立即移除旧结果，避免旧关键词的内容在等待期间继续显示。
@@ -213,10 +215,12 @@ internal fun NativeAnonymousTopicsScreen(
                     items = if (reset) result.items else (items + result.items).distinctBy { it.id }
                     page = result.page
                     pageTotal = result.totalPages
+                    listError = null
                 }
             }.onFailure {
                 if (listRequestGeneration.isCurrent(requestGeneration)) {
-                    error = it.message ?: nativePhrase("匿名话题加载失败，请稍后重试。", "Could not load anonymous topics. Please try again later.")
+                    // 列表错误独立于详情和编辑弹窗，触底失败不会污染其它操作的错误提示。
+                    listError = it.message ?: nativePhrase("匿名话题加载失败，请稍后重试。", "Could not load anonymous topics. Please try again later.")
                 }
             }
             // 旧请求结束时不能关闭新请求的加载状态。
@@ -261,13 +265,14 @@ internal fun NativeAnonymousTopicsScreen(
     }
 
     // 话题列表接近底部时自动请求下一页，让匿名内容保持连续阅读体验。
-    LaunchedEffect(topicListState, page, pageTotal, loading) {
+    LaunchedEffect(topicListState, page, pageTotal, loading, listError) {
         snapshotFlow {
             val layout = topicListState.layoutInfo
             val lastVisible = layout.visibleItemsInfo.lastOrNull()?.index ?: 0
             layout.totalItemsCount > 0 && lastVisible >= layout.totalItemsCount - 3
         }.collect { nearEnd ->
-            if (nearEnd && !loading && page < pageTotal) loadTopics(reset = false)
+            // 分页失败后不在底部循环重试，用户通过明确按钮决定何时再次请求。
+            if (nearEnd && !loading && page < pageTotal && listError.isNullOrBlank()) loadTopics(reset = false)
         }
     }
 
@@ -529,8 +534,28 @@ internal fun NativeAnonymousTopicsScreen(
                     }
                 }
                 if (!error.isNullOrBlank()) item { Text(error!!, color = HlovetUi.secondaryAccent, fontSize = 12.sp) }
+                listError?.let { message ->
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(message, color = HlovetUi.secondaryAccent, fontSize = 12.sp)
+                            TextButton(
+                                onClick = {
+                                    // 已有内容只重试下一页；首屏失败则重新读取当前条件的第一页。
+                                    listError = null
+                                    loadTopics(reset = items.isEmpty())
+                                },
+                                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                            ) {
+                                Text(nativePhrase("重试", "Retry"), fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
                 if (loading && items.isEmpty()) item { Text(nativePhrase("正在读取匿名话题…", "Loading anonymous topics..."), color = HlovetUi.muted, fontSize = 12.sp) }
-                if (!managementDenied && !loading && items.isEmpty()) item { Text(nativePhrase("暂时没有匿名话题。发起一个让大家聊聊。", "No anonymous topics yet. Start one for the community."), color = HlovetUi.muted, fontSize = 12.sp) }
+                if (!managementDenied && !loading && listError.isNullOrBlank() && items.isEmpty()) item { Text(nativePhrase("暂时没有匿名话题。发起一个让大家聊聊。", "No anonymous topics yet. Start one for the community."), color = HlovetUi.muted, fontSize = 12.sp) }
                 items(items, key = { it.id }) { item ->
                     AnonymousTopicListRow(item = item, onOpen = { loadTopic(item.id) }, onFavorite = { favorite(item) })
                 }

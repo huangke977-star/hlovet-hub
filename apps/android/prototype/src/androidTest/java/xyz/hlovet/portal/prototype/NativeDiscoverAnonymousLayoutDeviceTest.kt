@@ -1,6 +1,7 @@
 package xyz.hlovet.portal.prototype
 
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -25,6 +26,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.net.InetAddress
 import java.util.Collections
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /** 在设备内夹具验证发现和匿名页的紧凑工具栏、独立列表及自动分页，不访问生产接口。 */
 @RunWith(AndroidJUnit4::class)
@@ -35,6 +38,8 @@ class NativeDiscoverAnonymousLayoutDeviceTest {
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private val requestPaths = Collections.synchronizedList(mutableListOf<String>())
+    private val raceDelayCount = AtomicInteger(0)
+    private var delayRaceRecommendedResponse = false
     private var oldLocale = "zh-CN"
 
     /** 只允许专用回环构建启动夹具，避免测试包把请求发往生产站点。 */
@@ -43,6 +48,8 @@ class NativeDiscoverAnonymousLayoutDeviceTest {
         // 地址不匹配时让 Gradle 设备任务跳过，而不是替换测试配置或触碰真实数据。
         assumeTrue("Requires a device-local preview build", BuildConfig.API_BASE_URL == "http://127.0.0.1:39871")
         oldLocale = NativeI18n.locale
+        delayRaceRecommendedResponse = false
+        raceDelayCount.set(0)
         InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale("zh-CN") }
         server = MockWebServer().apply {
             // 只按页面实际路径返回固定列表，第二页用于验证滚动触发的请求。
@@ -148,6 +155,47 @@ class NativeDiscoverAnonymousLayoutDeviceTest {
         }
     }
 
+    /** 验证慢速旧筛选回包不能阻塞新筛选，也不能在新结果后覆盖当前文章流。 */
+    @Test
+    fun discoverFilterReplacesSlowPreviousRequest() {
+        // 让初始推荐请求延迟返回，再立即切换最新；新请求应先完成并成为页面唯一结果。
+        delayRaceRecommendedResponse = true
+        host.setContent {
+            HlovetTheme {
+                DiscoverScreen(
+                    scaffoldPadding = PaddingValues(),
+                    session = null,
+                    initialMode = "文章",
+                    initialQuery = "race",
+                    articles = emptyList(),
+                    topics = emptyList(),
+                    collections = emptyList(),
+                    onLogin = {},
+                )
+            }
+        }
+        waitTag("discover-filter")
+        // 先确认旧推荐请求已经进入夹具，再切换筛选，测试才真正覆盖乱序回包而不是提前切换。
+        compose.waitUntil(15_000) {
+            synchronized(requestPaths) {
+                requestPaths.any { it.contains("search=race") && it.contains("sort=recommended") }
+            }
+        }
+        compose.onNodeWithTag("discover-filter").performClick()
+        compose.onNodeWithText("最新", substring = false).performClick()
+        waitTag("discover-article-101")
+
+        // 等待旧推荐响应真正返回，确认代际保护没有把旧文章追加回新结果。
+        Thread.sleep(1_100)
+        compose.waitForIdle()
+        compose.onNodeWithTag("discover-article-101").assertIsDisplayed()
+        compose.onAllNodesWithTag("discover-article-1").assertCountEquals(0)
+        synchronized(requestPaths) {
+            check(requestPaths.any { it.contains("search=race") && it.contains("sort=recommended") })
+            check(requestPaths.any { it.contains("search=race") && it.contains("sort=latest") })
+        }
+    }
+
     /** 验证匿名页搜索筛选首行不被返回按钮挤压，并在触底后追加第二页匿名话题。 */
     @Test
     fun anonymousKeepsToolbarAndLoadsNextTopicPage() {
@@ -181,22 +229,40 @@ class NativeDiscoverAnonymousLayoutDeviceTest {
         // 测试夹具只关心路径和页码，不把请求头、访客标识或正文写入结果文件。
         val path = request.path.orEmpty()
         requestPaths += path
+        val delayOldRecommended = delayRaceRecommendedResponse &&
+            raceDelayCount.getAndIncrement() == 0 &&
+            path.contains("search=race") &&
+            path.contains("sort=recommended")
         val body = when {
-            path.startsWith("/articles?") -> articlePage(if (path.contains("page=2")) 2 else 1).toString()
+            path.startsWith("/articles?") -> articleResponse(path).toString()
             path.startsWith("/discovery/topics?") || path.startsWith("/discovery/collections?") -> emptyPage().toString()
             path.startsWith("/anonymous-topics?") -> anonymousPage(if (path.contains("page=2")) 2 else 1).toString()
             else -> return MockResponse().setResponseCode(404).setBody(JSONObject().put("message", "Unexpected fixture request: $path").toString())
         }
-        return MockResponse().addHeader("Content-Type", "application/json").setBody(body)
+        return MockResponse()
+            .addHeader("Content-Type", "application/json")
+            .setBody(body)
+            .also {
+                // 仅延迟旧推荐请求，让新筛选有机会先完成并渲染。
+                if (delayOldRecommended) it.setBodyDelay(900, TimeUnit.MILLISECONDS)
+            }
+    }
+
+    /** 根据筛选条件构造文章分页响应，竞态测试的延迟由响应分发器统一控制。 */
+    private fun articleResponse(path: String): JSONObject {
+        // 最新筛选返回独立编号，便于确认旧推荐回包没有覆盖当前结果。
+        val raceLatest = path.contains("search=race") && path.contains("sort=latest")
+        val page = if (path.contains("page=2")) 2 else 1
+        return if (raceLatest) articlePage(page, startOverride = 101, totalPagesOverride = 1) else articlePage(page)
     }
 
     /** 构造两页文章列表，页面编号稳定便于滚动断言和重复请求核对。 */
-    private fun articlePage(page: Int): JSONObject {
-        val start = if (page == 1) 1 else 9
-        val end = if (page == 1) 8 else 10
+    private fun articlePage(page: Int, startOverride: Int? = null, totalPagesOverride: Int = 2): JSONObject {
+        val start = startOverride ?: if (page == 1) 1 else 9
+        val end = if (startOverride != null) startOverride else if (page == 1) 8 else 10
         val items = JSONArray()
         for (id in start..end) items.put(article(id))
-        return JSONObject().put("items", items).put("total", 10).put("page", page).put("pageSize", 8).put("totalPages", 2)
+        return JSONObject().put("items", items).put("total", if (startOverride != null) 1 else 10).put("page", page).put("pageSize", 8).put("totalPages", totalPagesOverride)
     }
 
     /** 构造空专题和合集页，避免非文章内容占用发现文章流的首屏空间。 */

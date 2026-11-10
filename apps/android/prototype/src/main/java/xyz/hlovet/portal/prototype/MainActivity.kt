@@ -6342,7 +6342,8 @@ internal fun DiscoverScreen(
 
     /** 按内容类型重新读取第一页，并清理旧分页结果，避免筛选切换时混入上一种内容。 */
     fun loadDiscoveryMode(mode: String, force: Boolean = false, sortOverride: String? = null) {
-        if (loadingMore && !force || !force && mode == discoveryMode && discoveryPage == 1) return
+        // 允许用户在上一组请求尚未完成时切换筛选；新请求会递增代际，旧回包只能被丢弃。
+        if (!force && mode == discoveryMode && discoveryPage == 1) return
         discoveryMode = mode
         val requestSort = discoverySort(mode, sortOverride)
         val requestId = discoveryRequestId + 1
@@ -6431,13 +6432,14 @@ internal fun DiscoverScreen(
     LaunchedEffect(query, discoveryMode, articleSort) {
         discoveryListState.scrollToItem(0)
     }
-    LaunchedEffect(discoveryListState, canLoadMore, loadingMore) {
+    LaunchedEffect(discoveryListState, canLoadMore, loadingMore, loadMoreError) {
         snapshotFlow {
             val layout = discoveryListState.layoutInfo
             val lastVisible = layout.visibleItemsInfo.lastOrNull()?.index ?: 0
             layout.totalItemsCount > 0 && lastVisible >= layout.totalItemsCount - 3
         }.collect { nearEnd ->
-            if (nearEnd && canLoadMore && !loadingMore) loadMoreDiscovery()
+            // 失败后保持当前内容和错误提示，只有用户点击重试才重新发起分页请求。
+            if (nearEnd && canLoadMore && !loadingMore && loadMoreError.isNullOrBlank()) loadMoreDiscovery()
         }
     }
 
