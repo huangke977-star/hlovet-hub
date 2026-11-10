@@ -19,6 +19,12 @@
 - 评论首屏、刷新和加载更多现在共享请求代际；删除评论触发刷新时会使正在进行的旧分页失效，迟到的评论页不会覆盖首屏、游标、总数或错误状态。
 - 新增 `NativeArticleDetailRequestTest` 覆盖当前请求、切换文章/请求代际和账号变化三条边界；本轮同时通过 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与 `:prototype:assembleDebug`。
 
+## Android 会话消息搜索请求竞态收口（2026-11-10）
+
+- 会话页面按账号、会话和定位消息建立独立作用域；切换会话或账号时，旧消息列表、Socket 回调和搜索任务不会继续写入当前窗口。
+- 消息搜索首屏和加载更多共享请求代际，并同时校验会话、查询词和令牌；切换搜索词或关闭搜索时，迟到结果不会覆盖新结果，也不会遗留旧的加载状态。
+- 新增 `NativeConversationRequestTest` 覆盖当前请求、会话/查询变化和账号变化三条边界；本轮同步通过 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin` 与 `:prototype:assembleDebug`。
+
 ## Android 公开个人主页分页请求竞态收口（2026-11-10）
 
 - 公开个人主页的首屏资料、代表内容和文章列表现在使用统一请求代际；切换用户名、登录会话或重新发起加载后，旧回包不能覆盖当前主页，也不能提前关闭当前加载状态。

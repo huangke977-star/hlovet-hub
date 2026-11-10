@@ -2559,16 +2559,24 @@ private fun HlovetMobilePreview(
                         onNotice = ::showNativeNotice,
                     )
                 } else if (conversationTarget != null) {
-                    ConversationScreen(
-                        target = conversationTarget!!,
-                        session = session,
-                        callLauncher = nativeCallLauncher,
-                        onBack = { conversationTarget = null },
-                        onReauthenticate = { complete ->
-                            // 与全局通话共用主线程刷新队列，不并发轮换同一个 refresh token。
-                            scope.launch { requestSocketReauthentication { complete(it?.accessToken) } }
-                        },
-                    )
+                    val currentConversationTarget = conversationTarget!!
+                    androidx.compose.runtime.key(
+                        session?.accessToken,
+                        currentConversationTarget.preview.id,
+                        currentConversationTarget.focusMessageId,
+                    ) {
+                        // 会话、定位消息或账号变化时重建消息作用域，取消旧会话的网络和 Socket 回调。
+                        ConversationScreen(
+                            target = currentConversationTarget,
+                            session = session,
+                            callLauncher = nativeCallLauncher,
+                            onBack = { conversationTarget = null },
+                            onReauthenticate = { complete ->
+                                // 与全局通话共用主线程刷新队列，不并发轮换同一个 refresh token。
+                                scope.launch { requestSocketReauthentication { complete(it?.accessToken) } }
+                            },
+                        )
+                    }
                 } else if (adminPreviewArticleId != null && session != null) {
                     NativeAdminArticlePreviewScreen(
                         session = session!!,
@@ -8212,6 +8220,7 @@ private fun ConversationScreen(
     var searchBeforeId by remember(sessionKey, conversationId) { mutableStateOf<Int?>(null) }
     var searchLoading by remember(sessionKey, conversationId) { mutableStateOf(false) }
     var searchLoadingMore by remember(sessionKey, conversationId) { mutableStateOf(false) }
+    var searchRequestId by remember(sessionKey, conversationId) { mutableIntStateOf(0) }
     var highlightedMessageId by remember(sessionKey, conversationId) { mutableStateOf<Int?>(null) }
     var pendingFollowMessageId by remember(sessionKey, conversationId) { mutableStateOf<Int?>(null) }
     var handledFocusMessageId by remember(sessionKey, conversationId) { mutableStateOf<Int?>(null) }
@@ -8394,6 +8403,10 @@ private fun ConversationScreen(
     LaunchedEffect(searchQuery, searchOpen, accessToken, conversationId) {
         val token = accessToken ?: return@LaunchedEffect
         val query = searchQuery.trim()
+        // 查询词、会话或账号变化时递增代际，使旧的“加载更多”不能回写新搜索。
+        val requestId = searchRequestId + 1
+        searchRequestId = requestId
+        searchLoadingMore = false
         if (!searchOpen || query.isBlank()) {
             searchResults = emptyList()
             searchHasMore = false
@@ -8406,13 +8419,19 @@ private fun ConversationScreen(
         searchLoading = true
         searchBeforeId = null
         runCatching { withContext(Dispatchers.IO) { NativeSocialApi.searchMessages(token, conversationId, query) } }
-            .onSuccess {
-                searchResults = it.items
-                searchHasMore = it.hasMore
-                searchBeforeId = it.items.lastOrNull()?.id
+            .onSuccess { result ->
+                if (isCurrentConversationSearchRequest(requestId, searchRequestId, conversationId, conversationId, query, searchQuery.trim(), token, accessToken)) {
+                    searchResults = result.items
+                    searchHasMore = result.hasMore
+                    searchBeforeId = result.items.lastOrNull()?.id
+                }
             }
-            .onFailure { error = it.message ?: nativePhrase("聊天内容搜索失败。", "Chat search failed.") }
-        searchLoading = false
+            .onFailure { failure ->
+                if (isCurrentConversationSearchRequest(requestId, searchRequestId, conversationId, conversationId, query, searchQuery.trim(), token, accessToken)) {
+                    error = failure.message ?: nativePhrase("聊天内容搜索失败。", "Chat search failed.")
+                }
+            }
+        if (isCurrentConversationSearchRequest(requestId, searchRequestId, conversationId, conversationId, query, searchQuery.trim(), token, accessToken)) searchLoading = false
     }
 
     fun loadMoreSearchResults() {
@@ -8420,16 +8439,25 @@ private fun ConversationScreen(
         val query = searchQuery.trim()
         val beforeId = searchBeforeId ?: return
         if (!searchOpen || query.isBlank() || !searchHasMore || searchLoading || searchLoadingMore) return
+        val requestId = searchRequestId
+        val requestedConversationId = conversationId
+        val requestedToken = token
         scope.launch {
             searchLoadingMore = true
             runCatching {
-                withContext(Dispatchers.IO) { NativeSocialApi.searchMessages(token, conversationId, query, beforeId = beforeId) }
+                withContext(Dispatchers.IO) { NativeSocialApi.searchMessages(requestedToken, requestedConversationId, query, beforeId = beforeId) }
             }.onSuccess { result ->
-                searchResults = (searchResults + result.items).distinctBy { it.id }
-                searchHasMore = result.hasMore
-                searchBeforeId = result.items.lastOrNull()?.id ?: searchBeforeId
-            }.onFailure { error = it.message ?: nativePhrase("更多聊天搜索结果读取失败。", "Failed to load more chat search results.") }
-            searchLoadingMore = false
+                if (isCurrentConversationSearchRequest(requestId, searchRequestId, requestedConversationId, conversationId, query, searchQuery.trim(), requestedToken, accessToken)) {
+                    searchResults = (searchResults + result.items).distinctBy { it.id }
+                    searchHasMore = result.hasMore
+                    searchBeforeId = result.items.lastOrNull()?.id ?: searchBeforeId
+                }
+            }.onFailure { failure ->
+                if (isCurrentConversationSearchRequest(requestId, searchRequestId, requestedConversationId, conversationId, query, searchQuery.trim(), requestedToken, accessToken)) {
+                    error = failure.message ?: nativePhrase("更多聊天搜索结果读取失败。", "Failed to load more chat search results.")
+                }
+            }
+            if (isCurrentConversationSearchRequest(requestId, searchRequestId, requestedConversationId, conversationId, query, searchQuery.trim(), requestedToken, accessToken)) searchLoadingMore = false
         }
     }
 
