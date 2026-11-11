@@ -61,25 +61,25 @@ internal fun NativeFeedToolbar(
     filterContentDescription: String,
     hasActiveFilter: Boolean,
 ) {
-    // 工具栏只保留一行搜索和筛选，使用资讯流常见的紧凑首行，避免首屏被操作控件吞掉。
+    // 工具栏只保留一行搜索和筛选，使用资讯流常见的紧凑首行，把首屏空间留给内容。
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(36.dp)
-            .padding(start = 10.dp, end = 6.dp),
+            .height(34.dp)
+            .padding(start = 12.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         // 搜索使用占满剩余宽度的胶囊容器，首行不再额外放置标题、标签或排序控件。
         Surface(
-            modifier = Modifier.weight(1f).height(30.dp),
+            modifier = Modifier.weight(1f).height(28.dp),
             shape = RoundedCornerShape(20.dp),
             color = HlovetUi.glassFallback,
             shadowElevation = 0.dp,
             tonalElevation = 0.dp,
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().height(30.dp).padding(start = 8.dp, end = 1.dp),
+                modifier = Modifier.fillMaxWidth().height(28.dp).padding(start = 8.dp, end = 1.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Filled.Search, contentDescription = searchContentDescription, tint = HlovetUi.muted, modifier = Modifier.size(16.dp))
@@ -123,7 +123,7 @@ internal fun NativeFeedToolbar(
         // 筛选只保留图标触摸区，和搜索栏同一行，不在列表上方另起一行显示当前条件。
         Box(
             modifier = Modifier
-                .size(32.dp)
+                .size(28.dp)
                 .clickable(onClick = onFilterClick)
                 .testTag(filterTag),
             contentAlignment = Alignment.Center,

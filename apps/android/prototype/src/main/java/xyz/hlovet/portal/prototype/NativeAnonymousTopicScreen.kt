@@ -525,6 +525,7 @@ internal fun NativeAnonymousTopicsScreen(
             LazyColumn(
                 state = topicListState,
                 modifier = Modifier.fillMaxWidth().weight(1f).testTag("anonymous-topic-list"),
+                // 列表从工具栏下一行直接开始，避免额外卡片边距挤压匿名话题内容。
                 contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
@@ -703,11 +704,12 @@ private fun AnonymousTopicListRow(
                 .fillMaxWidth()
                 .clickable(onClick = onOpen)
                 .testTag("anonymous-topic-open-${item.id}")
-                .padding(horizontal = 10.dp, vertical = 5.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(item.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                // 话题标题在信息流中保持单行，长标题通过省略号处理，不挤压后续话题。
+                Text(item.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     buildString {
                         append(formatAnonymousTime(item.updatedAt))
@@ -727,7 +729,7 @@ private fun AnonymousTopicListRow(
             }
             Text("${item.favoriteCount}", color = HlovetUi.muted, fontSize = 10.sp)
         }
-        HorizontalDivider(color = HlovetUi.divider, thickness = 1.dp, modifier = Modifier.padding(horizontal = 10.dp))
+        HorizontalDivider(color = HlovetUi.divider, thickness = 1.dp, modifier = Modifier.padding(horizontal = 12.dp))
     }
 }
 

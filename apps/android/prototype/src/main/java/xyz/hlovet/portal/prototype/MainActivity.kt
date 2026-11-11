@@ -6048,15 +6048,15 @@ private fun ArticleFeedRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onArticleClick(article) }
-                .padding(horizontal = if (edgeToEdge) 10.dp else 14.dp, vertical = 5.dp),
+                .padding(horizontal = if (edgeToEdge) 12.dp else 14.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 作者头像使用后两位兜底，保证没有头像时仍有稳定的视觉锚点。
             Avatar(article.authorName.takeLast(2), Coral, modifier = Modifier.size(30.dp))
             Spacer(Modifier.width(7.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(article.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(1.dp))
+                // 列表只保留一行标题，避免长标题撑高每条信息流行，把阅读空间留给更多文章。
+                Text(article.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(article.authorName, color = TextMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(" · ", color = TextMuted, fontSize = 10.sp)
@@ -6086,7 +6086,7 @@ private fun ArticleFeedRow(
             HorizontalDivider(
                 color = HlovetUi.divider,
                 thickness = 1.dp,
-                modifier = Modifier.padding(horizontal = if (edgeToEdge) 10.dp else 14.dp),
+                modifier = Modifier.padding(horizontal = if (edgeToEdge) 12.dp else 14.dp),
             )
         }
     }
@@ -6110,7 +6110,7 @@ private fun FollowingStrip(
     }
 }
 
-/** 展示发现信息流；搜索和筛选固定在首行，文章列表独立滚动并按接近底部自动分页。 */
+/** 展示发现信息流；首行只放搜索和筛选，内容列表独立滚动并按接近底部自动分页。 */
 @Composable
 internal fun DiscoverScreen(
     scaffoldPadding: PaddingValues,
@@ -6861,38 +6861,37 @@ private fun TopicRow(
     onClick: () -> Unit = {},
     onSubscribe: () -> Unit = {},
 ) {
-    Card(
-        modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().clickable { onClick() },
-        shape = HlovetUi.rowShape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        ListItem(
-            headlineContent = { Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            supportingContent = { Text(meta, color = TextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            leadingContent = {
-                NativeCoverImage(
-                    path = coverPath,
-                    modifier = Modifier.size(48.dp),
-                    fallbackText = title,
-                    tint = color,
+    // 专题和合集也使用连续信息流行，筛选切换后不会重新出现大卡片和宽外边距。
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            NativeCoverImage(
+                path = coverPath,
+                modifier = Modifier.size(42.dp),
+                fallbackText = title,
+                tint = color,
+            )
+            Spacer(Modifier.width(9.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(meta, color = TextMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            IconButton(onClick = onSubscribe, modifier = Modifier.size(30.dp)) {
+                Icon(
+                    if (subscribed) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
+                    contentDescription = if (subscribed) nativePhrase("取消订阅", "Unsubscribe") else nativePhrase("订阅", "Subscribe"),
+                    tint = if (subscribed) Accent else TextMuted,
+                    modifier = Modifier.size(17.dp),
                 )
-            },
-            trailingContent = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onSubscribe, modifier = Modifier.size(36.dp)) {
-                        Icon(
-                            if (subscribed) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
-                            contentDescription = if (subscribed) nativePhrase("取消订阅", "Unsubscribe") else nativePhrase("订阅", "Subscribe"),
-                            tint = if (subscribed) Accent else TextMuted,
-                            modifier = Modifier.size(19.dp),
-                        )
-                    }
-                    Icon(Icons.Filled.ChevronRight, contentDescription = nativePhrase("打开详情", "Open details"), tint = TextMuted)
-                }
-            },
-            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-        )
+            }
+            Icon(Icons.Filled.ChevronRight, contentDescription = nativePhrase("打开详情", "Open details"), tint = TextMuted, modifier = Modifier.size(18.dp))
+        }
+        HorizontalDivider(color = HlovetUi.divider, thickness = 1.dp, modifier = Modifier.padding(horizontal = 12.dp))
     }
 }
 
