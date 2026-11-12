@@ -3526,3 +3526,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用隔离测试包 `xyz.hlovet.portal.paritytest` 和测试包 `xyz.hlovet.portal.paritytest.test`，在 Android 设备 `emulator-5554` 上执行 `NativeOfflineDetailDeviceTest`、`NativeHomeRecommendationLayoutDeviceTest` 与 `NativeAccountReadingDeviceTest`，共 `4/4` 通过，失败、错误和跳过均为 `0`。
 - 回归覆盖离线文章和专题直接打开且不发起网络请求：首页推荐列表接近底部自动追加下一页并保留首条文章；个人中心稍后读/历史页签切换、逐条文章展示和触底分页。夹具均在设备内 `127.0.0.1:39871` 提供，不访问生产 API、不写入业务数据。
 - 本轮为设备内 MockWebServer 隔离验收，不能替代物理断网、生产账号、真实媒体缓存或线上接口验收；既有 `365/365` JVM 单测、路由/API 静态审计和 `git diff --check` 结果保持有效。
+
+## Android 集成管理与公告阅读单设备回归（2026-11-12）
+
+- 使用同一隔离测试包在 `emulator-5554` 执行 `NativeIntegrationsDeviceTest` 和 `NativeAnnouncementsReadDeviceTest`，共 `18/18` 通过，失败、错误和跳过均为 `0`。
+- 集成管理覆盖令牌/通道读取故障隔离与恢复、令牌创建和撤销重试、日期校验、通道验证码重试及账号切换时丢弃迟到结果；公告阅读覆盖延迟列表与详情竞态、已读状态保持、深链不可用、临时失败显式重试、英文错误和账号切换隔离。
+- 所有请求由设备内 `127.0.0.1:39871` MockWebServer 处理，未联系外部通道或生产 API，也未改动线上账号、凭据或公告数据。
