@@ -1,5 +1,11 @@
 # Android 原生端功能覆盖矩阵
 
+## Android collection management and reading-set two-device regression (2026-11-12)
+
+- Using the isolated preview address `http://127.0.0.1:39871`, direct `adb shell am instrument` runs of `NativeCollectionsDeviceTest` on Android 15 `emulator-5554` and Android 11 `emulator-5562` each ended `OK (10 tests)`. The scenarios cover create validation and draft retention, cover-upload retry without duplicate creation, partial article-save retry, delete failure retention, candidate pagination/search, drag ordering, English controls, stale browse-page isolation, and dropping a delayed result after account exit.
+- The same isolated build ran `NativeAccountReadingDeviceTest` on both devices, each ending `OK (1 test)`, covering read-later/history tab switching, independent article rows, and automatic loading of the second page at the list boundary. The two device groups total `22/22`, with `0` failures, errors, or skips; MockWebServer runs on device loopback and does not access or write production data.
+- The preview Debug/AndroidTest build succeeded. After testing, both devices were restored to the default production-address Debug APK (`https://5200918.xyz`) and launched into `MainActivity`; no app data, login sessions, or historical test evidence were deleted. This regression validates the native page and API contract and does not replace production administrator/database write-operation acceptance.
+
 ## Android 发现与匿名信息流四设备复核（2026-11-12）
 
 - 使用当前源码重新执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugAndroidTestKotlin` 和 `:prototype:assembleDebug`；JVM 测试 XML 汇总为 `363/363`，失败、错误和跳过均为 `0`，AndroidTest 编译和 Debug APK 构建成功。路由/API 对齐复核仍为 PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27`。

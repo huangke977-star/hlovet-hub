@@ -7,6 +7,12 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## Android 合集管理与阅读集合双设备回归（2026-11-12）
+
+- 使用隔离预览地址 `http://127.0.0.1:39871`，在 Android 15 `emulator-5554` 与 Android 11 `emulator-5562` 上通过直接 `adb shell am instrument` 执行 `NativeCollectionsDeviceTest`，每台均 `OK (10 tests)`；覆盖创建校验/失败保留草稿、封面失败重试不重复创建、部分文章保存重试、删除失败保留确认与列表、候选文章分页和搜索、拖拽排序、英文控件、旧分页迟到回包隔离、退出后的迟到结果丢弃。
+- 同一隔离构建在两台设备执行 `NativeAccountReadingDeviceTest`，每台均 `OK (1 test)`；覆盖稍后读/历史页签切换、独立文章行和触底自动加载第二页。两组共 `22/22`，失败、错误和跳过均为 `0`；MockWebServer 运行在设备内回环，不访问生产 API，也不写入服务器业务数据。
+- 本轮预览 Debug/AndroidTest 构建成功；测试结束后两台设备均恢复默认生产地址 Debug APK（`https://5200918.xyz`）并启动到 `MainActivity`，没有清除应用数据、登录会话或历史测试证据。该回归验证原生页面和接口契约，不替代线上管理员账号及生产数据库写操作验收。
+
 ## Android 发现与匿名信息流四设备复核（2026-11-12）
 
 - 使用当前源码重新执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugAndroidTestKotlin` 和 `:prototype:assembleDebug`；JVM 测试 XML 汇总为 `363/363`，失败、错误和跳过均为 `0`，AndroidTest 编译和 Debug APK 构建成功。路由/API 对齐复核仍为 PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27`。
