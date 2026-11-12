@@ -3538,3 +3538,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用隔离测试包 `xyz.hlovet.portal.paritytest` 和 `xyz.hlovet.portal.paritytest.test`，在 `emulator-5554` 上直接执行 `NativeSearchDeviceTest` 与 `NativeRecommendationFeedbackDeviceTest`，共 `4/4` 通过，失败、错误和跳过均为 `0`。
 - 搜索回归覆盖公开文章结果点击分发、第二页分页、用户/专题范围切换，以及文章分类和最新排序参数传递；推荐反馈回归覆盖单条恢复后从列表移除、成功提示、专题筛选和当前类型批量清理。
 - 所有请求由设备内 `127.0.0.1:39871` MockWebServer 处理，未访问生产 API、Google 或外部服务，也没有写入真实账号、文章、推荐反馈或数据库数据。本轮只记录验证文档，没有修改应用代码。
+
+## Android 站点外观与文章编辑回归（2026-11-12）
+
+- 使用隔离测试包和设备内 `127.0.0.1:39871` MockWebServer，定向执行 `NativeSiteAppearanceDeviceTest`、`NativeThemeContentColorDeviceTest` 与 `NativeArticleAppearanceDeviceTest`；本轮 XML 结果覆盖 4 台在线模拟器，每台 `8/8`，合计 `32/32` 通过，失败、错误和跳过均为 `0`。
+- 回归覆盖站点外观色板切换、无背景时根页面文字/图标颜色、共享弹窗显式账号色、玻璃卡片默认背景与显式覆盖、阅读器切换后保持滚动位置、文章编辑器初始样式、正文与作者标题预览颜色，以及编辑器选择区、撤销/重做状态在外观变化后的保持。
+- 本轮测试仅使用设备内 MockWebServer，不访问生产 API、Google、Passkey、FCM、WebRTC、AI/媒体供应商或 OSS/R2，也没有写入真实账号、文章或数据库数据。Gradle 设备任务成功，现有 `365/365` JVM 单测和既有路由/API 静态审计结果保持有效。
