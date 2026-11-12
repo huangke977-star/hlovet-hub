@@ -7,6 +7,15 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## Android 合集与账号阅读现有设备复验（2026-11-12）
+
+- 使用现有隔离预览 Debug APK 和 AndroidTest APK，通过设备内 `127.0.0.1:39871` 的 MockWebServer 直接执行 instrumentation；没有访问生产 API，也没有写入服务器业务数据。
+- Android 15 `emulator-5554`：`NativeCollectionsDeviceTest` 为 `10/10`，`NativeAccountReadingDeviceTest` 为 `1/1`。
+- Android 11 `emulator-5562`：`NativeCollectionsDeviceTest` 为 `10/10`，`NativeAccountReadingDeviceTest` 为 `1/1`。
+- 两台设备合计 `22/22` 通过，失败、错误和跳过均为 `0`。覆盖合集创建校验、失败保留草稿、封面和文章保存重试、删除失败保留确认、候选文章分页/搜索、拖拽排序、英文控件、迟到请求隔离、退出后的迟到结果丢弃，以及稍后读/历史切换和触底分页。
+- Android 15 首次整类运行曾在 `partialArticleSaveRetriesFromConfirmedState` 收尾阶段出现 Compose 运行时 `ArrayIndexOutOfBoundsException`；该方法单独重跑为 `1/1`，随后整类重跑为 `10/10`，未复现为稳定业务失败，因此不作为功能缺陷记录。
+- 本次只复验现有构建和设备交互，没有重新编译源码；外部 Google、Passkey、FCM、WebRTC、AI/OCR/语音/图片供应商、OSS/R2 和生产数据库写入仍不属于这组隔离测试的覆盖范围。
+
 ## Android 文章编辑与预览深链接收口（2026-11-12）
 
 - 修复 `/articles/edit/{id}` 和 `/articles/preview/{id}` 的原生分发顺序：入口现在会在普通文章详情判断之前解析，避免编辑或预览链接被误判为普通文章详情；语言前缀和尾部斜杠仍可正常处理。
