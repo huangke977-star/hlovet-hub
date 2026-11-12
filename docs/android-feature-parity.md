@@ -1,5 +1,12 @@
 # Android 原生端功能覆盖矩阵
 
+## Android 发现与匿名信息流四设备复核（2026-11-12）
+
+- 使用当前源码重新执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugAndroidTestKotlin` 和 `:prototype:assembleDebug`；JVM 测试 XML 汇总为 `363/363`，失败、错误和跳过均为 `0`，AndroidTest 编译和 Debug APK 构建成功。路由/API 对齐复核仍为 PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27`。
+- 使用隔离预览地址 `http://127.0.0.1:39871` 运行 `NativeDiscoverAnonymousLayoutDeviceTest`。Android 11 的 `HlovetChatUi11`、`HlovetAndroid11`、`HlovetChatRegression11` 三台设备由 Gradle 托管任务各完成 `4/4`；覆盖发现搜索与分页、筛选切换、慢旧请求回包隔离、匿名搜索与分页。该夹具只在设备内回环运行，不访问生产 API，也不写入业务数据。
+- 同一份预览 APK/测试 APK 在 Android 16 `emulator-5566` 上通过直接 `adb shell am instrument` 运行同一测试类，最终 `OK (4 tests)`。Gradle 聚合任务在该设备启动仪器时曾返回 `Process crashed` 且测试数为 `0`，因此该编排层失败单独保留，不能写成 Gradle 托管通过；直接仪器结果证明用例本身在该设备完成通过。
+- 测试结束后四台设备均恢复默认生产地址 Debug APK（`https://5200918.xyz`）并启动到 `MainActivity`；没有清除应用数据、登录会话、服务器业务数据或历史验收证据。
+
 本文记录 PC 端 `apps/web/src/app` 与 Android 原生端 `apps/android/prototype` 的入口对应关系，作为移植验收清单。状态只描述当前源码和已有验证证据，不把“能编译”当成真实业务联调通过。
 
 ## 状态说明
