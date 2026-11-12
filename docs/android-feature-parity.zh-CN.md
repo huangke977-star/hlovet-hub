@@ -3532,3 +3532,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用同一隔离测试包在 `emulator-5554` 执行 `NativeIntegrationsDeviceTest` 和 `NativeAnnouncementsReadDeviceTest`，共 `18/18` 通过，失败、错误和跳过均为 `0`。
 - 集成管理覆盖令牌/通道读取故障隔离与恢复、令牌创建和撤销重试、日期校验、通道验证码重试及账号切换时丢弃迟到结果；公告阅读覆盖延迟列表与详情竞态、已读状态保持、深链不可用、临时失败显式重试、英文错误和账号切换隔离。
 - 所有请求由设备内 `127.0.0.1:39871` MockWebServer 处理，未联系外部通道或生产 API，也未改动线上账号、凭据或公告数据。
+
+## Android 搜索与推荐反馈单设备回归（2026-11-12）
+
+- 使用隔离测试包 `xyz.hlovet.portal.paritytest` 和 `xyz.hlovet.portal.paritytest.test`，在 `emulator-5554` 上直接执行 `NativeSearchDeviceTest` 与 `NativeRecommendationFeedbackDeviceTest`，共 `4/4` 通过，失败、错误和跳过均为 `0`。
+- 搜索回归覆盖公开文章结果点击分发、第二页分页、用户/专题范围切换，以及文章分类和最新排序参数传递；推荐反馈回归覆盖单条恢复后从列表移除、成功提示、专题筛选和当前类型批量清理。
+- 所有请求由设备内 `127.0.0.1:39871` MockWebServer 处理，未访问生产 API、Google 或外部服务，也没有写入真实账号、文章、推荐反馈或数据库数据。本轮只记录验证文档，没有修改应用代码。
