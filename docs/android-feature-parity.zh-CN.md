@@ -3514,3 +3514,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 发现页和匿名话题页的触底分页失败后停止自动循环重试，保留当前内容并显示明确的“重试”操作；首屏失败和追加失败使用独立列表错误状态，不再与详情或编辑弹窗错误混用。
 - 新增设备回归场景 `discoverFilterReplacesSlowPreviousRequest`，使用延迟的推荐请求和先完成的最新请求验证筛选乱序保护；既有搜索分页、筛选重置和匿名分页场景继续保留。
 - `:prototype:compileDebugAndroidTestKotlin`、`:prototype:testDebugUnitTest`、`:prototype:assembleDebug` 通过；设备内 MockWebServer 回归在 Android 11（`emulator-5554`）和 Android 16（`emulator-5566`）各 `4/4` 通过，未访问生产 API、未写入业务数据。`git diff --check` 通过。
+
+## Android 发现与匿名信息流单设备直接回归（2026-11-12）
+
+- 使用隔离测试包 `xyz.hlovet.portal.paritytest` 和测试包 `xyz.hlovet.portal.paritytest.test`，在 Android 设备 `emulator-5554` 上直接执行 `NativeDiscoverAnonymousLayoutDeviceTest`，结果为 `4/4` 通过，失败、错误和跳过均为 `0`。
+- 回归覆盖发现页搜索与分页、发现页筛选切换、慢请求与新请求竞态隔离，以及匿名话题搜索、筛选和分页；MockWebServer 运行在设备内 `127.0.0.1:39871`，没有访问生产环境，也没有写入业务数据。
+- 强制重跑 `:prototype:testDebugUnitTest --rerun-tasks --no-daemon --console=plain` 构建成功；测试 XML 汇总为 `365/365`，失败、错误和跳过均为 `0`。PC 用户路由、后台入口和 API 对齐审计的既有结果保持有效，`git diff --check` 通过。
