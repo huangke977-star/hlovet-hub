@@ -1120,6 +1120,7 @@ private fun HlovetMobilePreview(
             return
         }
         val path = normalizeNativePath(targetUri.path)
+        val articleDeepLink = parseNativeArticleDeepLink(path)
         val adminTarget = nativeAdminAccountTarget(path)
         val articleManagementTarget = nativeArticleManagementTarget(path)
         when (path) {
@@ -1272,16 +1273,16 @@ private fun HlovetMobilePreview(
                     clearOpenTarget()
                     selectedTab = 0
                 }
-                path.startsWith("/articles/edit/") -> {
-                    val articleId = path.removePrefix("/articles/edit/").trim('/').toIntOrNull()
+                articleDeepLink?.kind == NativeArticleDeepLinkKind.Edit -> {
+                    val articleId = articleDeepLink.articleId
                     if (articleId == null || articleId <= 0) {
                         showNativeNotice(nativePhrase("文章编号无效，无法打开编辑器。", "The article ID is invalid, so the editor cannot be opened."))
                     } else {
                         openWriteRoute(articleId)
                     }
                 }
-                path.startsWith("/articles/preview/") -> {
-                    val articleId = path.removePrefix("/articles/preview/").trim('/').toIntOrNull()
+                articleDeepLink?.kind == NativeArticleDeepLinkKind.Preview -> {
+                    val articleId = articleDeepLink.articleId
                     if (articleId == null || articleId <= 0) {
                         showNativeNotice(nativePhrase("文章编号无效，无法打开预览。", "The article ID is invalid, so the preview cannot be opened."))
                     } else {
@@ -13927,6 +13928,35 @@ internal fun nativeArticleManagementTarget(rawPath: String): AccountTarget? = wh
     "/articles/mine", "/profile/articles" -> AccountTarget.MyArticles
     "/articles/manage" -> AccountTarget.AdminArticles
     else -> null
+}
+
+/** 文章深链接的业务类型，区分编辑器和管理员预览，避免被普通文章详情分支截获。 */
+internal enum class NativeArticleDeepLinkKind {
+    Edit,
+    Preview,
+}
+
+/** 文章深链接解析结果，articleId 为空表示路径结构正确但编号无效。 */
+internal data class NativeArticleDeepLink(
+    val kind: NativeArticleDeepLinkKind,
+    val articleId: Int?,
+)
+
+/** 解析文章编辑和预览路径，普通文章详情及管理列表路径返回 null。 */
+internal fun parseNativeArticleDeepLink(rawPath: String?): NativeArticleDeepLink? {
+    // 统一去除语言前缀和尾部斜杠，使外部通知、站内链接和手动导航使用同一判定规则。
+    val path = normalizeNativePath(rawPath)
+    return when {
+        path.startsWith("/articles/edit/") -> NativeArticleDeepLink(
+            kind = NativeArticleDeepLinkKind.Edit,
+            articleId = path.removePrefix("/articles/edit/").trim('/').toIntOrNull(),
+        )
+        path.startsWith("/articles/preview/") -> NativeArticleDeepLink(
+            kind = NativeArticleDeepLinkKind.Preview,
+            articleId = path.removePrefix("/articles/preview/").trim('/').toIntOrNull(),
+        )
+        else -> null
+    }
 }
 
 private fun String.toNativeComposeColor(fallback: Color): Color = runCatching {

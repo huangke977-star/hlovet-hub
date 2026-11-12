@@ -7,6 +7,13 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## Android 文章编辑与预览深链接收口（2026-11-12）
+
+- 修复 `/articles/edit/{id}` 和 `/articles/preview/{id}` 的原生分发顺序：入口现在会在普通文章详情判断之前解析，避免编辑或预览链接被误判为普通文章详情；语言前缀和尾部斜杠仍可正常处理。
+- 无效文章编号仍保留对应的编辑/预览入口类型，由运行时显示明确错误，不会静默回退到普通文章详情；普通文章 slug 不会被误判为编辑或预览链接。
+- 新增 `NativeAdminRouteTest` 的有效编辑、有效预览、无效编号和普通 slug 边界测试。当前执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugKotlin`、`:prototype:compileDebugAndroidTestKotlin`、`:prototype:assembleDebug` 均成功，JVM XML 汇总为 `365/365`，失败、错误和跳过均为 `0`；路由/API 对齐为 `70/70`、`24/24`、`27/27`，`git diff --check` 通过。
+- 本轮只验证编译、单元测试和静态映射，未把它扩大为真实登录会话、生产文章写操作或外部服务验收；现有模拟器和服务器业务数据未清理。
+
 ## Android 合集管理与阅读集合双设备回归（2026-11-12）
 
 - 使用隔离预览地址 `http://127.0.0.1:39871`，在 Android 15 `emulator-5554` 与 Android 11 `emulator-5562` 上通过直接 `adb shell am instrument` 执行 `NativeCollectionsDeviceTest`，每台均 `OK (10 tests)`；覆盖创建校验/失败保留草稿、封面失败重试不重复创建、部分文章保存重试、删除失败保留确认与列表、候选文章分页和搜索、拖拽排序、英文控件、旧分页迟到回包隔离、退出后的迟到结果丢弃。

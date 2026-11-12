@@ -67,4 +67,31 @@ class NativeAdminRouteTest {
         assertEquals(AccountTarget.AdminArticles, nativeArticleManagementTarget("/articles/manage"))
         assertEquals(AccountTarget.AdminArticles, nativeArticleManagementTarget("/en/articles/manage/"))
     }
+
+    /** 编辑器和预览深链接必须在普通文章详情之前被识别，避免有效入口回退到外部页面。 */
+    @Test
+    fun articleEditorAndPreviewDeepLinksAreClassifiedBeforeArticleDetails() {
+        assertEquals(
+            NativeArticleDeepLink(NativeArticleDeepLinkKind.Edit, 42),
+            parseNativeArticleDeepLink("/articles/edit/42/"),
+        )
+        assertEquals(
+            NativeArticleDeepLink(NativeArticleDeepLinkKind.Preview, 73),
+            parseNativeArticleDeepLink("/en/articles/preview/73"),
+        )
+        assertNull(parseNativeArticleDeepLink("/articles/example-slug"))
+    }
+
+    /** 深链接编号无效时仍保留入口类型，由运行时显示错误而不是误打开普通文章详情。 */
+    @Test
+    fun articleDeepLinksKeepInvalidIdsVisibleToRuntimeValidation() {
+        assertEquals(
+            NativeArticleDeepLink(NativeArticleDeepLinkKind.Edit, null),
+            parseNativeArticleDeepLink("/articles/edit/not-a-number"),
+        )
+        assertEquals(
+            NativeArticleDeepLink(NativeArticleDeepLinkKind.Preview, 0),
+            parseNativeArticleDeepLink("/articles/preview/0"),
+        )
+    }
 }
