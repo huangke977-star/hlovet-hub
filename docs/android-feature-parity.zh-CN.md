@@ -3520,3 +3520,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用隔离测试包 `xyz.hlovet.portal.paritytest` 和测试包 `xyz.hlovet.portal.paritytest.test`，在 Android 设备 `emulator-5554` 上直接执行 `NativeDiscoverAnonymousLayoutDeviceTest`，结果为 `4/4` 通过，失败、错误和跳过均为 `0`。
 - 回归覆盖发现页搜索与分页、发现页筛选切换、慢请求与新请求竞态隔离，以及匿名话题搜索、筛选和分页；MockWebServer 运行在设备内 `127.0.0.1:39871`，没有访问生产环境，也没有写入业务数据。
 - 强制重跑 `:prototype:testDebugUnitTest --rerun-tasks --no-daemon --console=plain` 构建成功；测试 XML 汇总为 `365/365`，失败、错误和跳过均为 `0`。PC 用户路由、后台入口和 API 对齐审计的既有结果保持有效，`git diff --check` 通过。
+
+## Android 离线详情、首页推荐与个人阅读集合单设备回归（2026-11-12）
+
+- 使用隔离测试包 `xyz.hlovet.portal.paritytest` 和测试包 `xyz.hlovet.portal.paritytest.test`，在 Android 设备 `emulator-5554` 上执行 `NativeOfflineDetailDeviceTest`、`NativeHomeRecommendationLayoutDeviceTest` 与 `NativeAccountReadingDeviceTest`，共 `4/4` 通过，失败、错误和跳过均为 `0`。
+- 回归覆盖离线文章和专题直接打开且不发起网络请求：首页推荐列表接近底部自动追加下一页并保留首条文章；个人中心稍后读/历史页签切换、逐条文章展示和触底分页。夹具均在设备内 `127.0.0.1:39871` 提供，不访问生产 API、不写入业务数据。
+- 本轮为设备内 MockWebServer 隔离验收，不能替代物理断网、生产账号、真实媒体缓存或线上接口验收；既有 `365/365` JVM 单测、路由/API 静态审计和 `git diff --check` 结果保持有效。
