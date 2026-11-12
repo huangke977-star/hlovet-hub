@@ -7,6 +7,14 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## Android 发现/匿名、合集与账号阅读四设备回归（2026-11-12）
+
+- 使用 `:prototype:testDebugUnitTest`、`:prototype:compileDebugAndroidTestKotlin` 和 `:prototype:assembleDebug` 完成当前源码构建；JVM 单测 XML 汇总为 `365/365`，失败、错误和跳过均为 `0`。
+- 使用隔离预览地址 `http://127.0.0.1:39871` 运行 `:prototype:connectedDebugAndroidTest`，指定 `NativeDiscoverAnonymousLayoutDeviceTest`、`NativeCollectionsDeviceTest` 和 `NativeAccountReadingDeviceTest`。Gradle 托管的 `HlovetChatUi11(AVD)`、`HlovetAndroid11(AVD)`、`HlovetChatRegression11(AVD)` 与 `medium_phone(AVD)` 四台设备均完成 `15/15`，合计 `60/60` 通过，失败、错误和跳过均为 `0`。
+- 覆盖发现和匿名信息流的搜索、筛选、分页及迟到请求隔离；合集创建校验、失败保留草稿、文章保存重试、删除失败保留确认、候选文章分页/搜索、拖拽排序和英文控件；以及稍后读/历史切换与触底分页。设备内 MockWebServer 只绑定回环地址，不访问生产 API，也不写入服务器业务数据。
+- `node apps/android/tools/check-route-parity.mjs` 通过：PC 用户路由 `70/70`、后台入口 `24/24`；`node apps/android/tools/check-api-parity.mjs` 通过：当前 PC API 模块 `27/27`，无确认缺口；`git diff --check` 通过。
+- 本轮没有修改业务源码，也没有清理应用数据、账号、Docker 卷或历史 `tmp-*` 证据。Google、Passkey、FCM、WebRTC、AI/OCR/语音/图片供应商、OSS/R2、生产数据库写入和真实服务器联调仍不属于本轮隔离测试覆盖范围。
+
 ## Android 合集与账号阅读现有设备复验（2026-11-12）
 
 - 使用现有隔离预览 Debug APK 和 AndroidTest APK，通过设备内 `127.0.0.1:39871` 的 MockWebServer 直接执行 instrumentation；没有访问生产 API，也没有写入服务器业务数据。
