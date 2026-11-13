@@ -16,6 +16,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
@@ -36,6 +37,8 @@ class NativeOnlineArticleDetailDeviceTest {
     private val commentPageRequests = Collections.synchronizedList(mutableListOf<String>())
     private var authorProfileStatus = 200
     private var commentPaginationEnabled = false
+    private var commentPaginationFailureOnce = false
+    private var commentPaginationFailureReturned = false
     private var oldLocale = "zh-CN"
 
     /** 只允许设备预览构建启动回环夹具，避免测试包把详情请求发往生产接口。 */
@@ -50,6 +53,8 @@ class NativeOnlineArticleDetailDeviceTest {
         commentPageRequests.clear()
         authorProfileStatus = 200
         commentPaginationEnabled = false
+        commentPaginationFailureOnce = false
+        commentPaginationFailureReturned = false
         server = MockWebServer().apply {
             // 所有接口都由同一个固定夹具处理，未声明的请求返回错误以暴露额外调用。
             dispatcher = object : Dispatcher() {
@@ -176,7 +181,46 @@ class NativeOnlineArticleDetailDeviceTest {
 
         // 第二页请求必须携带首屏返回的游标，且只发生一次，避免滚动状态重复触发请求。
         compose.waitUntil(5_000) { synchronized(commentPageRequests) { commentPageRequests.size == 2 } }
-        assertEquals(listOf("initial", "2"), synchronized(commentPageRequests) { commentPageRequests.toList() })
+        assertEquals(listOf("initial", "20"), synchronized(commentPageRequests) { commentPageRequests.toList() })
+    }
+
+    /** 验证下一页失败只显示页尾重试提示，重试继续使用原游标并成功追加评论。 */
+    @Test
+    fun failedCommentPaginationStaysInFooterAndCanRetry() {
+        // 令第二页首次返回 503，重试时恢复成功，以覆盖失败保留游标与恢复状态。
+        commentPaginationEnabled = true
+        commentPaginationFailureOnce = true
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = seedArticle(),
+                    session = null,
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        // 滚动到分页入口触发第二页失败，页尾应提示用户手动重试。
+        waitForText("在线详情文章")
+        compose.onNodeWithTag("article-comments-footer").performScrollTo()
+        waitForText("加载失败，点击重试")
+
+        // 服务端错误文案不能进入正文详情的通用错误区，首轮只请求 initial 与 20。
+        assertTrue(
+            "分页错误文案不应出现在详情通用错误区",
+            compose.onAllNodesWithText("Fixture comment pagination failure", substring = true)
+                .fetchSemanticsNodes(atLeastOneRootRequired = false)
+                .isEmpty(),
+        )
+        assertEquals(listOf("initial", "20"), synchronized(commentPageRequests) { commentPageRequests.toList() })
+
+        // 点击页尾入口再次请求相同游标，成功后追加第二页评论并恢复正常提示。
+        compose.onNodeWithTag("article-comments-footer").performClick()
+        waitForText("自动加载评论")
+        compose.waitUntil(5_000) { synchronized(commentPageRequests) { commentPageRequests.size == 3 } }
+        assertEquals(listOf("initial", "20", "20"), synchronized(commentPageRequests) { commentPageRequests.toList() })
     }
 
     /** 等待指定文案进入 Compose 语义树，避免固定睡眠掩盖异步详情加载问题。 */
@@ -265,6 +309,11 @@ class NativeOnlineArticleDetailDeviceTest {
         // 只记录详情评论请求，确保分页是否携带 cursor 能被测试直接核对。
         val cursor = request.requestUrl?.queryParameter("cursor")
         commentPageRequests += cursor ?: "initial"
+        // 只让首次第二页请求失败，便于同一用例验证错误提示、游标保留和手动重试恢复。
+        if (cursor == "20" && commentPaginationFailureOnce && !commentPaginationFailureReturned) {
+            commentPaginationFailureReturned = true
+            return error(503, "Fixture comment pagination failure")
+        }
         return if (cursor == "20") json(commentsPageTwoJson()) else json(commentsJson())
     }
 
