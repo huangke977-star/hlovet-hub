@@ -4263,9 +4263,17 @@ private fun AppHeader(
 }
 
 /**
- * 显示 initialArticle 的阅读与评论；focusCommentId 用于定位评论，session 决定权限及缓存归属。
+ * 展示 initialArticle 的在线或离线正文、评论及关联操作；focusCommentId 用于定位评论，session 决定权限及缓存归属。
  * 作者公开资料与订阅失败只影响作者信息区，不阻断正文；专题和合集导航由宿主确认加载后处理。
  * onLogin/onBack/onOpenUser/onOpenGrouping 分别处理登录、返回、作者和关联内容导航。
+ * @param initialArticle 导航传入的文章快照，在线模式会使用详情接口更新
+ * @param focusCommentId 需要在评论首屏中定位的评论编号，可为空
+ * @param offlineOnly 是否只读取已保存的离线正文
+ * @param session 当前登录会话，匿名访问时为空
+ * @param onLogin 需要登录才能操作时触发的登录入口
+ * @param onBack 返回详情页的上一级页面
+ * @param onOpenUser 打开作者主页的回调
+ * @param onOpenGrouping 打开文章所属专题或合集的回调
  */
 @Composable
 internal fun ArticleDetailScreen(
@@ -4287,6 +4295,7 @@ internal fun ArticleDetailScreen(
     var nextCommentCursor by remember(initialArticle.slug, session?.accessToken) { mutableStateOf<Int?>(null) }
     var hasMoreComments by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
     var commentsLoadError by remember(initialArticle.slug, session?.accessToken) { mutableStateOf<String?>(null) }
+    var commentsLoading by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
     var commentsRequestId by remember(initialArticle.slug, session?.accessToken) { mutableIntStateOf(0) }
     var loading by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(true) }
     var loadingMore by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
@@ -4458,6 +4467,7 @@ internal fun ArticleDetailScreen(
         notice = null
         offlineNotice = null
         showingOfflineContent = false
+        commentsLoading = !offlineOnly
         offlineSaved = withContext(Dispatchers.IO) { NativeOfflineContentStore.isArticleSaved(context, offlineOwner, initialArticle.slug) }
         if (offlineOnly) {
             // 离线列表打开的是已保存正文，直接渲染本地快照，不能先等待一个必然失败的网络请求。
@@ -4467,6 +4477,7 @@ internal fun ArticleDetailScreen(
             nextCommentCursor = null
             hasMoreComments = false
             commentsLoadError = null
+            commentsLoading = false
             highlightCommentId = null
             offlineSaved = true
             showingOfflineContent = true
@@ -4478,22 +4489,16 @@ internal fun ArticleDetailScreen(
             return@LaunchedEffect
         }
         try {
+            // 先请求文章正文；正文成功后立即发布到页面，避免评论接口异常阻断在线阅读。
             val loadedArticle = withContext(Dispatchers.IO) { NativeArticleApi.getArticle(requestToken, initialArticle.slug) }
-            val loadedComments = withContext(Dispatchers.IO) {
-                NativeArticleApi.listComments(requestToken, initialArticle.slug, focusId = focusCommentId)
-            }
             if (isCurrentArticleDetailRequest(requestId, commentsRequestId, initialArticle.slug, article.slug, requestToken, session?.accessToken)) {
                 article = loadedArticle
-                comments = loadedComments.items
-                commentTotal = loadedComments.totalThreads
-                nextCommentCursor = loadedComments.nextCursor
-                hasMoreComments = loadedComments.hasMore
-                if (focusCommentId != null && loadedComments.items.any { it.id == focusCommentId }) {
-                    highlightCommentId = focusCommentId
-                } else if (focusCommentId != null) {
-                    notice = nativePhrase("该评论已删除或当前不可见，无法定位。", "The comment was deleted or is not visible, so it cannot be located.")
-                }
+                loading = false
+                commentsLoading = true
             }
+        } catch (cancelled: CancellationException) {
+            // 文章切换或页面退出时保留取消语义，不把旧请求当成网络故障回退离线内容。
+            throw cancelled
         } catch (exception: Exception) {
             if (isCurrentArticleDetailRequest(requestId, commentsRequestId, initialArticle.slug, article.slug, requestToken, session?.accessToken)) {
                 val cached = withContext(Dispatchers.IO) { NativeOfflineContentStore.loadArticle(context, offlineOwner, initialArticle.slug) }
@@ -4503,6 +4508,7 @@ internal fun ArticleDetailScreen(
                     commentTotal = cached.commentCount
                     nextCommentCursor = null
                     hasMoreComments = false
+                    commentsLoading = false
                     highlightCommentId = null
                     offlineSaved = true
                     showingOfflineContent = true
@@ -4514,8 +4520,39 @@ internal fun ArticleDetailScreen(
                     error = exception.message ?: nativePhrase("文章详情加载失败。", "Failed to load the article.")
                 }
             }
+            commentsLoading = false
+            loading = false
+            return@LaunchedEffect
+        }
+
+        try {
+            // 评论首屏属于可选内容；失败时保留已加载正文，并把错误限定在评论区。
+            val loadedComments = withContext(Dispatchers.IO) {
+                NativeArticleApi.listComments(requestToken, initialArticle.slug, focusId = focusCommentId)
+            }
+            if (isCurrentArticleDetailRequest(requestId, commentsRequestId, initialArticle.slug, article.slug, requestToken, session?.accessToken)) {
+                comments = loadedComments.items
+                commentTotal = loadedComments.totalThreads
+                nextCommentCursor = loadedComments.nextCursor
+                hasMoreComments = loadedComments.hasMore
+                if (focusCommentId != null && loadedComments.items.any { it.id == focusCommentId }) {
+                    highlightCommentId = focusCommentId
+                } else if (focusCommentId != null) {
+                    notice = nativePhrase("该评论已删除或当前不可见，无法定位。", "The comment was deleted or is not visible, so it cannot be located.")
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            // 文章或账号切换取消评论请求时，不生成失败状态并交给新页面接管。
+            throw cancelled
+        } catch (_: Exception) {
+            if (isCurrentArticleDetailRequest(requestId, commentsRequestId, initialArticle.slug, article.slug, requestToken, session?.accessToken)) {
+                // 不把评论故障转换成离线正文，用户仍可继续阅读并单独重试评论。
+                commentsLoadError = nativePhrase("评论加载失败，请重试。", "Failed to load comments. Try again.")
+            }
         } finally {
-            if (isCurrentArticleDetailRequest(requestId, commentsRequestId, initialArticle.slug, article.slug, requestToken, session?.accessToken)) loading = false
+            if (isCurrentArticleDetailRequest(requestId, commentsRequestId, initialArticle.slug, article.slug, requestToken, session?.accessToken)) {
+                commentsLoading = false
+            }
         }
     }
 
@@ -4668,8 +4705,8 @@ internal fun ArticleDetailScreen(
         }
     }
 
-    /** 刷新当前文章评论首屏，并使之前的分页请求失效。 */
-    suspend fun refreshComments(token: String, focusId: Int? = null) {
+    /** 用 token 和可选 focusId 刷新当前文章评论首屏，并使旧分页结果失效。 */
+    suspend fun refreshComments(token: String?, focusId: Int? = null) {
         // 删除或发布后的刷新必须成为新的评论请求代际，不能被旧分页结果覆盖。
         val requestId = commentsRequestId + 1
         commentsRequestId = requestId
@@ -4685,6 +4722,38 @@ internal fun ArticleDetailScreen(
             nextCommentCursor = refreshed.nextCursor
             hasMoreComments = refreshed.hasMore
             commentTotal = refreshed.totalThreads
+            if (focusId != null && refreshed.items.any { it.id == focusId }) {
+                highlightCommentId = focusId
+            } else if (focusId != null) {
+                notice = nativePhrase("该评论已删除或当前不可见，无法定位。", "The comment was deleted or is not visible, so it cannot be located.")
+            }
+        }
+    }
+
+    /** 只重试当前文章评论首屏，不重新请求正文或触发离线回退。 */
+    fun retryInitialComments() {
+        // 没有会话时评论仍允许匿名读取；正在请求时忽略重复点击，避免评论列表代际交叉覆盖。
+        if (commentsLoading || loadingMore) return
+        val requestedToken = session?.accessToken
+        val requestedSlug = article.slug
+        scope.launch {
+            commentsLoading = true
+            commentsLoadError = null
+            try {
+                // 复用评论刷新接口，统一更新评论总数、分页游标和定位结果。
+                refreshComments(requestedToken, focusCommentId)
+            } catch (cancelled: CancellationException) {
+                // 详情页面销毁或会话切换时保留取消语义，不显示成网络错误。
+                throw cancelled
+            } catch (_: Exception) {
+                // 重试失败仍停留在评论区，正文和已有评论不受影响。
+                if (requestedSlug == article.slug && requestedToken == session?.accessToken) {
+                    commentsLoadError = nativePhrase("评论加载失败，请重试。", "Failed to load comments. Try again.")
+                }
+            } finally {
+                // 只释放当前评论重试的加载状态，避免旧页面退出时误改新详情。
+                if (requestedSlug == article.slug && requestedToken == session?.accessToken) commentsLoading = false
+            }
         }
     }
 
@@ -5284,8 +5353,24 @@ internal fun ArticleDetailScreen(
                 }
             }
         }
-        if (loading && comments.isEmpty()) {
+        if (commentsLoading && comments.isEmpty()) {
             item { EmptyState(nativePhrase("正在读取评论…", "Loading comments...")) }
+        } else if (!commentsLoadError.isNullOrBlank() && comments.isEmpty()) {
+            item {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(commentsLoadError!!, color = Coral, fontSize = 12.sp)
+                    TextButton(
+                        onClick = ::retryInitialComments,
+                        enabled = !commentsLoading,
+                        modifier = Modifier.testTag("article-comments-retry"),
+                    ) {
+                        Text(nativePhrase("重试评论", "Retry comments"), color = Accent)
+                    }
+                }
+            }
         } else if (comments.isEmpty()) {
             item { EmptyState(nativePhrase("还没有评论，来留下第一条吧。", "No comments yet. Start the discussion.")) }
         } else {

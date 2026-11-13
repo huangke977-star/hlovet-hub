@@ -34,8 +34,11 @@ class NativeOnlineArticleDetailDeviceTest {
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private val subscriptionMethods = Collections.synchronizedList(mutableListOf<String>())
+    private val articleRequests = Collections.synchronizedList(mutableListOf<String>())
     private val commentPageRequests = Collections.synchronizedList(mutableListOf<String>())
     private var authorProfileStatus = 200
+    private var commentInitialFailureOnce = false
+    private var commentInitialFailureReturned = false
     private var commentPaginationEnabled = false
     private var commentPaginationFailureOnce = false
     private var commentPaginationFailureReturned = false
@@ -50,8 +53,11 @@ class NativeOnlineArticleDetailDeviceTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale("zh-CN") }
         // 每个详情用例都从干净的请求记录和夹具开关开始，避免分页状态污染订阅或作者资料回归。
         subscriptionMethods.clear()
+        articleRequests.clear()
         commentPageRequests.clear()
         authorProfileStatus = 200
+        commentInitialFailureOnce = false
+        commentInitialFailureReturned = false
         commentPaginationEnabled = false
         commentPaginationFailureOnce = false
         commentPaginationFailureReturned = false
@@ -126,6 +132,35 @@ class NativeOnlineArticleDetailDeviceTest {
         waitForText("在线详情文章")
         compose.onNodeWithText("隔离评论", substring = false).assertIsDisplayed()
         waitForText("作者资料暂时不可用。")
+    }
+
+    /** 验证评论首屏失败时正文仍可见，重试只重新读取评论而不会重复请求文章。 */
+    @Test
+    fun initialCommentFailureKeepsArticleAndRetriesCommentsOnly() {
+        // 仅让评论首屏第一次失败，模拟正文服务正常而评论服务短暂不可用。
+        commentInitialFailureOnce = true
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = seedArticle(),
+                    session = null,
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        // 文章响应成功后必须立即可见，评论失败只能显示评论区的独立错误入口。
+        waitForText("在线详情文章")
+        waitForText("评论加载失败，请重试。")
+        compose.onNodeWithTag("article-comments-retry").performClick()
+        waitForText("隔离评论")
+
+        // 重试只增加一次评论请求；文章详情从始至终只请求一次。
+        compose.waitUntil(5_000) { synchronized(commentPageRequests) { commentPageRequests.size == 2 } }
+        assertEquals(1, synchronized(articleRequests) { articleRequests.size })
+        assertEquals(listOf("initial", "initial"), synchronized(commentPageRequests) { commentPageRequests.toList() })
     }
 
     /** 验证登录后的订阅和取消订阅都使用服务端状态与订阅人数更新作者卡片。 */
@@ -238,7 +273,10 @@ class NativeOnlineArticleDetailDeviceTest {
         // 文章接口按是否携带会话区分公开和 visible 路径，但共享同一份隔离内容。
         val path = request.path.orEmpty()
         return when {
-            path == "/articles/test-article" || path == "/articles/visible/test-article" -> json(articleJson())
+            path == "/articles/test-article" || path == "/articles/visible/test-article" -> {
+                articleRequests += path
+                json(articleJson())
+            }
             path.startsWith("/articles/test-article/comments?") || path.startsWith("/articles/visible/test-article/comments?") -> commentsResponse(request)
             path == "/profiles/public/test-author" || path == "/profiles/visible/test-author" -> {
                 if (authorProfileStatus == 200) json(profileJson()) else error(authorProfileStatus, "Author profile fixture failure")
@@ -309,6 +347,11 @@ class NativeOnlineArticleDetailDeviceTest {
         // 只记录详情评论请求，确保分页是否携带 cursor 能被测试直接核对。
         val cursor = request.requestUrl?.queryParameter("cursor")
         commentPageRequests += cursor ?: "initial"
+        // 首屏故障只返回一次，重试时恢复成功以验证正文与评论的独立生命周期。
+        if (cursor == null && commentInitialFailureOnce && !commentInitialFailureReturned) {
+            commentInitialFailureReturned = true
+            return error(503, "Fixture initial comment failure")
+        }
         // 只让首次第二页请求失败，便于同一用例验证错误提示、游标保留和手动重试恢复。
         if (cursor == "20" && commentPaginationFailureOnce && !commentPaginationFailureReturned) {
             commentPaginationFailureReturned = true
