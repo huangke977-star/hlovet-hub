@@ -4690,20 +4690,24 @@ internal fun ArticleDetailScreen(
 
     /** 追加当前文章评论的下一页，旧分页响应不能覆盖刷新后的列表。 */
     fun loadMoreComments() {
+        // 没有后续游标或已有分页请求时，不重复发起请求。
         val cursor = nextCommentCursor ?: return
         if (loadingMore || !hasMoreComments) return
+
+        // 固定本次请求对应的文章、会话和刷新代际，丢弃过期回包。
         val requestId = commentsRequestId
         val requestedSlug = article.slug
         val requestedToken = session?.accessToken
         scope.launch {
             loadingMore = true
             commentsLoadError = null
-            error = null
             try {
+                // 按服务端游标获取下一页评论。
                 val page = withContext(Dispatchers.IO) {
                     NativeArticleApi.listComments(requestedToken, requestedSlug, cursor = cursor)
                 }
                 if (isCurrentArticleDetailRequest(requestId, commentsRequestId, requestedSlug, article.slug, requestedToken, session?.accessToken)) {
+                    // 以评论 ID 去重并同步下一页游标，保留已显示的首屏评论。
                     comments = (comments + page.items).distinctBy { it.id }
                     nextCommentCursor = page.nextCursor
                     hasMoreComments = page.hasMore
@@ -4711,10 +4715,11 @@ internal fun ArticleDetailScreen(
                 }
             } catch (exception: Exception) {
                 if (isCurrentArticleDetailRequest(requestId, commentsRequestId, requestedSlug, article.slug, requestedToken, session?.accessToken)) {
+                    // 分页错误只交给评论页尾重试入口，不能变成文章正文的整体错误。
                     commentsLoadError = exception.message ?: nativePhrase("更多评论加载失败。", "Failed to load more comments.")
-                    error = commentsLoadError
                 }
             } finally {
+                // 仅当前请求可以释放分页状态，避免旧请求影响新页面。
                 if (isCurrentArticleDetailRequest(requestId, commentsRequestId, requestedSlug, article.slug, requestedToken, session?.accessToken)) loadingMore = false
             }
         }
