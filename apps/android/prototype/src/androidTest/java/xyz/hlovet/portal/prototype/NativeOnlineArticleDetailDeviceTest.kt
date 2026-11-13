@@ -33,7 +33,9 @@ class NativeOnlineArticleDetailDeviceTest {
     private val host = NativeComposeTestHost(compose)
     private lateinit var server: MockWebServer
     private val subscriptionMethods = Collections.synchronizedList(mutableListOf<String>())
+    private val commentPageRequests = Collections.synchronizedList(mutableListOf<String>())
     private var authorProfileStatus = 200
+    private var commentPaginationEnabled = false
     private var oldLocale = "zh-CN"
 
     /** 只允许设备预览构建启动回环夹具，避免测试包把详情请求发往生产接口。 */
@@ -43,6 +45,11 @@ class NativeOnlineArticleDetailDeviceTest {
         assumeTrue("Requires a device-local preview build", BuildConfig.API_BASE_URL == "http://127.0.0.1:39871")
         oldLocale = NativeI18n.locale
         InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale("zh-CN") }
+        // 每个详情用例都从干净的请求记录和夹具开关开始，避免分页状态污染订阅或作者资料回归。
+        subscriptionMethods.clear()
+        commentPageRequests.clear()
+        authorProfileStatus = 200
+        commentPaginationEnabled = false
         server = MockWebServer().apply {
             // 所有接口都由同一个固定夹具处理，未声明的请求返回错误以暴露额外调用。
             dispatcher = object : Dispatcher() {
@@ -145,6 +152,33 @@ class NativeOnlineArticleDetailDeviceTest {
         assertEquals(listOf("POST", "DELETE"), synchronized(subscriptionMethods) { subscriptionMethods.toList() })
     }
 
+    /** 验证评论分页入口进入可视区域后自动加载下一页，而不是只能依赖手动按钮。 */
+    @Test
+    fun commentsLoadNextPageWhenFooterEntersViewport() {
+        // 为本用例开启两页夹具，首屏仍保留分页入口，第二页通过 cursor 区分。
+        commentPaginationEnabled = true
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = seedArticle(),
+                    session = null,
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        // 先等待首屏完成，再把分页入口滚入视口，触发与用户真实滑动相同的自动加载链路。
+        waitForText("在线详情文章")
+        compose.onNodeWithTag("article-comments-footer").performScrollTo()
+        waitForText("自动加载评论")
+
+        // 第二页请求必须携带首屏返回的游标，且只发生一次，避免滚动状态重复触发请求。
+        compose.waitUntil(5_000) { synchronized(commentPageRequests) { commentPageRequests.size == 2 } }
+        assertEquals(listOf("initial", "2"), synchronized(commentPageRequests) { commentPageRequests.toList() })
+    }
+
     /** 等待指定文案进入 Compose 语义树，避免固定睡眠掩盖异步详情加载问题。 */
     private fun waitForText(text: String, timeoutMillis: Long = 15_000) {
         // 网络回包和作者资料是异步任务，条件等待能区分页面未加载与固定延迟不足。
@@ -161,7 +195,7 @@ class NativeOnlineArticleDetailDeviceTest {
         val path = request.path.orEmpty()
         return when {
             path == "/articles/test-article" || path == "/articles/visible/test-article" -> json(articleJson())
-            path.startsWith("/articles/test-article/comments?") || path.startsWith("/articles/visible/test-article/comments?") -> json(commentsJson())
+            path.startsWith("/articles/test-article/comments?") || path.startsWith("/articles/visible/test-article/comments?") -> commentsResponse(request)
             path == "/profiles/public/test-author" || path == "/profiles/visible/test-author" -> {
                 if (authorProfileStatus == 200) json(profileJson()) else error(authorProfileStatus, "Author profile fixture failure")
             }
@@ -198,22 +232,58 @@ class NativeOnlineArticleDetailDeviceTest {
         .put("topics", JSONArray().put(JSONObject().put("id", 501).put("title", "隔离专题").put("slug", "isolated-topic")))
         .put("collections", JSONArray().put(JSONObject().put("id", 502).put("name", "隔离合集")))
 
-    /** 构造评论接口响应，验证正文加载后评论请求仍被正确解析并显示。 */
-    private fun commentsJson(): JSONObject = JSONObject()
+    /** 构造评论首屏响应；分页用例返回足够长的列表，确保页尾需由滚动进入视口。 */
+    private fun commentsJson(): JSONObject {
+        // 只在分页用例中构造二十条首屏，其他详情回归继续使用原有单条评论。
+        val items = JSONArray()
+        val itemCount = if (commentPaginationEnabled) 20 else 1
+        repeat(itemCount) { index ->
+            val id = 801 + index
+            items.put(
+                JSONObject()
+                    .put("id", id)
+                    .put("articleId", 701)
+                    .put("body", if (index == 0) "隔离评论" else "首屏评论${index + 1}")
+                    .put("status", "active")
+                    .put("likeCount", 0)
+                    .put("liked", false)
+                    .put("reported", false)
+                    .put("author", JSONObject().put("id", 88 + index).put("username", "comment-author-$id").put("nickname", "评论作者")),
+            )
+        }
+
+        // 自动分页场景用 cursor=20 标记第二页；其它测试仍表现为单页列表。
+        return JSONObject()
+            .put("items", items)
+            .put("hasMore", commentPaginationEnabled)
+            .put("nextCursor", if (commentPaginationEnabled) 20 else JSONObject.NULL)
+            .put("totalThreads", if (commentPaginationEnabled) 21 else 1)
+    }
+
+    /** 根据游标返回评论首屏或下一页，并记录请求顺序供分页回归核对。 */
+    private fun commentsResponse(request: RecordedRequest): MockResponse {
+        // 只记录详情评论请求，确保分页是否携带 cursor 能被测试直接核对。
+        val cursor = request.requestUrl?.queryParameter("cursor")
+        commentPageRequests += cursor ?: "initial"
+        return if (cursor == "20") json(commentsPageTwoJson()) else json(commentsJson())
+    }
+
+    /** 构造评论分页第二页响应，确认新内容合并到原列表而非替换首屏。 */
+    private fun commentsPageTwoJson(): JSONObject = JSONObject()
         .put("items", JSONArray().put(
             JSONObject()
-                .put("id", 801)
+                .put("id", 821)
                 .put("articleId", 701)
-                .put("body", "隔离评论")
+                .put("body", "自动加载评论")
                 .put("status", "active")
                 .put("likeCount", 0)
                 .put("liked", false)
                 .put("reported", false)
-                .put("author", JSONObject().put("id", 88).put("username", "comment-author").put("nickname", "评论作者")),
+                .put("author", JSONObject().put("id", 108).put("username", "comment-author-21").put("nickname", "分页作者")),
         ))
         .put("hasMore", false)
         .put("nextCursor", JSONObject.NULL)
-        .put("totalThreads", 1)
+        .put("totalThreads", 2)
 
     /** 构造作者公开资料响应，提供订阅按钮需要的身份和关系状态。 */
     private fun profileJson(): JSONObject = JSONObject()

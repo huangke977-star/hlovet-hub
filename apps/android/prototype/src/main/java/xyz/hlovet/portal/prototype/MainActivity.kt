@@ -4286,6 +4286,7 @@ internal fun ArticleDetailScreen(
     var commentTotal by remember(initialArticle.slug, session?.accessToken) { mutableIntStateOf(initialArticle.commentCount) }
     var nextCommentCursor by remember(initialArticle.slug, session?.accessToken) { mutableStateOf<Int?>(null) }
     var hasMoreComments by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
+    var commentsLoadError by remember(initialArticle.slug, session?.accessToken) { mutableStateOf<String?>(null) }
     var commentsRequestId by remember(initialArticle.slug, session?.accessToken) { mutableIntStateOf(0) }
     var loading by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(true) }
     var loadingMore by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
@@ -4453,6 +4454,7 @@ internal fun ArticleDetailScreen(
         val requestToken = session?.accessToken
         loading = true
         error = null
+        commentsLoadError = null
         notice = null
         offlineNotice = null
         showingOfflineContent = false
@@ -4464,6 +4466,7 @@ internal fun ArticleDetailScreen(
             commentTotal = initialArticle.commentCount
             nextCommentCursor = null
             hasMoreComments = false
+            commentsLoadError = null
             highlightCommentId = null
             offlineSaved = true
             showingOfflineContent = true
@@ -4671,6 +4674,7 @@ internal fun ArticleDetailScreen(
         val requestId = commentsRequestId + 1
         commentsRequestId = requestId
         loadingMore = false
+        commentsLoadError = null
         val requestedSlug = article.slug
         val refreshed = withContext(Dispatchers.IO) {
             NativeArticleApi.listComments(token, requestedSlug, focusId = focusId)
@@ -4693,6 +4697,7 @@ internal fun ArticleDetailScreen(
         val requestedToken = session?.accessToken
         scope.launch {
             loadingMore = true
+            commentsLoadError = null
             error = null
             try {
                 val page = withContext(Dispatchers.IO) {
@@ -4706,10 +4711,23 @@ internal fun ArticleDetailScreen(
                 }
             } catch (exception: Exception) {
                 if (isCurrentArticleDetailRequest(requestId, commentsRequestId, requestedSlug, article.slug, requestedToken, session?.accessToken)) {
-                    error = exception.message ?: nativePhrase("更多评论加载失败。", "Failed to load more comments.")
+                    commentsLoadError = exception.message ?: nativePhrase("更多评论加载失败。", "Failed to load more comments.")
+                    error = commentsLoadError
                 }
             } finally {
                 if (isCurrentArticleDetailRequest(requestId, commentsRequestId, requestedSlug, article.slug, requestedToken, session?.accessToken)) loadingMore = false
+            }
+        }
+    }
+
+    // 评论分页入口进入可视区域时自动加载下一页；失败后暂停自动重试并保留手动入口。
+    LaunchedEffect(commentListState, hasMoreComments, loadingMore, commentsLoadError) {
+        snapshotFlow {
+            commentListState.layoutInfo.visibleItemsInfo.any { item -> item.key == "article-comments-footer" }
+        }.collect { footerVisible ->
+            // 失败状态必须等待用户点击重试，避免网络异常时在列表底部持续请求。
+            if (footerVisible && hasMoreComments && !loadingMore && commentsLoadError.isNullOrBlank()) {
+                loadMoreComments()
             }
         }
     }
@@ -5301,12 +5319,23 @@ internal fun ArticleDetailScreen(
         }
         }
         if (hasMoreComments) {
-            item {
+            item(key = "article-comments-footer") {
                 TextButton(
                     onClick = ::loadMoreComments,
                     enabled = !loadingMore,
-                    modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
-                ) { Text(if (loadingMore) nativePhrase("读取中…", "Loading...") else nativePhrase("加载更多评论", "Load more comments")) }
+                    modifier = Modifier
+                        .padding(horizontal = 20.dp)
+                        .fillMaxWidth()
+                        .testTag("article-comments-footer"),
+                ) {
+                    Text(
+                        when {
+                            loadingMore -> nativePhrase("读取中…", "Loading...")
+                            !commentsLoadError.isNullOrBlank() -> nativePhrase("加载失败，点击重试", "Load failed. Tap to retry")
+                            else -> nativePhrase("加载更多评论", "Load more comments")
+                        },
+                    )
+                }
             }
         }
     }
