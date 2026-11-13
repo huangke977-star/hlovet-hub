@@ -1216,6 +1216,9 @@ internal object NativeArticleApi {
             titleColor = optString("titleColor"),
             allowedRoleCodes = optJSONArray("allowedRoles").toRoleCodes(),
             updatedAt = formatTime(optString("updatedAt")),
+            publishedAt = formatTime(optString("publishedAt")).takeIf { it.isNotBlank() },
+            collections = toRemoteArticleGroupings("collections", "collection"),
+            topics = toRemoteArticleGroupings("topics", "topic"),
         )
     }
 

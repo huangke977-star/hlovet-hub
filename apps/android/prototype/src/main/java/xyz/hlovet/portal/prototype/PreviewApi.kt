@@ -91,7 +91,37 @@ internal data class RemoteArticle(
     val titleColor: String = "",
     val allowedRoleCodes: List<String> = emptyList(),
     val updatedAt: String = "",
+    val publishedAt: String? = null,
+    val collections: List<RemoteArticleGrouping> = emptyList(),
+    val topics: List<RemoteArticleGrouping> = emptyList(),
 )
+
+/** 文章关联的专题或合集入口；统一承载展示名称、目标地址和内容类型。 */
+internal data class RemoteArticleGrouping(
+    val id: Int,
+    val label: String,
+    val href: String,
+    val type: String,
+)
+
+/** 解析文章关联项并兼容不同接口返回的 label、title、name 与 slug 字段。 */
+internal fun JSONObject.toRemoteArticleGroupings(fieldName: String, type: String): List<RemoteArticleGrouping> = buildList {
+    val values = optJSONArray(fieldName) ?: return@buildList
+    for (index in 0 until values.length()) {
+        val value = values.optJSONObject(index) ?: continue
+        val id = value.optInt("id")
+        val slug = value.optString("slug")
+        val label = value.optString("label")
+            .ifBlank { value.optString("title") }
+            .ifBlank { value.optString("name") }
+            .ifBlank { slug }
+            .ifBlank { "#${id}" }
+        val href = value.optString("href")
+            .takeIf { it.isNotBlank() && it != "null" }
+            ?: if (type == "topic") "/topics/${slug.ifBlank { id.toString() }}" else "/collections/$id"
+        add(RemoteArticleGrouping(id = id, label = label, href = href, type = type))
+    }
+}
 
 internal data class RemoteArticleSegment(
     val type: String,

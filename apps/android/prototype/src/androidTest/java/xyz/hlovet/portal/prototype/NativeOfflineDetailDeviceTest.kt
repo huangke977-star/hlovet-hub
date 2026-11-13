@@ -2,7 +2,10 @@ package xyz.hlovet.portal.prototype
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import okhttp3.mockwebserver.MockWebServer
@@ -67,6 +70,34 @@ class NativeOfflineDetailDeviceTest {
         // 离线提示和正文都应在网络请求之前显示，证明页面没有等待在线失败回退。
         waitForText("当前处于离线阅读模式，评论和互动暂不可用。")
         compose.onNodeWithText("离线文章", substring = false).assertIsDisplayed()
+        assertEquals(0, server.requestCount)
+    }
+
+    /** 验证离线文章中的专题和合集入口只提示联网，不触发关联详情接口。 */
+    @Test
+    fun offlineArticleGroupingLinksExplainNetworkRequirementWithoutRequest() {
+        // 文章快照包含两类关联内容，确保测试覆盖真实详情页的入口渲染。
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = article().copy(
+                        topics = listOf(RemoteArticleGrouping(905, "离线专题入口", "/topics/offline-topic", "topic")),
+                        collections = listOf(RemoteArticleGrouping(906, "离线合集入口", "/collections/906", "collection")),
+                    ),
+                    offlineOnly = true,
+                    session = null,
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        // 两种入口点击后都应给出同一明确提示，且不能将离线操作转成在线加载。
+        compose.onNodeWithTag("article-grouping-topic-905").performScrollTo().performClick()
+        waitForText("离线模式下需要联网才能打开专题或合集。")
+        compose.onNodeWithTag("article-grouping-collection-906").performScrollTo().performClick()
+        waitForText("离线模式下需要联网才能打开专题或合集。")
         assertEquals(0, server.requestCount)
     }
 

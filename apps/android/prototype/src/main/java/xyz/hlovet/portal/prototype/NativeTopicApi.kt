@@ -198,6 +198,9 @@ internal object NativeTopicApi {
             authorId = author?.optInt("id") ?: 0,
             status = optString("status", "published"),
             updatedAt = optString("updatedAt"),
+            publishedAt = optString("publishedAt").takeIf { it.isNotBlank() && it != "null" },
+            collections = toRemoteArticleGroupings("collections", "collection"),
+            topics = toRemoteArticleGroupings("topics", "topic"),
         )
     }
 

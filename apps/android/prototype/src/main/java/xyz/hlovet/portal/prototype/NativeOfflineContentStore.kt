@@ -310,6 +310,9 @@ internal object NativeOfflineContentStore {
         put("viewCount", viewCount); put("likeCount", likeCount); put("favoriteCount", favoriteCount); put("commentCount", commentCount)
         put("authorName", authorName); put("authorUsername", authorUsername); put("authorId", authorId)
         put("liked", liked); put("favorited", favorited); put("readLater", readLater); put("images", JSONArray(images)); put("updatedAt", updatedAt)
+        put("publishedAt", publishedAt ?: JSONObject.NULL)
+        put("collections", JSONArray().also { array -> collections.forEach { array.put(it.toJson()) } })
+        put("topics", JSONArray().also { array -> topics.forEach { array.put(it.toJson()) } })
         put("resourceEnabled", resourceEnabled)
         put("contentSegments", JSONArray().also { array -> contentSegments.forEach { segment -> array.put(segment.toJson()) } })
         put("resourceBlocks", JSONArray().also { array -> resourceBlocks.forEach { block -> array.put(block.toJson()) } })
@@ -345,7 +348,31 @@ internal object NativeOfflineContentStore {
         status = optString("status", "published"), blockedReason = optString("blockedReason").takeIf { it.isNotBlank() && it != "null" }, isPinned = optBoolean("isPinned"),
         visibility = optString("visibility", "public"), allowedRoleCodes = optJSONArray("allowedRoleCodes").toStrings(), pinOrder = optInt("pinOrder"),
         readingProgress = if (isNull("readingProgress")) null else optInt("readingProgress"), lastReadAt = optString("lastReadAt").takeIf { it.isNotBlank() && it != "null" },
+        publishedAt = optString("publishedAt").takeIf { it.isNotBlank() && it != "null" },
+        collections = optJSONArray("collections").toRemoteArticleGroupings(),
+        topics = optJSONArray("topics").toRemoteArticleGroupings(),
     )
+
+    /** 将文章关联入口写入离线快照，保证离线详情仍能展示已缓存的关联关系。 */
+    private fun RemoteArticleGrouping.toJson() = JSONObject().apply {
+        put("id", id); put("label", label); put("href", href); put("type", type)
+    }
+
+    /** 读取旧版或新版离线快照中的文章关联入口，缺失字段按空列表处理。 */
+    private fun JSONArray?.toRemoteArticleGroupings(): List<RemoteArticleGrouping> = buildList {
+        if (this@toRemoteArticleGroupings == null) return@buildList
+        for (index in 0 until length()) {
+            val value = optJSONObject(index) ?: continue
+            add(
+                RemoteArticleGrouping(
+                    id = value.optInt("id"),
+                    label = value.optString("label").ifBlank { value.optString("title") },
+                    href = value.optString("href"),
+                    type = value.optString("type"),
+                ),
+            )
+        }
+    }
 
     private fun JSONObject.toRemoteTopic() = RemoteTopic(
         id = optInt("id"), title = optString("title"), slug = optString("slug"), description = optString("description"),

@@ -898,6 +898,9 @@ internal object NativeDiscoveryApi {
             favorited = optBoolean("favorited"),
             readLater = optBoolean("readLater"),
             images = optJSONArray("images").toStrings(),
+            publishedAt = optString("publishedAt").takeIf { it.isNotBlank() && it != "null" },
+            collections = toRemoteArticleGroupings("collections", "collection"),
+            topics = toRemoteArticleGroupings("topics", "topic"),
         )
     }
 

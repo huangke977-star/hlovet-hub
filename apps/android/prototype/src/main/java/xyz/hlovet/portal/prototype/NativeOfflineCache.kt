@@ -468,6 +468,9 @@ internal object NativeOfflineCache {
         put("favorited", favorited)
         put("readLater", readLater)
         put("images", JSONArray(images))
+        put("publishedAt", publishedAt ?: JSONObject.NULL)
+        put("collections", JSONArray().also { array -> collections.forEach { array.put(it.toJson()) } })
+        put("topics", JSONArray().also { array -> topics.forEach { array.put(it.toJson()) } })
     }
 
     private fun RemoteTopic.toJson(): JSONObject = JSONObject().apply {
@@ -590,7 +593,31 @@ internal object NativeOfflineCache {
         favorited = optBoolean("favorited"),
         readLater = optBoolean("readLater"),
         images = optJSONArray("images").toStrings(),
+        publishedAt = optString("publishedAt").takeIf { it.isNotBlank() && it != "null" },
+        collections = optJSONArray("collections").toRemoteArticleGroupings(),
+        topics = optJSONArray("topics").toRemoteArticleGroupings(),
     )
+
+    /** 将文章关联入口写入媒体缓存快照，保证旧缓存升级后仍可回显文章上下文。 */
+    private fun RemoteArticleGrouping.toJson() = JSONObject().apply {
+        put("id", id); put("label", label); put("href", href); put("type", type)
+    }
+
+    /** 读取媒体缓存中的文章关联入口；旧快照没有该字段时返回空列表。 */
+    private fun JSONArray?.toRemoteArticleGroupings(): List<RemoteArticleGrouping> = buildList {
+        if (this@toRemoteArticleGroupings == null) return@buildList
+        for (index in 0 until length()) {
+            val value = optJSONObject(index) ?: continue
+            add(
+                RemoteArticleGrouping(
+                    id = value.optInt("id"),
+                    label = value.optString("label").ifBlank { value.optString("title") },
+                    href = value.optString("href"),
+                    type = value.optString("type"),
+                ),
+            )
+        }
+    }
 
     private fun JSONArray?.toStrings(): List<String> = buildList {
         if (this@toStrings == null) return@buildList

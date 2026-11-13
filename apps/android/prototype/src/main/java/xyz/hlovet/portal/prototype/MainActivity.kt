@@ -2616,6 +2616,38 @@ private fun HlovetMobilePreview(
                                 onOpenUser = { username ->
                                     openProfileFromDetail(username, target, detailBackTarget)
                                 },
+                                onOpenGrouping = { grouping ->
+                                    // 专题与合集只在接口确认加载成功后替换当前详情，失败时保留原文章。
+                                    scope.launch {
+                                        try {
+                                            val destination = withContext(Dispatchers.IO) {
+                                                when (grouping.type.lowercase()) {
+                                                    "topic" -> {
+                                                        val segments = Uri.parse(grouping.href).pathSegments
+                                                        val slug = segments.lastOrNull()
+                                                            ?.takeIf { segments.size >= 2 && segments[segments.lastIndex - 1] == "topics" }
+                                                            ?: throw IllegalArgumentException(nativePhrase("专题地址无效。", "The topic link is invalid."))
+                                                        DetailTarget.Topic(NativeDiscoveryApi.getTopic(session?.accessToken, slug))
+                                                    }
+                                                    "collection" -> {
+                                                        val collectionId = grouping.id.takeIf { it > 0 }
+                                                            ?: Uri.parse(grouping.href).pathSegments.lastOrNull()?.toIntOrNull()
+                                                            ?: throw IllegalArgumentException(nativePhrase("合集地址无效。", "The collection link is invalid."))
+                                                        DetailTarget.Collection(NativeDiscoveryApi.getCollection(session?.accessToken, collectionId))
+                                                    }
+                                                    else -> throw IllegalArgumentException(nativePhrase("暂不支持打开此内容。", "This content type cannot be opened."))
+                                                }
+                                            }
+                                            openDetailTarget(destination, NativeDetailBackTarget.Detail(target))
+                                        } catch (cancelled: CancellationException) {
+                                            // 页面关闭或切换时停止旧导航，不把取消显示成加载失败。
+                                            throw cancelled
+                                        } catch (exception: Exception) {
+                                            // 目标加载失败只提示用户，当前文章和阅读位置继续保留。
+                                            showNativeNotice(exception.message ?: nativePhrase("专题或合集暂时无法打开。", "The topic or collection cannot be opened right now."))
+                                        }
+                                    }
+                                },
                             )
                         }
                         is DetailTarget.Topic,
@@ -4232,7 +4264,8 @@ private fun AppHeader(
 
 /**
  * 显示 initialArticle 的阅读与评论；focusCommentId 用于定位评论，session 决定权限及缓存归属。
- * onLogin/onBack/onOpenUser 分别处理登录、返回和作者导航，附件下载复用当前来源的统一文件操作面板。
+ * 作者公开资料与订阅失败只影响作者信息区，不阻断正文；专题和合集导航由宿主确认加载后处理。
+ * onLogin/onBack/onOpenUser/onOpenGrouping 分别处理登录、返回、作者和关联内容导航。
  */
 @Composable
 internal fun ArticleDetailScreen(
@@ -4243,6 +4276,7 @@ internal fun ArticleDetailScreen(
     onLogin: () -> Unit,
     onBack: () -> Unit,
     onOpenUser: (String) -> Unit = {},
+    onOpenGrouping: (RemoteArticleGrouping) -> Unit = {},
 ) {
     // 阅读、评论及文件面板状态跟随文章和会话变化，不能把旧账号附件带入新身份。
     val context = LocalContext.current
@@ -4278,8 +4312,71 @@ internal fun ArticleDetailScreen(
     var offlineSaved by remember(initialArticle.slug, offlineOwner) { mutableStateOf(false) }
     var offlineNotice by remember(initialArticle.slug, offlineOwner) { mutableStateOf<String?>(null) }
     var showingOfflineContent by remember(initialArticle.slug, offlineOwner) { mutableStateOf(false) }
+    var authorProfile by remember(initialArticle.slug, session?.accessToken) { mutableStateOf<NativePublicProfile?>(null) }
+    var authorProfileLoading by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
+    var authorProfileUnavailable by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
+    var authorSubscriptionBusy by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
+    var authorNotice by remember(initialArticle.slug, session?.accessToken) { mutableStateOf<String?>(null) }
+    var authorNoticeIsError by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val commentListState = rememberLazyListState()
+
+    // 作者资料只补充公开信息；离线详情不请求网络，资料接口异常也不改变正文加载状态。
+    LaunchedEffect(article.authorUsername, session?.accessToken, offlineOnly, showingOfflineContent) {
+        val username = article.authorUsername.trim()
+        authorProfile = null
+        authorProfileUnavailable = false
+        authorProfileLoading = false
+        if (username.isBlank() || offlineOnly || showingOfflineContent) return@LaunchedEffect
+        authorProfileLoading = true
+        try {
+            authorProfile = withContext(Dispatchers.IO) {
+                NativeProfileApi.loadPublic(session?.accessToken, username)
+            }
+        } catch (cancelled: CancellationException) {
+            // 文章、作者或账号切换取消旧资料请求，不能覆盖新详情状态。
+            throw cancelled
+        } catch (_: Exception) {
+            // 作者资料属于可选信息；标记作者卡片降级，正文与评论加载不受影响。
+            authorProfileUnavailable = true
+        } finally {
+            authorProfileLoading = false
+        }
+    }
+
+    // 仅登录用户可修改订阅；成功后采用服务端返回的状态和订阅人数更新作者卡片。
+    fun toggleAuthorSubscription(profile: NativePublicProfile) {
+        val token = session?.accessToken
+        if (token.isNullOrBlank()) {
+            onLogin()
+            return
+        }
+        if (authorSubscriptionBusy || profile.id <= 0) return
+        scope.launch {
+            authorSubscriptionBusy = true
+            authorNotice = null
+            authorNoticeIsError = false
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    NativeFriendsApi.setAuthorSubscription(token, profile.id, !profile.subscribed)
+                }
+                authorProfile = profile.copy(
+                    subscribed = result.subscribed,
+                    subscriberCount = result.subscriberCount,
+                )
+                authorNotice = nativePhrase("作者订阅状态已更新。", "Author subscription updated.")
+            } catch (cancelled: CancellationException) {
+                // 详情退出时停止订阅请求，并保留协程取消语义。
+                throw cancelled
+            } catch (exception: Exception) {
+                // 订阅失败仅显示在作者卡片内，不遮挡或回滚已加载正文。
+                authorNotice = exception.message ?: nativePhrase("更新订阅失败，请稍后重试。", "Could not update the subscription. Try again later.")
+                authorNoticeIsError = true
+            } finally {
+                authorSubscriptionBusy = false
+            }
+        }
+    }
 
     /** 下载 target 对应的文章附件或读取当前账号离线缓存，成功后展示统一打开及保存入口。 */
     fun openArticleAttachment(target: NativeArticleAttachmentTarget) {
@@ -4844,20 +4941,83 @@ internal fun ArticleDetailScreen(
                 shape = HlovetUi.cardShape,
             ) {
                 Column(Modifier.padding(20.dp)) {
+                    // 作者信息优先使用公开资料接口；接口不可用时回退到文章快照，保证正文仍可阅读。
+                    val profile = authorProfile
+                    val authorName = profile?.nickname?.takeIf { it.isNotBlank() } ?: article.authorName
+                    val authorUsername = profile?.username?.takeIf { it.isNotBlank() } ?: article.authorUsername
                     Row(
-                        modifier = Modifier.clickable(enabled = article.authorUsername.isNotBlank()) {
-                            onOpenUser(article.authorUsername)
-                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = authorUsername.isNotBlank()) { onOpenUser(authorUsername) },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Avatar(article.authorName.takeLast(2), Coral)
+                        if (!profile?.avatarUrl.isNullOrBlank()) {
+                            NativeCoverImage(
+                                path = profile?.avatarUrl,
+                                modifier = Modifier.size(40.dp).clip(CircleShape),
+                                fallbackText = authorName,
+                                tint = Coral,
+                                accessToken = session?.accessToken,
+                                cacheOwner = offlineOwner,
+                                offlineOnly = showingOfflineContent,
+                            )
+                        } else {
+                            Avatar(authorName, Coral)
+                        }
                         Spacer(Modifier.width(10.dp))
-                        Column {
-                            Text(article.authorName, fontWeight = FontWeight.SemiBold)
-                            Text("@${article.authorUsername.ifBlank { "user" }} · ${articleReadTime(article)}", color = TextMuted, fontSize = 11.sp)
+                        Column(Modifier.weight(1f)) {
+                            Text(authorName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                "@${authorUsername.ifBlank { "user" }} · ${articleReadTime(article)}",
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        // 作者本人不能重复订阅自己；离线详情也不能执行订阅写操作。
+                        if (profile != null && !profile.isSelf && !showingOfflineContent) {
+                            TextButton(onClick = { toggleAuthorSubscription(profile) }, enabled = !authorSubscriptionBusy) {
+                                Text(
+                                    if (profile.subscribed) nativePhrase("已订阅", "Subscribed") else nativePhrase("订阅", "Subscribe"),
+                                    fontSize = 12.sp,
+                                )
+                            }
                         }
                     }
-                    Spacer(Modifier.height(18.dp))
+                    if (profile?.visibleFields?.bio == true && !profile.bio.isNullOrBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(profile.bio.orEmpty(), color = TextMuted, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (profile != null && profile.visibleFields.stats) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            listOf(
+                                nativePhrase("文章", "Articles") to profile.publicArticleCount,
+                                nativePhrase("获赞", "Likes") to profile.receivedLikeCount,
+                                nativePhrase("阅读", "Views") to profile.publicViewCount,
+                                nativePhrase("订阅者", "Subscribers") to profile.subscriberCount,
+                            ).forEach { (label, value) ->
+                                Column {
+                                    Text(value?.toString() ?: "—", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Text(label, color = TextMuted, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+                    authorNotice?.let { message ->
+                        Spacer(Modifier.height(6.dp))
+                        Text(message, color = if (authorNoticeIsError) Coral else Accent, fontSize = 11.sp)
+                    }
+                    if (authorProfileLoading) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(nativePhrase("正在读取作者资料…", "Loading author profile..."), color = TextMuted, fontSize = 10.sp)
+                    }
+                    if (authorProfileUnavailable) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(nativePhrase("作者资料暂时不可用。", "Author profile is temporarily unavailable."), color = TextMuted, fontSize = 10.sp)
+                    }
+                    Spacer(Modifier.height(12.dp))
                     Text(
                         article.title,
                         color = article.titleColor.toNativeComposeColor(Accent),
@@ -4865,17 +5025,61 @@ internal fun ArticleDetailScreen(
                         lineHeight = 32.sp,
                         fontWeight = FontWeight.Bold,
                     )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(8.dp))
+                    val publishedAt = article.publishedAt?.takeIf { it.isNotBlank() }?.let(::privacyTime)
+                    val updatedAt = article.updatedAt.takeIf { it.isNotBlank() && it != article.publishedAt }?.let(::privacyTime)
+                    if (publishedAt != null || updatedAt != null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            publishedAt?.let {
+                                Text(nativePhrase("发布于 $it", "Published $it"), color = TextMuted, fontSize = 10.sp)
+                            }
+                            updatedAt?.let {
+                                Text(nativePhrase("更新于 $it", "Updated $it"), color = TextMuted, fontSize = 10.sp)
+                            }
+                        }
+                    }
                     if (article.category.isNotBlank()) {
-                        HlovetBadge(
-                            text = article.category,
-                            fontSize = 12.sp,
-                            containerColor = HlovetUi.accentSoft,
-                        )
+                        Spacer(Modifier.height(8.dp))
+                        HlovetBadge(text = article.category, fontSize = 12.sp, containerColor = HlovetUi.accentSoft)
                     }
                     if (article.tags.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
                         Text(article.tags.joinToString("  ·  "), color = TextMuted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    val groupings = article.topics.map { it.copy(type = "topic") } + article.collections.map { it.copy(type = "collection") }
+                    if (groupings.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            groupings.forEach { grouping ->
+                                AssistChip(
+                                    onClick = {
+                                        if (offlineOnly || showingOfflineContent) {
+                                            notice = nativePhrase(
+                                                "离线模式下需要联网才能打开专题或合集。",
+                                                "Connect to the internet to open topics or collections.",
+                                            )
+                                        } else {
+                                            onOpenGrouping(grouping)
+                                        }
+                                    },
+                                    label = {
+                                        Text(
+                                            nativePhrase(
+                                                if (grouping.type == "topic") "专题 · ${grouping.label}" else "合集 · ${grouping.label}",
+                                                if (grouping.type == "topic") "Topic · ${grouping.label}" else "Collection · ${grouping.label}",
+                                            ),
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("article-grouping-${grouping.type}-${grouping.id}"),
+                                )
+                            }
+                        }
                     }
                 }
             }

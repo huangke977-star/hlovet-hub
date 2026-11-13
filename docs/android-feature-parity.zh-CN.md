@@ -3552,3 +3552,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 使用隔离测试包和设备内 `127.0.0.1:39871` MockWebServer，定向执行 `NativeSiteAppearanceDeviceTest`、`NativeThemeContentColorDeviceTest` 与 `NativeArticleAppearanceDeviceTest`；本轮 XML 结果覆盖 4 台在线模拟器，每台 `8/8`，合计 `32/32` 通过，失败、错误和跳过均为 `0`。
 - 回归覆盖站点外观色板切换、无背景时根页面文字/图标颜色、共享弹窗显式账号色、玻璃卡片默认背景与显式覆盖、阅读器切换后保持滚动位置、文章编辑器初始样式、正文与作者标题预览颜色，以及编辑器选择区、撤销/重做状态在外观变化后的保持。
 - 本轮测试仅使用设备内 MockWebServer，不访问生产 API、Google、Passkey、FCM、WebRTC、AI/媒体供应商或 OSS/R2，也没有写入真实账号、文章或数据库数据。Gradle 设备任务成功，现有 `365/365` JVM 单测和既有路由/API 静态审计结果保持有效。
+
+## Android 合集、推荐反馈与更多入口回归收口（2026-11-12）
+
+- 首次在四台在线模拟器并行执行 `NativeCollectionsDeviceTest`、`NativeRecommendationFeedbackDeviceTest` 和 `NativeMoreNavigationTest` 时，Android 11 `HlovetChatRegression11` 仅有两个用例失败：`browseSearchRejectsLatePreviousPage` 等待超时、`publicMoreEntriesDispatchToExpectedTargets` 未及时显示；另外三台设备各 `13/13` 通过。
+- 为排除设备并行和前一次测试状态干扰，随后在同一台 `emulator-5562` 上通过 `adb shell am instrument` 顺序执行完整三类用例，结果为 `13/13` 通过，失败、错误和跳过均为 `0`；两个原失败用例单独复跑也分别通过。因此本轮没有发现稳定可复现的源码行为缺陷，不修改应用代码。
+- 测试包使用隔离 API 配置和设备内 MockWebServer，未访问生产服务器、未写入真实账号或业务数据；`.dockerignore` 中已有的证据排除规则和 `tmp-*` 现场文件均保持不变。
