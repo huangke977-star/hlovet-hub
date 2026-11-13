@@ -177,7 +177,7 @@ class NativeOnlineArticleDetailDeviceTest {
         // 先等待首屏完成，再把分页入口滚入视口，触发与用户真实滑动相同的自动加载链路。
         waitForText("在线详情文章")
         compose.onNodeWithTag("article-comments-footer").performScrollTo()
-        waitForText("自动加载评论")
+        waitForText("分页成功评论内容")
 
         // 第二页请求必须携带首屏返回的游标，且只发生一次，避免滚动状态重复触发请求。
         compose.waitUntil(5_000) { synchronized(commentPageRequests) { commentPageRequests.size == 2 } }
@@ -218,7 +218,7 @@ class NativeOnlineArticleDetailDeviceTest {
 
         // 点击页尾入口再次请求相同游标，成功后追加第二页评论并恢复正常提示。
         compose.onNodeWithTag("article-comments-footer").performClick()
-        waitForText("自动加载评论")
+        waitForText("分页成功评论内容")
         compose.waitUntil(5_000) { synchronized(commentPageRequests) { commentPageRequests.size == 3 } }
         assertEquals(listOf("initial", "20", "20"), synchronized(commentPageRequests) { commentPageRequests.toList() })
     }
@@ -323,7 +323,7 @@ class NativeOnlineArticleDetailDeviceTest {
             JSONObject()
                 .put("id", 821)
                 .put("articleId", 701)
-                .put("body", "自动加载评论")
+                .put("body", "分页成功评论内容")
                 .put("status", "active")
                 .put("likeCount", 0)
                 .put("liked", false)
