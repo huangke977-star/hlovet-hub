@@ -4782,6 +4782,9 @@ internal fun ArticleDetailScreen(
                     hasMoreComments = page.hasMore
                     commentTotal = page.totalThreads
                 }
+            } catch (cancelled: CancellationException) {
+                // 页面离开或评论请求代际变化时继续向上传播取消，不把它显示为分页故障。
+                throw cancelled
             } catch (exception: Exception) {
                 if (isCurrentArticleDetailRequest(requestId, commentsRequestId, requestedSlug, article.slug, requestedToken, session?.accessToken)) {
                     // 分页错误只交给评论页尾重试入口，不能变成文章正文的整体错误。
