@@ -18,6 +18,25 @@
 
 ## 构建
 
+### 测试前内存门禁
+
+Android 构建、JVM 测试和设备测试可能同时占用较多内存。为避免测试过程中发生内存提交不足，建议先用门禁脚本检查可用物理内存；默认安全线是 `8 GiB`，低于安全线时脚本退出码为 `78`，不会启动 Gradle。
+
+只检查当前内存：
+
+```powershell
+node .\tools\run-android-with-memory-gate.mjs --check-only
+```
+
+通过检查后运行 Gradle，后面的参数会原样传给 Wrapper：
+
+```powershell
+node .\tools\run-android-with-memory-gate.mjs :prototype:testDebugUnitTest
+node .\tools\run-android-with-memory-gate.mjs :prototype:connectedDebugAndroidTest '-PpreviewApiBaseUrl=http://127.0.0.1:39871' '-PpreviewPortalBaseUrl=http://127.0.0.1:39871'
+```
+
+如需临时使用更高的安全线，可以追加 `--min-free-gib 12`；不要为了强行运行测试而降低已确认的 `8 GiB` 安全线。
+
 需要使用 JDK 17 和 Android SDK 命令行工具。当前这台 Windows 机器上的位置是：
 
 ```text
