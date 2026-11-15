@@ -1,6 +1,7 @@
 package xyz.hlovet.portal.prototype
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -157,11 +158,13 @@ class NativeOnlineArticleDetailDeviceTest {
         // 文章响应成功后必须立即可见，评论失败只能显示评论区的独立错误入口。
         waitForText("在线详情文章")
         waitForText("评论加载失败，请重试。")
-        compose.onNodeWithTag("article-comments-retry").performClick()
-        waitForText("隔离评论")
+        // 错误入口位于懒列表后段，先滚入视口并确认启用，再按真实用户路径触发重试。
+        compose.onNodeWithTag("article-comments-retry").performScrollTo().assertIsEnabled().performClick()
+        compose.waitUntil(15_000) { synchronized(commentPageRequests) { commentPageRequests.size == 2 } }
+        compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comment-801"))
+        compose.onNodeWithText("隔离评论", substring = false).assertIsDisplayed()
 
         // 重试只增加一次评论请求；文章详情从始至终只请求一次。
-        compose.waitUntil(5_000) { synchronized(commentPageRequests) { commentPageRequests.size == 2 } }
         assertEquals(1, synchronized(articleRequests) { articleRequests.size })
         assertEquals(listOf("initial", "initial"), synchronized(commentPageRequests) { commentPageRequests.toList() })
     }
