@@ -7222,8 +7222,23 @@ private fun TopicRow(
     }
 }
 
+/**
+ * 绘制当前账号的消息与通知列表，并隔离异步请求状态。
+ * 刷新、分页和批量操作通过请求代际阻止旧回包覆盖新状态。
+ * @param padding 页面内容避让系统导航区域的内边距
+ * @param session 当前登录会话；为空时展示未登录入口
+ * @param refreshKey 页面外部触发的刷新代数
+ * @param onLogin 打开登录流程的回调
+ * @param onNotice 展示操作提示的回调
+ * @param onOpenPeople 打开联系人列表的回调
+ * @param onOpenGroups 打开群组列表的回调
+ * @param onOpenConversation 打开指定会话的回调
+ * @param onOpenNotification 打开通知关联内容的回调
+ * @param onInboxSummaryChanged 将最新收件箱摘要回传给页面宿主
+ * @param onEnableNativeNotifications 打开系统通知权限或设置流程的回调
+ */
 @Composable
-private fun MessagesScreen(
+internal fun MessagesScreen(
     padding: PaddingValues,
     session: NativeSession?,
     refreshKey: Int,
@@ -7564,7 +7579,7 @@ private fun MessagesScreen(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
+        modifier = Modifier.fillMaxSize().padding(padding).testTag("messages-screen-list"),
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -7616,7 +7631,14 @@ private fun MessagesScreen(
         } else if (loading) {
             item { EmptyState(nativePhrase("正在读取消息…", "Loading messages...")) }
         } else if (!error.isNullOrBlank()) {
-            item { PreviewStatusScreen(title = nativePhrase("消息暂时无法读取", "Messages are unavailable"), detail = error) }
+            // 重试复用页面现有刷新键，确保错误恢复沿用同一请求校验和会话隔离逻辑。
+            item {
+                PreviewStatusScreen(
+                    title = nativePhrase("消息暂时无法读取", "Messages are unavailable"),
+                    detail = error,
+                    onRetry = { localRefreshKey += 1 },
+                )
+            }
         } else {
             val currentInbox = inbox
             if (currentInbox != null) {
