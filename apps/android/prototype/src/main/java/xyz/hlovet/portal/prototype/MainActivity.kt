@@ -4963,7 +4963,7 @@ internal fun ArticleDetailScreen(
 
     // Android 15 边到边窗口不会自动扣除键盘高度，评论列表必须同步缩小可见区域以保留输入和发送入口。
     LazyColumn(
-        modifier = Modifier.fillMaxSize().imePadding().then(readingProgressModifiers.viewport),
+        modifier = Modifier.fillMaxSize().imePadding().then(readingProgressModifiers.viewport).testTag("article-detail-list"),
         state = commentListState,
         contentPadding = PaddingValues(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),

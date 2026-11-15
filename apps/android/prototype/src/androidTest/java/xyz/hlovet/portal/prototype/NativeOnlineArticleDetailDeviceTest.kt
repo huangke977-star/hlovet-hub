@@ -1,11 +1,13 @@
 package xyz.hlovet.portal.prototype
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import okhttp3.mockwebserver.Dispatcher
@@ -103,6 +105,7 @@ class NativeOnlineArticleDetailDeviceTest {
 
         // 文章标题和评论必须在详情与评论接口返回后出现，不能只依赖初始快照。
         waitForText("在线详情文章")
+        compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comment-801"))
         compose.onNodeWithText("隔离评论", substring = false).assertIsDisplayed()
 
         // 两类关联入口都由页面回调传出，宿主可以据此继续打开对应详情。
@@ -209,9 +212,10 @@ class NativeOnlineArticleDetailDeviceTest {
             }
         }
 
-        // 先等待首屏完成，再把分页入口滚入视口，触发与用户真实滑动相同的自动加载链路。
+        // 滚到稳定存在的首屏末条评论，使页尾进入视口；成功分页会移除页尾，因此不以它作为滚动目标。
         waitForText("在线详情文章")
-        compose.onNodeWithTag("article-comments-footer").performScrollTo()
+        waitForText("隔离评论")
+        compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comment-820"))
         waitForText("分页成功评论内容")
 
         // 第二页请求必须携带首屏返回的游标，且只发生一次，避免滚动状态重复触发请求。
@@ -239,7 +243,8 @@ class NativeOnlineArticleDetailDeviceTest {
 
         // 滚动到分页入口触发第二页失败，页尾应提示用户手动重试。
         waitForText("在线详情文章")
-        compose.onNodeWithTag("article-comments-footer").performScrollTo()
+        waitForText("隔离评论")
+        compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comments-footer"))
         waitForText("加载失败，点击重试")
 
         // 服务端错误文案不能进入正文详情的通用错误区，首轮只请求 initial 与 20。
