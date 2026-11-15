@@ -13898,7 +13898,10 @@ internal fun AccountScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it.take(100) },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(),
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .fillMaxWidth()
+                        .testTag("account-article-search"),
                     singleLine = true,
                     label = { Text(nativePhrase("搜索标题、正文、标签或作者", "Search titles, content, tags, or authors"), fontSize = 12.sp) },
                     trailingIcon = {
