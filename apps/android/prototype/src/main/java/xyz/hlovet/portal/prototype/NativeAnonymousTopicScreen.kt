@@ -187,6 +187,12 @@ internal fun NativeAnonymousTopicsScreen(
             loading = false
             return
         }
+        // 管理入口的登录令牌失效时停止请求，禁止静默退回权限范围更窄但语义不同的公开列表。
+        if (management && session?.accessToken.isNullOrBlank()) {
+            error = nativePhrase("管理员登录状态已失效，请重新登录。", "The administrator session has expired. Please sign in again.")
+            loading = false
+            return
+        }
         // 每次重读或分页都登记请求代际，回包只允许更新当前条件对应的列表。
         val requestGeneration = listRequestGeneration.begin()
         loading = true
@@ -204,7 +210,7 @@ internal fun NativeAnonymousTopicsScreen(
             runCatching {
                 withContext(Dispatchers.IO) {
                     if (manager && session?.accessToken?.isNotBlank() == true) {
-                        NativeAnonymousTopicApi.listAdmin(session.accessToken, targetPage, 12, query, sort, visibility)
+                        NativeAnonymousTopicApi.listAdmin(session.accessToken, targetPage, if (management) 20 else 12, query, sort, visibility)
                     } else {
                         NativeAnonymousTopicApi.list(context, targetPage, 12, query, sort)
                     }
@@ -233,6 +239,11 @@ internal fun NativeAnonymousTopicsScreen(
         // 详情与列表使用相同角色范围，管理权限不足时不请求任何详情。
         if (managementDenied) {
             error = nativePhrase("需要管理员权限才能打开匿名话题管理。", "Administrator access is required to manage anonymous topics.")
+            return
+        }
+        // 管理页面的详情读取必须携带登录令牌，不能在会话失效后回落到公开详情接口。
+        if (management && session?.accessToken.isNullOrBlank()) {
+            error = nativePhrase("管理员登录状态已失效，请重新登录。", "The administrator session has expired. Please sign in again.")
             return
         }
         topicLoading = true
@@ -691,6 +702,7 @@ internal fun NativeAnonymousTopicsScreen(
     }
 }
 
+/** 展示匿名话题列表行及 PC 端一致的赞同、反对摘要；点击主体打开详情。 */
 @Composable
 private fun AnonymousTopicListRow(
     item: NativeAnonymousTopicSummary,
@@ -722,7 +734,21 @@ private fun AnonymousTopicListRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                item.topLikedMessage?.let { Text("👍 #${it.sequence}: ${it.body}", color = HlovetUi.accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                // 同时保留 PC 列表中的正向与负向高频消息线索，并将长正文限制在单行。
+                item.topLikedMessage?.let { highlight ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.ThumbUp, contentDescription = nativePhrase("点赞最多", "Most liked"), tint = HlovetUi.accent, modifier = Modifier.size(11.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("#${highlight.sequence}: ${highlight.body}", color = HlovetUi.accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                item.topDislikedMessage?.let { highlight ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.ThumbDown, contentDescription = nativePhrase("点踩最多", "Most disliked"), tint = HlovetUi.secondaryAccent, modifier = Modifier.size(11.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("#${highlight.sequence}: ${highlight.body}", color = HlovetUi.secondaryAccent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
             }
             IconButton(onClick = onFavorite, modifier = Modifier.size(30.dp).testTag("anonymous-topic-favorite-${item.id}")) {
                 Icon(if (item.favorited) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, contentDescription = if (item.favorited) nativePhrase("取消喜欢", "Unfavorite") else nativePhrase("喜欢话题", "Favorite topic"), tint = if (item.favorited) HlovetUi.secondaryAccent else HlovetUi.muted, modifier = Modifier.size(18.dp))
