@@ -6181,6 +6181,7 @@ internal fun DiscoveryDetailScreen(
                     IconButton(
                         onClick = ::saveOffline,
                         enabled = !loading && !offlineBusy && (topic != null || collection != null),
+                        modifier = Modifier.testTag("discovery-save-offline"),
                     ) {
                         Icon(
                             Icons.Filled.Download,
@@ -6224,8 +6225,15 @@ internal fun DiscoveryDetailScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         FilledTonalButton(
                             onClick = ::toggleSubscription,
-                            enabled = !subscriptionBusy,
+                            enabled = !subscriptionBusy && !target.offlineOnly && !showingOfflineContent,
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                            modifier = Modifier.testTag(
+                                when (target) {
+                                    is DetailTarget.Topic -> "discovery-subscription-topic-${target.topic.id}"
+                                    is DetailTarget.Collection -> "discovery-subscription-collection-${target.collection.id}"
+                                    is DetailTarget.Article -> "discovery-subscription-article-${target.article.id}"
+                                },
+                            ),
                         ) {
                             Icon(
                                 if (subscribed) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
@@ -6256,7 +6264,11 @@ internal fun DiscoveryDetailScreen(
         item { SectionHeading(nativePhrase("收录文章", "Articles"), "") }
         item {
             if (articles.isEmpty()) EmptyState(nativePhrase("这个内容集合暂时还没有可见文章", "No visible articles in this collection yet."))
-            else ArticleGroup(articles, onArticleClick = onArticleClick)
+            else ArticleGroup(
+                displayArticles = articles,
+                onArticleClick = onArticleClick,
+                tagPrefix = "discovery-detail-article",
+            )
         }
     }
 }
@@ -6477,6 +6489,7 @@ private fun ArticleGroup(
     onArticleClick: (RemoteArticle) -> Unit = {},
     onNotInterested: ((RemoteArticle) -> Unit)? = null,
     edgeToEdge: Boolean = false,
+    tagPrefix: String = "discover-article",
 ) {
     Card(
         modifier = Modifier
@@ -6496,6 +6509,7 @@ private fun ArticleGroup(
                     onNotInterested = onNotInterested,
                     edgeToEdge = edgeToEdge,
                     showDivider = index < displayArticles.lastIndex,
+                    tagPrefix = tagPrefix,
                 )
             }
         }
