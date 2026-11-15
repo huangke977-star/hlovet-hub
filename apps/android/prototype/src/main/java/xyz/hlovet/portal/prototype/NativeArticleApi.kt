@@ -683,7 +683,7 @@ internal object NativeArticleApi {
         accessToken: String?,
         slug: String,
         cursor: Int? = null,
-        pageSize: Int = 20,
+        pageSize: Int = 10,
         focusId: Int? = null,
     ): NativeArticleComments {
         val encodedSlug = URLEncoder.encode(slug, Charsets.UTF_8.name()).replace("+", "%20")

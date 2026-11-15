@@ -350,12 +350,12 @@ class NativeOnlineArticleDetailDeviceTest {
         // 滚到稳定存在的首屏末条评论，使页尾进入视口；成功分页会移除页尾，因此不以它作为滚动目标。
         waitForText("在线详情文章")
         waitForText("隔离评论")
-        compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comment-820"))
+        compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comment-810"))
         waitForText("分页成功评论内容")
 
         // 第二页请求必须携带首屏返回的游标，且只发生一次，避免滚动状态重复触发请求。
         compose.waitUntil(5_000) { synchronized(commentPageRequests) { commentPageRequests.size == 2 } }
-        assertEquals(listOf("initial", "20"), synchronized(commentPageRequests) { commentPageRequests.toList() })
+        assertEquals(listOf("initial", "10"), synchronized(commentPageRequests) { commentPageRequests.toList() })
     }
 
     /** 验证下一页失败只显示页尾重试提示，重试继续使用原游标并成功追加评论。 */
@@ -382,20 +382,20 @@ class NativeOnlineArticleDetailDeviceTest {
         compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comments-footer"))
         waitForText("加载失败，点击重试")
 
-        // 服务端错误文案不能进入正文详情的通用错误区，首轮只请求 initial 与 20。
+        // 服务端错误文案不能进入正文详情的通用错误区，首轮只请求 initial 与 10。
         assertTrue(
             "分页错误文案不应出现在详情通用错误区",
             compose.onAllNodesWithText("Fixture comment pagination failure", substring = true)
                 .fetchSemanticsNodes(atLeastOneRootRequired = false)
                 .isEmpty(),
         )
-        assertEquals(listOf("initial", "20"), synchronized(commentPageRequests) { commentPageRequests.toList() })
+        assertEquals(listOf("initial", "10"), synchronized(commentPageRequests) { commentPageRequests.toList() })
 
         // 点击页尾入口再次请求相同游标，成功后追加第二页评论并恢复正常提示。
         compose.onNodeWithTag("article-comments-footer").performClick()
         waitForText("分页成功评论内容")
         compose.waitUntil(5_000) { synchronized(commentPageRequests) { commentPageRequests.size == 3 } }
-        assertEquals(listOf("initial", "20", "20"), synchronized(commentPageRequests) { commentPageRequests.toList() })
+        assertEquals(listOf("initial", "10", "10"), synchronized(commentPageRequests) { commentPageRequests.toList() })
     }
 
     /** 等待指定文案进入 Compose 语义树，避免固定睡眠掩盖异步详情加载问题。 */
@@ -479,9 +479,9 @@ class NativeOnlineArticleDetailDeviceTest {
 
     /** 构造评论首屏响应；分页用例返回足够长的列表，确保页尾需由滚动进入视口。 */
     private fun commentsJson(): JSONObject {
-        // 只在分页用例中构造二十条首屏，其他详情回归继续使用原有单条评论。
+        // 只在分页用例中构造十条首屏，其他详情回归继续使用原有单条评论。
         val items = JSONArray()
-        val itemCount = if (commentPaginationEnabled) 20 else 1
+        val itemCount = if (commentPaginationEnabled) 10 else 1
         repeat(itemCount) { index ->
             val id = 801 + index
             items.put(
@@ -497,12 +497,12 @@ class NativeOnlineArticleDetailDeviceTest {
             )
         }
 
-        // 自动分页场景用 cursor=20 标记第二页；其它测试仍表现为单页列表。
+        // 自动分页场景用 cursor=10 标记第二页；其它测试仍表现为单页列表。
         return JSONObject()
             .put("items", items)
             .put("hasMore", commentPaginationEnabled)
-            .put("nextCursor", if (commentPaginationEnabled) 20 else JSONObject.NULL)
-            .put("totalThreads", if (commentPaginationEnabled) 21 else 1)
+            .put("nextCursor", if (commentPaginationEnabled) 10 else JSONObject.NULL)
+            .put("totalThreads", if (commentPaginationEnabled) 11 else 1)
     }
 
     /** 根据游标返回评论首屏或下一页，并记录请求顺序供分页回归核对。 */
@@ -516,11 +516,11 @@ class NativeOnlineArticleDetailDeviceTest {
             return error(503, "Fixture initial comment failure")
         }
         // 只让首次第二页请求失败，便于同一用例验证错误提示、游标保留和手动重试恢复。
-        if (cursor == "20" && commentPaginationFailureOnce && !commentPaginationFailureReturned) {
+        if (cursor == "10" && commentPaginationFailureOnce && !commentPaginationFailureReturned) {
             commentPaginationFailureReturned = true
             return error(503, "Fixture comment pagination failure")
         }
-        return if (cursor == "20") json(commentsPageTwoJson()) else json(commentsJson())
+        return if (cursor == "10") json(commentsPageTwoJson()) else json(commentsJson())
     }
 
     /** 构造评论分页第二页响应，确认新内容合并到原列表而非替换首屏。 */

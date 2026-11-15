@@ -3571,3 +3571,9 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 首次在四台在线模拟器并行执行 `NativeCollectionsDeviceTest`、`NativeRecommendationFeedbackDeviceTest` 和 `NativeMoreNavigationTest` 时，Android 11 `HlovetChatRegression11` 仅有两个用例失败：`browseSearchRejectsLatePreviousPage` 等待超时、`publicMoreEntriesDispatchToExpectedTargets` 未及时显示；另外三台设备各 `13/13` 通过。
 - 为排除设备并行和前一次测试状态干扰，随后在同一台 `emulator-5562` 上通过 `adb shell am instrument` 顺序执行完整三类用例，结果为 `13/13` 通过，失败、错误和跳过均为 `0`；两个原失败用例单独复跑也分别通过。因此本轮没有发现稳定可复现的源码行为缺陷，不修改应用代码。
 - 测试包使用隔离 API 配置和设备内 MockWebServer，未访问生产服务器、未写入真实账号或业务数据；`.dockerignore` 中已有的证据排除规则和 `tmp-*` 现场文件均保持不变。
+
+## Android 文章详情评论分页统一（2026-11-15）
+
+- 文章详情评论接口的 Android 默认分页大小统一为 `10`；设备回归夹具同步使用 10 条首屏评论、`nextCursor=10` 和 `totalThreads=11`，分页定位目标改为首屏末条评论 `article-comment-810`，避免实现与测试仍依赖旧的 20 条分页约定。
+- 在 Android 设备 `emulator-5570` 上执行 `NativeOnlineArticleDetailDeviceTest`，通过设备内 `127.0.0.1:39871` MockWebServer 提供隔离响应，最终结果为 `10/10` 通过，失败、错误和跳过均为 `0`。回归覆盖文章详情加载、评论首屏、自动分页、分页失败提示、保留原游标重试及第二页追加。
+- 本轮证据只证明原生 Android 客户端与隔离评论分页协议一致，不代表生产 API、真实账号、评论写入或外部服务验收；未执行生产写操作，也未清理既有测试数据。
