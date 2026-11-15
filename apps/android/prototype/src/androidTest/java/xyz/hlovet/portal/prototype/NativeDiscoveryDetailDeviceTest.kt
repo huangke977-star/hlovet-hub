@@ -38,6 +38,7 @@ class NativeDiscoveryDetailDeviceTest {
     private lateinit var server: MockWebServer
     private val requests = Collections.synchronizedList(mutableListOf<String>())
     private var collectionSubscriptionStatus = 200
+    private var collectionDetailStatus = 200
     private var topicDetailStatus = 200
     private var oldLocale = "zh-CN"
 
@@ -50,6 +51,7 @@ class NativeDiscoveryDetailDeviceTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync { NativeI18n.applyLocale("zh-CN") }
         requests.clear()
         collectionSubscriptionStatus = 200
+        collectionDetailStatus = 200
         topicDetailStatus = 200
         server = MockWebServer().apply {
             // 未声明的路径统一返回错误，尽早暴露页面新增的意外请求。
@@ -127,6 +129,30 @@ class NativeDiscoveryDetailDeviceTest {
         compose.waitUntil(5_000) { clickedArticleId.get() == 1201 }
         assertEquals(1201, clickedArticleId.get())
         assertTrue(requests.contains("GET /discovery/collections/visible/1200"))
+    }
+
+    /** 验证合集详情的返回和 RSS 入口均挂载在真实详情页，而不是只存在于宿主导航快照。 */
+    @Test
+    fun collectionDetailExposesBackAndRssActions() {
+        val backCount = AtomicInteger(0)
+        host.setContent {
+            HlovetTheme {
+                DiscoveryDetailScreen(
+                    target = DetailTarget.Collection(collectionSeed()),
+                    session = session(),
+                    onLogin = {},
+                    onBack = { backCount.incrementAndGet() },
+                    onArticleClick = {},
+                    onContentChanged = {},
+                )
+            }
+        }
+
+        // 先等待详情请求完成，避免在初始快照阶段误判操作入口。
+        waitForText("在线合集详情")
+        compose.onNodeWithTag("discovery-detail-back").performClick()
+        compose.onNodeWithTag("discovery-external-rss").assertIsDisplayed()
+        assertEquals(1, backCount.get())
     }
 
     /** 验证合集订阅接口失败时页面保留正文并展示可理解的失败提示。 */
@@ -213,6 +239,34 @@ class NativeDiscoveryDetailDeviceTest {
         assertTrue(requests.contains("GET /discovery/topics/visible/isolated-topic"))
     }
 
+    /** 验证网络失败时详情页同样能回读已保存的合集文章清单。 */
+    @Test
+    fun networkFailureFallsBackToSavedCollectionSnapshot() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val owner = NativeOfflineOwner.forSession(session())
+        val cached = collectionSeed().copy(name = "已保存合集快照", articles = listOf(articleSeed(1299, "已保存合集文章")))
+        NativeOfflineContentStore.saveCollection(context, owner, cached)
+        collectionDetailStatus = 503
+        host.setContent {
+            HlovetTheme {
+                DiscoveryDetailScreen(
+                    target = DetailTarget.Collection(collectionSeed(), offlineOnly = false),
+                    session = session(owner),
+                    onLogin = {},
+                    onBack = {},
+                    onArticleClick = {},
+                    onContentChanged = {},
+                )
+            }
+        }
+
+        // 详情接口失败后仍应保留本地标题、文章和离线提示，不能回到空状态。
+        waitForText("已保存合集快照")
+        waitForText("当前网络不可用，正在显示已保存的内容。订阅和互动暂不可用。")
+        compose.onNodeWithTag("discovery-detail-article-1299").assertIsDisplayed()
+        assertTrue(requests.contains("GET /discovery/collections/visible/1200"))
+    }
+
     /** 验证离线模式中的订阅按钮不可用，且不会向服务器发送订阅请求。 */
     @Test
     fun offlineTopicDisablesSubscriptionWithoutRequest() {
@@ -233,6 +287,28 @@ class NativeDiscoveryDetailDeviceTest {
         // 等待离线文案后核对按钮真的禁用，避免测试只证明没有主动触发点击。
         waitForText("当前处于离线阅读模式，订阅和互动暂不可用。")
         compose.onNodeWithTag("discovery-subscription-topic-1100").assertIsNotEnabled()
+        assertEquals(0, server.requestCount)
+    }
+
+    /** 验证离线合集与离线专题具有一致的互动禁用边界。 */
+    @Test
+    fun offlineCollectionDisablesSubscriptionWithoutRequest() {
+        host.setContent {
+            HlovetTheme {
+                DiscoveryDetailScreen(
+                    target = DetailTarget.Collection(collectionSeed(), offlineOnly = true),
+                    session = session(),
+                    onLogin = {},
+                    onBack = {},
+                    onArticleClick = {},
+                    onContentChanged = {},
+                )
+            }
+        }
+
+        // 离线合集只允许阅读已保存清单，订阅按钮必须保持禁用且不产生网络请求。
+        waitForText("当前处于离线阅读模式，订阅和互动暂不可用。")
+        compose.onNodeWithTag("discovery-subscription-collection-1200").assertIsNotEnabled()
         assertEquals(0, server.requestCount)
     }
 
@@ -263,6 +339,8 @@ class NativeDiscoveryDetailDeviceTest {
             path == "/discovery/topics/visible/isolated-topic" && method == "GET" && topicDetailStatus != 200 ->
                 error(topicDetailStatus, "详情夹具不可用")
             path == "/discovery/topics/visible/isolated-topic" && method == "GET" -> json(topicJson())
+            path == "/discovery/collections/visible/1200" && method == "GET" && collectionDetailStatus != 200 ->
+                error(collectionDetailStatus, "合集详情夹具不可用")
             path == "/discovery/collections/visible/1200" && method == "GET" -> json(collectionJson())
             path == "/discovery/topics/1100/subscribe" && method == "POST" -> json(subscriptionJson(true, 8))
             path == "/discovery/topics/1100/subscribe" && method == "DELETE" -> json(subscriptionJson(false, 7))

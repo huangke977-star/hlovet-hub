@@ -6168,7 +6168,10 @@ internal fun DiscoveryDetailScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.testTag("discovery-detail-back"),
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = nativePhrase("返回", "Back"), modifier = Modifier.size(22.dp))
                     }
                 },
@@ -6180,6 +6183,7 @@ internal fun DiscoveryDetailScreen(
                                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(nativeMediaUrl(feedPath))))
                                 }.onFailure { actionError = nativePhrase("设备上没有可以打开 RSS 订阅的应用。", "No app on this device can open the RSS feed.") }
                             },
+                            modifier = Modifier.testTag("discovery-external-rss"),
                         ) {
                             Icon(Icons.Filled.RssFeed, contentDescription = nativePhrase("站外订阅", "External RSS feed"), tint = targetColor)
                         }
