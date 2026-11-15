@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import okhttp3.mockwebserver.Dispatcher
@@ -42,6 +43,7 @@ class NativeOnlineArticleDetailDeviceTest {
     private val subscriptionMethods = Collections.synchronizedList(mutableListOf<String>())
     private val articleRequests = Collections.synchronizedList(mutableListOf<String>())
     private val commentPageRequests = Collections.synchronizedList(mutableListOf<String>())
+    private val focusCommentRequests = Collections.synchronizedList(mutableListOf<String>())
     private val interactionSettingsRequests = Collections.synchronizedList(mutableListOf<String>())
     private var authorProfileStatus = 200
     private var interactionSettingsStatus = 200
@@ -54,6 +56,11 @@ class NativeOnlineArticleDetailDeviceTest {
     private var commentPaginationEnabled = false
     private var commentPaginationFailureOnce = false
     private var commentPaginationFailureReturned = false
+    private var commentQuoteEnabled = false
+    private var commentQuoteTargetId = 802
+    private var commentQuoteAvailable = true
+    private var commentQuoteFocusTargetAvailable = true
+    private var commentQuoteTargetInInitialList = false
     private var oldLocale = "zh-CN"
 
     /** 只允许设备预览构建启动回环夹具，避免测试包把详情请求发往生产接口。 */
@@ -67,6 +74,7 @@ class NativeOnlineArticleDetailDeviceTest {
         subscriptionMethods.clear()
         articleRequests.clear()
         commentPageRequests.clear()
+        focusCommentRequests.clear()
         interactionSettingsRequests.clear()
         authorProfileStatus = 200
         interactionSettingsStatus = 200
@@ -79,6 +87,11 @@ class NativeOnlineArticleDetailDeviceTest {
         commentPaginationEnabled = false
         commentPaginationFailureOnce = false
         commentPaginationFailureReturned = false
+        commentQuoteEnabled = false
+        commentQuoteTargetId = 802
+        commentQuoteAvailable = true
+        commentQuoteFocusTargetAvailable = true
+        commentQuoteTargetInInitialList = false
         server = MockWebServer().apply {
             // 所有接口都由同一个固定夹具处理，未声明的请求返回错误以暴露额外调用。
             dispatcher = object : Dispatcher() {
@@ -398,6 +411,104 @@ class NativeOnlineArticleDetailDeviceTest {
         assertEquals(listOf("initial", "10", "10"), synchronized(commentPageRequests) { commentPageRequests.toList() })
     }
 
+    /** 验证引用目标不在当前评论列表时，会通过 focusId 加载目标并短暂高亮。 */
+    @Test
+    fun commentQuoteLoadsMissingTargetAndHighlightsIt() {
+        // 首屏只返回引用评论，定位请求返回缺失的原评论，覆盖焦点加载链路。
+        commentQuoteEnabled = true
+        commentQuoteTargetId = 802
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = seedArticle(),
+                    session = null,
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        // 先滚到引用卡片并点击，确保测试走真实的评论引用交互入口。
+        waitForText("在线详情文章")
+        compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comment-801"))
+        compose.onNodeWithTag("article-comment-quote-802").performClick()
+
+        // 目标评论加载后必须显示定位高亮，并且请求只携带一次目标 id。
+        waitForLocatedComment(802)
+        assertEquals(listOf("802"), synchronized(focusCommentRequests) { focusCommentRequests.toList() })
+    }
+
+    /** 验证引用目标已在当前列表时直接高亮，不重复发起 focusId 请求。 */
+    @Test
+    fun commentQuoteUsesLoadedTargetWithoutFocusRequest() {
+        // 首屏同时返回引用评论和原评论，覆盖复用已加载数据的路径。
+        commentQuoteEnabled = true
+        commentQuoteTargetId = 802
+        commentQuoteTargetInInitialList = true
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = seedArticle(),
+                    session = null,
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        // 点击首屏引用后应直接更新目标行状态，不刷新评论列表。
+        waitForText("在线详情文章")
+        compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comment-801"))
+        compose.onNodeWithTag("article-comment-quote-802").performClick()
+        waitForLocatedComment(802)
+        assertTrue(synchronized(focusCommentRequests) { focusCommentRequests.isEmpty() })
+    }
+
+    /** 验证引用目标已删除或不可见时显示提示，并阻止跳转到不存在的评论。 */
+    @Test
+    fun deletedCommentQuoteShowsNoticeAndDoesNotNavigate() {
+        // 引用本身仍可点击，但定位接口不返回目标，模拟原评论随后被删除的情况。
+        commentQuoteEnabled = true
+        commentQuoteTargetId = 803
+        commentQuoteAvailable = true
+        commentQuoteFocusTargetAvailable = false
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = seedArticle(),
+                    session = null,
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        // 定位响应不包含目标评论时必须显示明确提示，且页面中不能出现被删除的目标评论。
+        waitForText("在线详情文章")
+        compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comment-801"))
+        compose.onNodeWithTag("article-comment-quote-803").performClick()
+        waitForText("该评论已删除或当前不可见，无法定位。")
+        assertTrue(
+            compose.onAllNodesWithTag("article-comment-803")
+                .fetchSemanticsNodes(atLeastOneRootRequired = false)
+                .isEmpty(),
+        )
+        assertEquals(listOf("803"), synchronized(focusCommentRequests) { focusCommentRequests.toList() })
+    }
+
+    /** 等待评论行出现定位状态，确认高亮不是仅凭节点存在而是实际状态已切换。 */
+    private fun waitForLocatedComment(id: Int, timeoutMillis: Long = 15_000) {
+        // 通过语义状态核对定位结果，避免把普通评论节点误判为已高亮。
+        compose.waitUntil(timeoutMillis) {
+            compose.onAllNodesWithTag("article-comment-highlight-$id")
+                .fetchSemanticsNodes(atLeastOneRootRequired = false)
+                .any { node -> node.config.getOrElse(SemanticsProperties.StateDescription) { "" } == "已定位的评论" }
+        }
+    }
+
     /** 等待指定文案进入 Compose 语义树，避免固定睡眠掩盖异步详情加载问题。 */
     private fun waitForText(text: String, timeoutMillis: Long = 15_000) {
         // 网络回包和作者资料是异步任务，条件等待能区分页面未加载与固定延迟不足。
@@ -479,22 +590,36 @@ class NativeOnlineArticleDetailDeviceTest {
 
     /** 构造评论首屏响应；分页用例返回足够长的列表，确保页尾需由滚动进入视口。 */
     private fun commentsJson(): JSONObject {
-        // 只在分页用例中构造十条首屏，其他详情回归继续使用原有单条评论。
+        // 分页或引用已加载目标场景需要额外评论，其余详情回归继续使用原有单条评论。
         val items = JSONArray()
-        val itemCount = if (commentPaginationEnabled) 10 else 1
+        val itemCount = when {
+            commentPaginationEnabled -> 10
+            commentQuoteTargetInInitialList -> 2
+            else -> 1
+        }
         repeat(itemCount) { index ->
             val id = 801 + index
-            items.put(
-                JSONObject()
+            val comment = JSONObject()
                     .put("id", id)
                     .put("articleId", 701)
-                    .put("body", if (index == 0) "隔离评论" else "首屏评论${index + 1}")
+                    .put("body", if (index == 0) "隔离评论" else "被引用的原评论")
                     .put("status", "active")
                     .put("likeCount", 0)
                     .put("liked", false)
                     .put("reported", false)
-                    .put("author", JSONObject().put("id", 88 + index).put("username", "comment-author-$id").put("nickname", "评论作者")),
-            )
+                    .put("author", JSONObject().put("id", 88 + index).put("username", "comment-author-$id").put("nickname", "评论作者"))
+            // 只有首屏引用评论携带 quote，避免目标评论再次生成无关的引用入口。
+            if (commentQuoteEnabled && index == 0) {
+                comment.put(
+                    "quote",
+                    JSONObject()
+                        .put("id", commentQuoteTargetId)
+                        .put("body", "被引用的原评论")
+                        .put("authorName", "原评论作者")
+                        .put("available", commentQuoteAvailable),
+                )
+            }
+            items.put(comment)
         }
 
         // 自动分页场景用 cursor=10 标记第二页；其它测试仍表现为单页列表。
@@ -510,6 +635,9 @@ class NativeOnlineArticleDetailDeviceTest {
         // 只记录详情评论请求，确保分页是否携带 cursor 能被测试直接核对。
         val cursor = request.requestUrl?.queryParameter("cursor")
         commentPageRequests += cursor ?: "initial"
+        // 记录引用定位请求的目标 id，区分普通首屏与 focusId 加载路径。
+        val focusId = request.requestUrl?.queryParameter("focusId")?.toIntOrNull()
+        if (focusId != null) focusCommentRequests += focusId.toString()
         // 首屏故障只返回一次，重试时恢复成功以验证正文与评论的独立生命周期。
         if (cursor == null && commentInitialFailureOnce && !commentInitialFailureReturned) {
             commentInitialFailureReturned = true
@@ -520,8 +648,32 @@ class NativeOnlineArticleDetailDeviceTest {
             commentPaginationFailureReturned = true
             return error(503, "Fixture comment pagination failure")
         }
+        // focusId 命中时只返回目标评论，模拟服务端将定位评论放入新的首屏。
+        if (focusId == commentQuoteTargetId && commentQuoteFocusTargetAvailable) {
+            return json(commentQuoteTargetJson())
+        }
         return if (cursor == "10") json(commentsPageTwoJson()) else json(commentsJson())
     }
+
+    /** 构造引用定位成功的评论响应，确保目标评论进入列表并触发高亮。 */
+    private fun commentQuoteTargetJson(): JSONObject = JSONObject()
+        .put(
+            "items",
+            JSONArray().put(
+                JSONObject()
+                    .put("id", commentQuoteTargetId)
+                    .put("articleId", 701)
+                    .put("body", "被引用的原评论")
+                    .put("status", "active")
+                    .put("likeCount", 0)
+                    .put("liked", false)
+                    .put("reported", false)
+                    .put("author", JSONObject().put("id", 90).put("username", "original-comment-author").put("nickname", "原评论作者")),
+            ),
+        )
+        .put("hasMore", false)
+        .put("nextCursor", JSONObject.NULL)
+        .put("totalThreads", 1)
 
     /** 构造评论分页第二页响应，确认新内容合并到原列表而非替换首屏。 */
     private fun commentsPageTwoJson(): JSONObject = JSONObject()

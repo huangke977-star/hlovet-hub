@@ -4764,6 +4764,51 @@ internal fun ArticleDetailScreen(
         }
     }
 
+    /** 处理评论引用点击：优先复用当前列表，缺少目标时通过 focusId 请求目标评论。 */
+    fun openQuotedComment(quote: NativeCommentQuote) {
+        // 不可见引用已经由服务端明确标记为不可用，只提示用户并阻止任何跳转请求。
+        if (!quote.available) {
+            notice = nativePhrase("该评论已删除或当前不可见，无法定位。", "The comment was deleted or is not visible, so it cannot be located.")
+            return
+        }
+        // 离线详情没有可用的在线评论定位能力，保持正文可读并明确说明限制。
+        if (offlineOnly || showingOfflineContent) {
+            notice = nativePhrase("离线模式下无法定位原评论。", "The original comment cannot be located while offline.")
+            return
+        }
+        // 当前首屏或已加载分页中已有目标时，只更新高亮，不替换用户正在阅读的评论列表。
+        if (comments.any { it.id == quote.id }) {
+            notice = null
+            highlightCommentId = quote.id
+            return
+        }
+        // 定位请求期间忽略重复点击，避免多个 focusId 回包交叉覆盖评论列表。
+        if (commentsLoading || loadingMore) return
+        val requestedToken = session?.accessToken
+        val requestedSlug = article.slug
+        scope.launch {
+            commentsLoading = true
+            commentsLoadError = null
+            notice = null
+            try {
+                // 复用已有 focusId 接口，让服务端返回目标评论所在的定位首屏。
+                refreshComments(requestedToken, quote.id)
+            } catch (cancelled: CancellationException) {
+                // 页面退出或文章切换时保留取消语义，不把旧定位请求显示成错误。
+                throw cancelled
+            } catch (exception: Exception) {
+                // 定位失败只提示当前详情页，不清空已经显示的正文或评论。
+                if (requestedSlug == article.slug && requestedToken == session?.accessToken) {
+                    notice = exception.message
+                        ?: nativePhrase("定位原评论失败，请稍后重试。", "Failed to locate the original comment. Try again later.")
+                }
+            } finally {
+                // 只释放当前文章和会话的定位加载状态，避免旧页面回包影响新详情。
+                if (requestedSlug == article.slug && requestedToken == session?.accessToken) commentsLoading = false
+            }
+        }
+    }
+
     /** 只重试当前文章评论首屏，不重新请求正文或触发离线回退。 */
     fun retryInitialComments() {
         // 没有会话时评论仍允许匿名读取；正在请求时忽略重复点击，避免评论列表代际交叉覆盖。
@@ -5486,6 +5531,7 @@ internal fun ArticleDetailScreen(
                         onLike = { toggleCommentLike(comment) },
                         onReply = { if (onlineArticleLoaded && interactionSettings?.commentsEnabled != false && !offlineOnly && !showingOfflineContent) replyingTo = comment },
                         onPreviewAttachment = { commentPreviewAttachment = it },
+                        onOpenQuote = ::openQuotedComment,
                         onReport = {
                             if (onlineArticleLoaded && interactionSettings?.reportsEnabled != false && !offlineOnly && !showingOfflineContent) {
                                 reportReason = "spam"
@@ -5800,6 +5846,7 @@ private fun ArticleCommentRow(
     onReport: () -> Unit,
     onDelete: () -> Unit,
     onPreviewAttachment: (NativeChatAttachmentPreview) -> Unit,
+    onOpenQuote: (NativeCommentQuote) -> Unit,
 ) {
     // 不可见评论不显示互动入口，定位使用背景和无障碍状态，不添加边框。
     val unavailable = comment.status != "active"
@@ -5808,6 +5855,7 @@ private fun ArticleCommentRow(
             .fillMaxWidth()
             .background(if (highlighted) Accent.copy(alpha = .14f) else Color.Transparent, HlovetUi.cardShape)
             .semantics { if (highlighted) stateDescription = nativePhrase("已定位的评论", "Located comment") }
+            .testTag("article-comment-highlight-${comment.id}")
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         // 作者行与正文保持同一个缩进，附件播放器沿用正文的可用宽度。
@@ -5830,16 +5878,21 @@ private fun ArticleCommentRow(
             }
             Spacer(Modifier.height(4.dp))
             if (comment.quote != null) {
+                val quote = comment.quote
                 Surface(
                     color = SurfaceLow,
                     shape = HlovetUi.rowShape,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 5.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 5.dp)
+                        .testTag("article-comment-quote-${quote.id}")
+                        .clickable { onOpenQuote(quote) },
                 ) {
                     Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
-                        Text(comment.quote.authorName, color = Accent, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        Text(quote.authorName, color = Accent, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            nativeMentionText(if (comment.quote.available) {
-                                comment.quote.body.ifBlank { nativePhrase("原评论没有文字内容。", "The original comment has no text.") }
+                            nativeMentionText(if (quote.available) {
+                                quote.body.ifBlank { nativePhrase("原评论没有文字内容。", "The original comment has no text.") }
                             } else {
                                 nativePhrase("原评论已不可见。", "The original comment is unavailable.")
                             }, Accent, HlovetUi.accentSoft),
