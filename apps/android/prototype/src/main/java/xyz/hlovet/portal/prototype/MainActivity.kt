@@ -4265,6 +4265,7 @@ private fun AppHeader(
 /**
  * 展示 initialArticle 的在线或离线正文、评论及关联操作；focusCommentId 用于定位评论，session 决定权限及缓存归属。
  * 作者公开资料与订阅失败只影响作者信息区，不阻断正文；专题和合集导航由宿主确认加载后处理。
+ * 在线正文成功后再读取站点互动开关，离线快照始终保持零网络互动请求。
  * onLogin/onBack/onOpenUser/onOpenGrouping 分别处理登录、返回、作者和关联内容导航。
  * @param initialArticle 导航传入的文章快照，在线模式会使用详情接口更新
  * @param focusCommentId 需要在评论首屏中定位的评论编号，可为空
@@ -4297,6 +4298,8 @@ internal fun ArticleDetailScreen(
     var commentsLoadError by remember(initialArticle.slug, session?.accessToken) { mutableStateOf<String?>(null) }
     var commentsLoading by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
     var commentsRequestId by remember(initialArticle.slug, session?.accessToken) { mutableIntStateOf(0) }
+    var interactionSettings by remember(initialArticle.slug, session?.accessToken) { mutableStateOf<NativeInteractionSettings?>(null) }
+    var onlineArticleLoaded by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
     var loading by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(true) }
     var loadingMore by remember(initialArticle.slug, session?.accessToken) { mutableStateOf(false) }
     var actionBusy by remember(initialArticle.slug, session?.accessToken) { mutableStateOf("") }
@@ -4461,6 +4464,8 @@ internal fun ArticleDetailScreen(
         val requestId = commentsRequestId + 1
         commentsRequestId = requestId
         val requestToken = session?.accessToken
+        onlineArticleLoaded = false
+        interactionSettings = null
         loading = true
         error = null
         commentsLoadError = null
@@ -4493,6 +4498,7 @@ internal fun ArticleDetailScreen(
             val loadedArticle = withContext(Dispatchers.IO) { NativeArticleApi.getArticle(requestToken, initialArticle.slug) }
             if (isCurrentArticleDetailRequest(requestId, commentsRequestId, initialArticle.slug, article.slug, requestToken, session?.accessToken)) {
                 article = loadedArticle
+                onlineArticleLoaded = true
                 loading = false
                 commentsLoading = true
             }
@@ -4553,6 +4559,34 @@ internal fun ArticleDetailScreen(
             if (isCurrentArticleDetailRequest(requestId, commentsRequestId, initialArticle.slug, article.slug, requestToken, session?.accessToken)) {
                 commentsLoading = false
             }
+        }
+    }
+
+    // 互动策略只依赖成功加载的在线正文；离线直开或网络回退离线缓存均不访问设置接口。
+    LaunchedEffect(initialArticle.slug, session?.accessToken, onlineArticleLoaded, offlineOnly, showingOfflineContent) {
+        if (!onlineArticleLoaded || offlineOnly || showingOfflineContent) {
+            interactionSettings = null
+            return@LaunchedEffect
+        }
+        interactionSettings = null
+        try {
+            // 策略请求与正文、评论分开读取，避免其延迟阻塞在线阅读。
+            interactionSettings = withContext(Dispatchers.IO) { NativeSiteSettingsApi.loadInteractionSettings() }
+        } catch (cancelled: CancellationException) {
+            // 文章、会话或在线状态变化时不允许旧策略覆盖新详情。
+            throw cancelled
+        } catch (_: Exception) {
+            // 设置接口故障时采用服务端默认开启的兼容行为，不中断评论和举报流程。
+            interactionSettings = NativeInteractionSettings(commentsEnabled = true, reportsEnabled = true)
+        }
+    }
+
+    // 开关读取完成后收起已不再允许的回复状态和举报弹窗，避免旧入口继续提交。
+    LaunchedEffect(interactionSettings) {
+        if (interactionSettings?.commentsEnabled == false) replyingTo = null
+        if (interactionSettings?.reportsEnabled == false) {
+            reportingArticle = false
+            reportingComment = null
         }
     }
 
@@ -4809,8 +4843,22 @@ internal fun ArticleDetailScreen(
         }
     }
 
-    /** 使用当前账号发布输入正文和附件；回复保留目标关联，成功后清空输入并显示成功提示。 */
+    /** 使用当前账号发布正文和附件；校验评论开关后保留回复关联，成功才清空输入并提示。 */
     fun publishComment() {
+        // 离线详情优先给出明确反馈；在线详情只有开关已加载且允许评论时才发送请求。
+        if (showingOfflineContent || offlineOnly) {
+            notice = nativePhrase("离线模式下暂不能发布评论。", "Comments cannot be posted while offline.")
+            return
+        }
+        val settings = interactionSettings
+        if (settings == null) {
+            notice = nativePhrase("文章互动设置仍在加载，请稍后重试。", "Article interaction settings are still loading. Try again shortly.")
+            return
+        }
+        if (!settings.commentsEnabled) {
+            notice = nativePhrase("评论功能暂未开放。", "Comments are not available.")
+            return
+        }
         // 校验当前会话与实际正文，提及样式不影响发送给服务端的原文。
         val token = session?.accessToken ?: run { onLogin(); return }
         val body = commentInput.text.trim()
@@ -4896,7 +4944,23 @@ internal fun ArticleDetailScreen(
         }
     }
 
+    /** 提交评论举报前再次核对站点开关，防止关闭后仍由过期弹窗触发请求。 */
     fun reportComment() {
+        // 离线详情不提交举报；在线详情只有开关已加载且允许举报时才访问服务端。
+        if (showingOfflineContent || offlineOnly) {
+            notice = nativePhrase("离线模式下暂不能举报评论。", "Comments cannot be reported while offline.")
+            return
+        }
+        val settings = interactionSettings
+        if (settings == null) {
+            notice = nativePhrase("文章互动设置仍在加载，请稍后重试。", "Article interaction settings are still loading. Try again shortly.")
+            return
+        }
+        if (!settings.reportsEnabled) {
+            notice = nativePhrase("举报功能暂未开放。", "Reports are not available.")
+            return
+        }
+        // 举报接口仍由服务端校验权限，成功后同步本地已举报标记。
         val token = session?.accessToken ?: run { onLogin(); return }
         val target = reportingComment ?: return
         if (actionBusy.isNotBlank()) return
@@ -4919,7 +4983,23 @@ internal fun ArticleDetailScreen(
         }
     }
 
+    /** 提交文章举报前再次核对站点开关，避免隐藏入口被旧弹窗或回调绕过。 */
     fun submitArticleReport() {
+        // 离线详情不提交举报；在线详情只有开关已加载且允许举报时才访问服务端。
+        if (showingOfflineContent || offlineOnly) {
+            notice = nativePhrase("离线模式下暂不能举报文章。", "Articles cannot be reported while offline.")
+            return
+        }
+        val settings = interactionSettings
+        if (settings == null) {
+            notice = nativePhrase("文章互动设置仍在加载，请稍后重试。", "Article interaction settings are still loading. Try again shortly.")
+            return
+        }
+        if (!settings.reportsEnabled) {
+            notice = nativePhrase("举报功能暂未开放。", "Reports are not available.")
+            return
+        }
+        // 举报接口仍由服务端校验权限，成功后关闭弹窗并显示提交结果。
         val token = session?.accessToken ?: run { onLogin(); return }
         if (actionBusy.isNotBlank()) return
         scope.launch {
@@ -4977,7 +5057,7 @@ internal fun ArticleDetailScreen(
                     }
                 },
                 actions = {
-                    if (session != null && article.authorUsername.isNotBlank() && !session.username.equals(article.authorUsername, ignoreCase = true)) {
+                    if (interactionSettings?.reportsEnabled == true && !showingOfflineContent && session != null && article.authorUsername.isNotBlank() && !session.username.equals(article.authorUsername, ignoreCase = true)) {
                         IconButton(
                             onClick = {
                                 articleReportReason = "spam"
@@ -4985,6 +5065,7 @@ internal fun ArticleDetailScreen(
                                 reportingArticle = true
                             },
                             enabled = !loading && actionBusy.isBlank(),
+                            modifier = Modifier.testTag("article-report-button"),
                         ) {
                             Icon(Icons.Filled.Flag, contentDescription = nativePhrase("举报文章", "Report article"), tint = TextMuted)
                         }
@@ -5253,11 +5334,22 @@ internal fun ArticleDetailScreen(
         }
         item { SectionHeading(nativePhrase("评论与回复", "Comments and replies"), nativePhrase("$commentTotal 条", "$commentTotal total")) }
         item {
-            GlassCard(
+            val settings = interactionSettings
+            if (settings != null) GlassCard(
                 modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
                 shape = HlovetUi.cardShape,
             ) {
-                if (session == null) {
+                if (!settings.commentsEnabled) {
+                    // 评论关闭只移除写入入口；已有评论仍由下方列表正常展示。
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Filled.ChatBubbleOutline, contentDescription = null, tint = TextMuted, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(nativePhrase("评论功能暂未开放。", "Comments are not available."), color = TextMuted, fontSize = 12.sp)
+                    }
+                } else if (session == null) {
                     ListItem(
                         headlineContent = { Text(nativePhrase("登录后参与评论", "Sign in to join the discussion"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp) },
                         supportingContent = { Text(nativePhrase("登录后可以评论、回复和点赞", "Sign in to comment, reply, and like"), color = TextMuted, fontSize = 11.sp) },
@@ -5341,7 +5433,7 @@ internal fun ArticleDetailScreen(
                                 onValueChange = { commentInput = it },
                                 candidates = mentionCandidates,
                                 loading = mentionLoading,
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).testTag("article-comment-composer"),
                                 enabled = actionBusy.isBlank(),
                                 placeholder = if (replyingTo == null) nativePhrase("写下评论…", "Write a comment...") else nativePhrase("写下回复…", "Write a reply..."),
                             )
@@ -5392,18 +5484,21 @@ internal fun ArticleDetailScreen(
                         comment = comment,
                         parent = parent,
                         enabled = actionBusy.isBlank(),
+                        canReply = interactionSettings?.commentsEnabled == true && !showingOfflineContent,
                         highlighted = highlightCommentId == comment.id,
                         accessToken = session?.accessToken,
                         cacheOwner = NativeOfflineOwner.forSession(session),
                         canDelete = session?.username?.equals(comment.authorUsername, ignoreCase = true) == true || session?.isAdministrator == true || session?.isSuperAdmin == true,
-                        canReport = session?.username?.equals(comment.authorUsername, ignoreCase = true) != true,
+                        canReport = interactionSettings?.reportsEnabled == true && !showingOfflineContent && session?.username?.equals(comment.authorUsername, ignoreCase = true) != true,
                         onLike = { toggleCommentLike(comment) },
-                        onReply = { replyingTo = comment },
+                        onReply = { if (interactionSettings?.commentsEnabled == true && !showingOfflineContent) replyingTo = comment },
                         onPreviewAttachment = { commentPreviewAttachment = it },
                         onReport = {
-                            reportReason = "spam"
-                            reportDetail = ""
-                            reportingComment = comment
+                            if (interactionSettings?.reportsEnabled == true && !showingOfflineContent) {
+                                reportReason = "spam"
+                                reportDetail = ""
+                                reportingComment = comment
+                            }
                         },
                         onDelete = { deleteCommentTarget = comment },
                     )
@@ -5695,12 +5790,13 @@ private fun ArticleActionButton(
     }
 }
 
-/** 显示 comment 及 parent 回复关系；enabled 控制操作，highlighted 仅提供短暂背景，附件按 accessToken/cacheOwner 隔离。操作回调由阅读页统一处理。 */
+/** 显示 comment 及 parent 回复关系；canReply/canReport 控制站点开关入口，附件按 accessToken/cacheOwner 隔离。操作回调由阅读页统一处理。 */
 @Composable
 private fun ArticleCommentRow(
     comment: NativeArticleComment,
     parent: NativeArticleComment?,
     enabled: Boolean,
+    canReply: Boolean,
     highlighted: Boolean,
     accessToken: String?,
     cacheOwner: String,
@@ -5797,11 +5893,13 @@ private fun ArticleCommentRow(
                 }
                 Text(comment.likeCount.toString(), color = TextMuted, fontSize = 10.sp)
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onReply, enabled = enabled, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Filled.Reply, contentDescription = nativePhrase("回复评论", "Reply to comment"), tint = TextMuted, modifier = Modifier.size(17.dp))
+                if (canReply) {
+                    IconButton(onClick = onReply, enabled = enabled, modifier = Modifier.size(34.dp).testTag("article-comment-reply-${comment.id}")) {
+                        Icon(Icons.Filled.Reply, contentDescription = nativePhrase("回复评论", "Reply to comment"), tint = TextMuted, modifier = Modifier.size(17.dp))
+                    }
                 }
                 if (canReport && !comment.reported) {
-                    IconButton(onClick = onReport, enabled = enabled, modifier = Modifier.size(34.dp)) {
+                    IconButton(onClick = onReport, enabled = enabled, modifier = Modifier.size(34.dp).testTag("article-comment-report-${comment.id}")) {
                         Icon(Icons.Filled.Report, contentDescription = nativePhrase("举报评论", "Report comment"), tint = TextMuted, modifier = Modifier.size(17.dp))
                     }
                 } else if (canReport) {

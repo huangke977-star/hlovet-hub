@@ -3,6 +3,7 @@ package xyz.hlovet.portal.prototype
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -39,7 +40,11 @@ class NativeOnlineArticleDetailDeviceTest {
     private val subscriptionMethods = Collections.synchronizedList(mutableListOf<String>())
     private val articleRequests = Collections.synchronizedList(mutableListOf<String>())
     private val commentPageRequests = Collections.synchronizedList(mutableListOf<String>())
+    private val interactionSettingsRequests = Collections.synchronizedList(mutableListOf<String>())
     private var authorProfileStatus = 200
+    private var interactionSettingsStatus = 200
+    private var interactionCommentsEnabled = true
+    private var interactionReportsEnabled = true
     private var commentInitialFailureOnce = false
     private var commentInitialFailureReturned = false
     private var commentPaginationEnabled = false
@@ -58,7 +63,11 @@ class NativeOnlineArticleDetailDeviceTest {
         subscriptionMethods.clear()
         articleRequests.clear()
         commentPageRequests.clear()
+        interactionSettingsRequests.clear()
         authorProfileStatus = 200
+        interactionSettingsStatus = 200
+        interactionCommentsEnabled = true
+        interactionReportsEnabled = true
         commentInitialFailureOnce = false
         commentInitialFailureReturned = false
         commentPaginationEnabled = false
@@ -136,6 +145,90 @@ class NativeOnlineArticleDetailDeviceTest {
         waitForText("在线详情文章")
         compose.onNodeWithText("隔离评论", substring = false).assertIsDisplayed()
         waitForText("作者资料暂时不可用。")
+    }
+
+    /** 验证关闭评论只移除写入与回复入口，已有评论和独立举报功能仍可见。 */
+    @Test
+    fun disabledCommentsKeepReadingAndHideCommentComposerAndReply() {
+        // 关闭评论但保留举报，确认两个站点开关不会互相覆盖。
+        interactionCommentsEnabled = false
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = seedArticle(),
+                    session = session(),
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        // 详情正文和已有评论仍可阅读，评论输入和回复入口均须隐藏。
+        waitForText("在线详情文章")
+        waitForText("评论功能暂未开放。")
+        compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comment-801"))
+        compose.onNodeWithText("隔离评论", substring = false).assertIsDisplayed()
+        assertTrue(compose.onAllNodesWithTag("article-comment-composer").fetchSemanticsNodes(atLeastOneRootRequired = false).isEmpty())
+        assertTrue(compose.onAllNodesWithTag("article-comment-reply-801").fetchSemanticsNodes(atLeastOneRootRequired = false).isEmpty())
+
+        // 举报仍开启，因此文章和评论举报入口保持可用。
+        compose.onNodeWithTag("article-report-button").assertIsDisplayed()
+        compose.onNodeWithTag("article-comment-report-801").assertIsDisplayed()
+        assertEquals(1, synchronized(interactionSettingsRequests) { interactionSettingsRequests.size })
+    }
+
+    /** 验证关闭举报只隐藏文章和评论举报入口，不影响评论输入与回复。 */
+    @Test
+    fun disabledReportsKeepCommentingAndHideReportActions() {
+        // 关闭举报但保留评论，确认两个独立开关分别控制自己的入口。
+        interactionReportsEnabled = false
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = seedArticle(),
+                    session = session(),
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        // 评论编辑区正常显示，滚到已有评论后仍可回复，但任何举报入口都不应存在。
+        waitForText("在线详情文章")
+        waitForTag("article-comment-composer")
+        compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comment-801"))
+        compose.onNodeWithText("隔离评论", substring = false).assertIsDisplayed()
+        compose.onNodeWithTag("article-comment-reply-801").assertIsDisplayed()
+        assertTrue(compose.onAllNodesWithTag("article-report-button").fetchSemanticsNodes(atLeastOneRootRequired = false).isEmpty())
+        assertTrue(compose.onAllNodesWithTag("article-comment-report-801").fetchSemanticsNodes(atLeastOneRootRequired = false).isEmpty())
+        assertEquals(1, synchronized(interactionSettingsRequests) { interactionSettingsRequests.size })
+    }
+
+    /** 验证站点设置暂时不可用时按开启降级，且不阻断正文与评论读取。 */
+    @Test
+    fun interactionSettingsFailureFallsBackToEnabledWithoutBlockingContent() {
+        // 只让可选设置接口失败，文章、评论和作者接口仍按正常响应返回。
+        interactionSettingsStatus = 503
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = seedArticle(),
+                    session = session(),
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        // 失败回退为兼容开启，正文、评论、评论输入及文章举报入口都不被可选设置接口阻断。
+        waitForText("在线详情文章")
+        waitForText("隔离评论")
+        waitForTag("article-comment-composer")
+        compose.onNodeWithTag("article-report-button").assertIsDisplayed()
+        assertEquals(1, synchronized(interactionSettingsRequests) { interactionSettingsRequests.size })
     }
 
     /** 验证评论首屏失败时正文仍可见，重试只重新读取评论而不会重复请求文章。 */
@@ -276,11 +369,31 @@ class NativeOnlineArticleDetailDeviceTest {
         }
     }
 
-    /** 根据当前请求路径返回文章详情、评论、作者资料和订阅响应。 */
+    /** 等待指定测试标识进入 Compose 语义树，核对异步开关控制的入口。 */
+    private fun waitForTag(tag: String, timeoutMillis: Long = 15_000) {
+        // 互动设置通过独立请求异步加载，按语义节点等待避免依赖固定延时。
+        compose.waitUntil(timeoutMillis) {
+            compose.onAllNodesWithTag(tag).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty()
+        }
+    }
+
+    /** 根据当前请求路径返回文章详情、站点开关、评论、作者资料和订阅响应。 */
     private fun respond(request: RecordedRequest): MockResponse {
         // 文章接口按是否携带会话区分公开和 visible 路径，但共享同一份隔离内容。
         val path = request.path.orEmpty()
         return when {
+            path == "/site-settings/public" -> {
+                interactionSettingsRequests += "${request.method.orEmpty()} $path"
+                if (interactionSettingsStatus == 200) {
+                    json(
+                        JSONObject()
+                            .put("commentsEnabled", interactionCommentsEnabled)
+                            .put("reportsEnabled", interactionReportsEnabled),
+                    )
+                } else {
+                    error(interactionSettingsStatus, "Interaction settings fixture failure")
+                }
+            }
             path == "/articles/test-article" || path == "/articles/visible/test-article" -> {
                 articleRequests += path
                 json(articleJson())
