@@ -4843,19 +4843,16 @@ internal fun ArticleDetailScreen(
         }
     }
 
-    /** 使用当前账号发布正文和附件；校验评论开关后保留回复关联，成功才清空输入并提示。 */
+    /** 使用当前账号发布正文和附件；在线设置未返回时按开放处理，明确关闭后才拒绝发布。 */
     fun publishComment() {
-        // 离线详情优先给出明确反馈；在线详情只有开关已加载且允许评论时才发送请求。
+        // 离线详情保持只读；在线设置未返回不阻断评论，服务端仍会校验最终写入权限。
         if (showingOfflineContent || offlineOnly) {
             notice = nativePhrase("离线模式下暂不能发布评论。", "Comments cannot be posted while offline.")
             return
         }
         val settings = interactionSettings
-        if (settings == null) {
-            notice = nativePhrase("文章互动设置仍在加载，请稍后重试。", "Article interaction settings are still loading. Try again shortly.")
-            return
-        }
-        if (!settings.commentsEnabled) {
+        // 仅站点明确关闭评论时拦截，null 表示异步读取中并沿用 PC 端默认开放规则。
+        if (settings?.commentsEnabled == false) {
             notice = nativePhrase("评论功能暂未开放。", "Comments are not available.")
             return
         }
@@ -4944,19 +4941,16 @@ internal fun ArticleDetailScreen(
         }
     }
 
-    /** 提交评论举报前再次核对站点开关，防止关闭后仍由过期弹窗触发请求。 */
+    /** 提交评论举报前再次核对明确关闭状态；设置未返回时不阻断在线举报。 */
     fun reportComment() {
-        // 离线详情不提交举报；在线详情只有开关已加载且允许举报时才访问服务端。
+        // 离线详情不提交举报；在线设置未返回时允许请求，服务端负责最终权限校验。
         if (showingOfflineContent || offlineOnly) {
             notice = nativePhrase("离线模式下暂不能举报评论。", "Comments cannot be reported while offline.")
             return
         }
         val settings = interactionSettings
-        if (settings == null) {
-            notice = nativePhrase("文章互动设置仍在加载，请稍后重试。", "Article interaction settings are still loading. Try again shortly.")
-            return
-        }
-        if (!settings.reportsEnabled) {
+        // 只有站点明确关闭举报才拒绝，异步读取中的 null 按开放处理。
+        if (settings?.reportsEnabled == false) {
             notice = nativePhrase("举报功能暂未开放。", "Reports are not available.")
             return
         }
@@ -4983,19 +4977,16 @@ internal fun ArticleDetailScreen(
         }
     }
 
-    /** 提交文章举报前再次核对站点开关，避免隐藏入口被旧弹窗或回调绕过。 */
+    /** 提交文章举报前再次核对明确关闭状态，避免过期页面状态绕过站点开关。 */
     fun submitArticleReport() {
-        // 离线详情不提交举报；在线详情只有开关已加载且允许举报时才访问服务端。
+        // 离线详情不提交举报；在线设置未返回时允许请求，服务端负责最终权限校验。
         if (showingOfflineContent || offlineOnly) {
             notice = nativePhrase("离线模式下暂不能举报文章。", "Articles cannot be reported while offline.")
             return
         }
         val settings = interactionSettings
-        if (settings == null) {
-            notice = nativePhrase("文章互动设置仍在加载，请稍后重试。", "Article interaction settings are still loading. Try again shortly.")
-            return
-        }
-        if (!settings.reportsEnabled) {
+        // 只有站点明确关闭举报才拒绝，异步读取中的 null 按开放处理。
+        if (settings?.reportsEnabled == false) {
             notice = nativePhrase("举报功能暂未开放。", "Reports are not available.")
             return
         }
@@ -5057,7 +5048,7 @@ internal fun ArticleDetailScreen(
                     }
                 },
                 actions = {
-                    if (interactionSettings?.reportsEnabled == true && !showingOfflineContent && session != null && article.authorUsername.isNotBlank() && !session.username.equals(article.authorUsername, ignoreCase = true)) {
+                    if (onlineArticleLoaded && interactionSettings?.reportsEnabled != false && !offlineOnly && !showingOfflineContent && session != null && article.authorUsername.isNotBlank() && !session.username.equals(article.authorUsername, ignoreCase = true)) {
                         IconButton(
                             onClick = {
                                 articleReportReason = "spam"
@@ -5335,11 +5326,13 @@ internal fun ArticleDetailScreen(
         item { SectionHeading(nativePhrase("评论与回复", "Comments and replies"), nativePhrase("$commentTotal 条", "$commentTotal total")) }
         item {
             val settings = interactionSettings
-            if (settings != null) GlassCard(
+            // 评论写入区只在正文在线加载后出现；设置未返回时默认开放，离线内容不提供互动区。
+            val onlineInteractionsAvailable = onlineArticleLoaded && !offlineOnly && !showingOfflineContent
+            if (onlineInteractionsAvailable) GlassCard(
                 modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(),
                 shape = HlovetUi.cardShape,
             ) {
-                if (!settings.commentsEnabled) {
+                if (settings?.commentsEnabled == false) {
                     // 评论关闭只移除写入入口；已有评论仍由下方列表正常展示。
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
@@ -5484,17 +5477,17 @@ internal fun ArticleDetailScreen(
                         comment = comment,
                         parent = parent,
                         enabled = actionBusy.isBlank(),
-                        canReply = interactionSettings?.commentsEnabled == true && !showingOfflineContent,
+                        canReply = onlineArticleLoaded && interactionSettings?.commentsEnabled != false && !offlineOnly && !showingOfflineContent,
                         highlighted = highlightCommentId == comment.id,
                         accessToken = session?.accessToken,
                         cacheOwner = NativeOfflineOwner.forSession(session),
                         canDelete = session?.username?.equals(comment.authorUsername, ignoreCase = true) == true || session?.isAdministrator == true || session?.isSuperAdmin == true,
-                        canReport = interactionSettings?.reportsEnabled == true && !showingOfflineContent && session?.username?.equals(comment.authorUsername, ignoreCase = true) != true,
+                        canReport = onlineArticleLoaded && interactionSettings?.reportsEnabled != false && !offlineOnly && !showingOfflineContent && session?.username?.equals(comment.authorUsername, ignoreCase = true) != true,
                         onLike = { toggleCommentLike(comment) },
-                        onReply = { if (interactionSettings?.commentsEnabled == true && !showingOfflineContent) replyingTo = comment },
+                        onReply = { if (onlineArticleLoaded && interactionSettings?.commentsEnabled != false && !offlineOnly && !showingOfflineContent) replyingTo = comment },
                         onPreviewAttachment = { commentPreviewAttachment = it },
                         onReport = {
-                            if (interactionSettings?.reportsEnabled == true && !showingOfflineContent) {
+                            if (onlineArticleLoaded && interactionSettings?.reportsEnabled != false && !offlineOnly && !showingOfflineContent) {
                                 reportReason = "spam"
                                 reportDetail = ""
                                 reportingComment = comment

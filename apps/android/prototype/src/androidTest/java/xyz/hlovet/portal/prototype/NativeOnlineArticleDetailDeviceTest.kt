@@ -28,6 +28,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.net.InetAddress
 import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** 在设备内夹具验证在线文章详情的正文、评论、作者资料、订阅和专题合集入口，不访问生产环境。 */
 @RunWith(AndroidJUnit4::class)
@@ -45,6 +47,8 @@ class NativeOnlineArticleDetailDeviceTest {
     private var interactionSettingsStatus = 200
     private var interactionCommentsEnabled = true
     private var interactionReportsEnabled = true
+    @Volatile private var interactionSettingsRelease: CountDownLatch? = null
+    @Volatile private var interactionSettingsStarted = CountDownLatch(1)
     private var commentInitialFailureOnce = false
     private var commentInitialFailureReturned = false
     private var commentPaginationEnabled = false
@@ -68,6 +72,8 @@ class NativeOnlineArticleDetailDeviceTest {
         interactionSettingsStatus = 200
         interactionCommentsEnabled = true
         interactionReportsEnabled = true
+        interactionSettingsRelease = null
+        interactionSettingsStarted = CountDownLatch(1)
         commentInitialFailureOnce = false
         commentInitialFailureReturned = false
         commentPaginationEnabled = false
@@ -231,6 +237,39 @@ class NativeOnlineArticleDetailDeviceTest {
         assertEquals(1, synchronized(interactionSettingsRequests) { interactionSettingsRequests.size })
     }
 
+    /** 验证在线正文已加载但互动设置尚未返回时，评论和举报入口仍按开启状态呈现。 */
+    @Test
+    fun interactionSettingsLoadingKeepsOnlineActionsAvailable() {
+        // 设置请求到达夹具后保持挂起，确保断言发生在 null 加载状态而非请求完成之后。
+        val settingsGate = CountDownLatch(1)
+        interactionSettingsRelease = settingsGate
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = seedArticle(),
+                    session = session(),
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        try {
+            // 先等待可选设置请求进入夹具，再核验在线互动入口在结果未返回时已经可用。
+            assertTrue("Interaction settings request did not start", interactionSettingsStarted.await(10, TimeUnit.SECONDS))
+            waitForTag("article-comment-composer")
+            compose.onNodeWithTag("article-report-button").assertIsDisplayed()
+            compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comment-801"))
+            compose.onNodeWithTag("article-comment-reply-801").assertIsDisplayed()
+            compose.onNodeWithTag("article-comment-report-801").assertIsDisplayed()
+        } finally {
+            // 即使断言失败也释放夹具线程，避免遗留请求拖慢后续用例。
+            settingsGate.countDown()
+            interactionSettingsRelease = null
+        }
+    }
+
     /** 验证评论首屏失败时正文仍可见，重试只重新读取评论而不会重复请求文章。 */
     @Test
     fun initialCommentFailureKeepsArticleAndRetriesCommentsOnly() {
@@ -384,6 +423,9 @@ class NativeOnlineArticleDetailDeviceTest {
         return when {
             path == "/site-settings/public" -> {
                 interactionSettingsRequests += "${request.method.orEmpty()} $path"
+                // 由回归用例主动释放设置响应，稳定覆盖异步设置尚未读取的窗口。
+                interactionSettingsStarted.countDown()
+                interactionSettingsRelease?.await(10, TimeUnit.SECONDS)
                 if (interactionSettingsStatus == 200) {
                     json(
                         JSONObject()
