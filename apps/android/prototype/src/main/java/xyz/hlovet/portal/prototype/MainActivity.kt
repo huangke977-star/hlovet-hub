@@ -5345,7 +5345,7 @@ internal fun ArticleDetailScreen(
                         enabled = actionBusy.isBlank(),
                         icon = if (article.liked) Icons.Filled.ThumbUp else Icons.Filled.ThumbUpOffAlt,
                         onClick = ::toggleLike,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).testTag("article-action-like"),
                     )
                     ArticleActionButton(
                         label = if (article.favorited) nativePhrase("已收藏", "Saved") else nativePhrase("收藏", "Save"),
@@ -5354,7 +5354,7 @@ internal fun ArticleDetailScreen(
                         enabled = actionBusy.isBlank(),
                         icon = if (article.favorited) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                         onClick = ::toggleFavorite,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).testTag("article-action-favorite"),
                     )
                     ArticleActionButton(
                         label = if (article.readLater) nativePhrase("已加入", "Added") else nativePhrase("稍后读", "Read later"),
@@ -5363,7 +5363,7 @@ internal fun ArticleDetailScreen(
                         enabled = actionBusy.isBlank(),
                         icon = if (article.readLater) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
                         onClick = ::toggleReadLater,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).testTag("article-action-read-later"),
                     )
                 }
             }
@@ -5471,13 +5471,15 @@ internal fun ArticleDetailScreen(
                                 onValueChange = { commentInput = it },
                                 candidates = mentionCandidates,
                                 loading = mentionLoading,
-                                modifier = Modifier.weight(1f).testTag("article-comment-composer"),
+                                modifier = Modifier.weight(1f),
                                 enabled = actionBusy.isBlank(),
                                 placeholder = if (replyingTo == null) nativePhrase("写下评论…", "Write a comment...") else nativePhrase("写下回复…", "Write a reply..."),
+                                semanticTag = "article-comment-composer",
                             )
                             IconButton(
                                 onClick = ::publishComment,
                                 enabled = (commentInput.text.isNotBlank() || commentAttachments.isNotEmpty()) && !commentAttachmentLoading && actionBusy.isBlank(),
+                                modifier = Modifier.testTag("article-comment-publish"),
                             ) {
                                 Icon(Icons.Filled.Send, contentDescription = nativePhrase("发布评论", "Post comment"), tint = Accent)
                             }
@@ -5629,7 +5631,11 @@ internal fun ArticleDetailScreen(
             title = { Text(nativePhrase("删除评论", "Delete comment")) },
             text = { Text(nativePhrase("确定删除这条评论吗？删除后评论内容将无法恢复。", "Delete this comment? Its content cannot be recovered.")) },
             confirmButton = {
-                TextButton(onClick = { deleteComment(target) }, enabled = actionBusy.isBlank()) {
+                TextButton(
+                    onClick = { deleteComment(target) },
+                    enabled = actionBusy.isBlank(),
+                    modifier = Modifier.testTag("article-comment-delete-confirm"),
+                ) {
                     Text(if (actionBusy.startsWith("comment-delete")) nativePhrase("删除中…", "Deleting...") else nativePhrase("删除", "Delete"), color = Coral)
                 }
             },
@@ -5929,7 +5935,7 @@ private fun ArticleCommentRow(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
             ) {
-                IconButton(onClick = onLike, enabled = enabled, modifier = Modifier.size(34.dp)) {
+                IconButton(onClick = onLike, enabled = enabled, modifier = Modifier.size(34.dp).testTag("article-comment-like-${comment.id}")) {
                     Icon(
                         if (comment.liked) Icons.Filled.ThumbUp else Icons.Filled.ThumbUpOffAlt,
                         contentDescription = if (comment.liked) nativePhrase("取消评论点赞", "Unlike comment") else nativePhrase("点赞评论", "Like comment"),
@@ -5952,7 +5958,7 @@ private fun ArticleCommentRow(
                     Icon(Icons.Filled.Flag, contentDescription = nativePhrase("已举报", "Reported"), tint = Accent, modifier = Modifier.padding(horizontal = 8.dp).size(16.dp))
                 }
                 if (canDelete) {
-                    IconButton(onClick = onDelete, enabled = enabled, modifier = Modifier.size(34.dp)) {
+                    IconButton(onClick = onDelete, enabled = enabled, modifier = Modifier.size(34.dp).testTag("article-comment-delete-${comment.id}")) {
                         Icon(Icons.Filled.Delete, contentDescription = nativePhrase("删除评论", "Delete comment"), tint = Coral, modifier = Modifier.size(17.dp))
                     }
                 }

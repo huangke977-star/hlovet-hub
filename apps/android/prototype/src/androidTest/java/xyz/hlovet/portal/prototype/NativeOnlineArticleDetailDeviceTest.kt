@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -45,6 +46,15 @@ class NativeOnlineArticleDetailDeviceTest {
     private val commentPageRequests = Collections.synchronizedList(mutableListOf<String>())
     private val focusCommentRequests = Collections.synchronizedList(mutableListOf<String>())
     private val interactionSettingsRequests = Collections.synchronizedList(mutableListOf<String>())
+    private val mutationRequests = Collections.synchronizedList(mutableListOf<String>())
+    private var articleLiked = false
+    private var articleFavorited = false
+    private var articleReadLater = false
+    private var articleLikeCount = 0
+    private var articleFavoriteCount = 0
+    private var createdCommentPresent = false
+    private var createdCommentLiked = false
+    private var createdCommentLikeCount = 0
     private var authorProfileStatus = 200
     private var interactionSettingsStatus = 200
     private var interactionCommentsEnabled = true
@@ -76,6 +86,15 @@ class NativeOnlineArticleDetailDeviceTest {
         commentPageRequests.clear()
         focusCommentRequests.clear()
         interactionSettingsRequests.clear()
+        mutationRequests.clear()
+        articleLiked = false
+        articleFavorited = false
+        articleReadLater = false
+        articleLikeCount = 0
+        articleFavoriteCount = 0
+        createdCommentPresent = false
+        createdCommentLiked = false
+        createdCommentLikeCount = 0
         authorProfileStatus = 200
         interactionSettingsStatus = 200
         interactionCommentsEnabled = true
@@ -343,6 +362,88 @@ class NativeOnlineArticleDetailDeviceTest {
         assertEquals(listOf("POST", "DELETE"), synchronized(subscriptionMethods) { subscriptionMethods.toList() })
     }
 
+    /** 验证文章点赞、收藏和稍后读都按服务端返回状态完成开启与取消闭环。 */
+    @Test
+    fun articleActionsUseServerStateAndToggleBack() {
+        // 使用登录会话打开详情，确保三个操作走 visible 文章和带鉴权的写接口。
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = seedArticle(),
+                    session = session(),
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        // 文章详情加载完成后，依次开启并取消三类状态，验证按钮回显和请求方法。
+        waitForText("在线详情文章")
+        compose.onNodeWithTag("article-action-like").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("点赞 4", substring = true).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
+        compose.onNodeWithTag("article-action-like").performClick()
+        compose.onNodeWithTag("article-action-favorite").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("收藏 1", substring = true).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
+        compose.onNodeWithTag("article-action-favorite").performClick()
+        compose.onNodeWithTag("article-action-read-later").performClick()
+        waitForText("已加入")
+        compose.onNodeWithTag("article-action-read-later").performClick()
+
+        // 每次切换都必须调用对应的 POST 或 DELETE，不能只修改本地按钮状态。
+        compose.waitUntil(5_000) { synchronized(mutationRequests) { mutationRequests.size == 6 } }
+        assertEquals(
+            listOf(
+                "POST /articles/701/like",
+                "DELETE /articles/701/like",
+                "POST /articles/701/favorite",
+                "DELETE /articles/701/favorite",
+                "POST /articles/701/read-later",
+                "DELETE /articles/701/read-later",
+            ),
+            synchronized(mutationRequests) { mutationRequests.toList() },
+        )
+    }
+
+    /** 验证登录用户可以发布评论、点赞自己的评论并通过确认弹窗删除。 */
+    @Test
+    fun signedInUserCanPublishLikeAndDeleteComment() {
+        // 使用登录会话进入评论输入区，测试数据只存在于本次隔离夹具，不影响生产数据。
+        host.setContent {
+            HlovetTheme {
+                ArticleDetailScreen(
+                    initialArticle = seedArticle(),
+                    session = session(),
+                    onLogin = {},
+                    onBack = {},
+                    onOpenUser = {},
+                )
+            }
+        }
+
+        // 输入并发布一条根评论，确认服务端返回的评论节点进入列表。
+        waitForTag("article-comment-composer")
+        compose.onNodeWithTag("article-comment-composer").performTextInput("设备测试评论")
+        compose.onNodeWithTag("article-comment-publish").performClick()
+        waitForText("设备测试评论")
+        compose.onNodeWithTag("article-detail-list").performScrollToNode(hasTestTag("article-comment-901"))
+
+        // 点赞新评论后必须回显服务端返回的点赞数，再打开删除确认弹窗。
+        compose.onNodeWithTag("article-comment-like-901").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("1", substring = false).fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty() }
+        compose.onNodeWithTag("article-comment-delete-901").performClick()
+        compose.onNodeWithTag("article-comment-delete-confirm").assertIsDisplayed().performClick()
+        waitForText("评论已删除。")
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("article-comment-901").fetchSemanticsNodes(atLeastOneRootRequired = false).isEmpty()
+        }
+
+        // 发布、点赞和删除都必须留下隔离请求证据，并且删除后列表刷新不再返回已删除评论。
+        assertTrue(synchronized(mutationRequests) { mutationRequests.contains("POST /articles/701/comments") })
+        assertTrue(synchronized(mutationRequests) { mutationRequests.contains("POST /articles/comments/901/like") })
+        assertTrue(synchronized(mutationRequests) { mutationRequests.contains("DELETE /articles/comments/901") })
+    }
+
     /** 验证评论分页入口进入可视区域后自动加载下一页，而不是只能依赖手动按钮。 */
     @Test
     fun commentsLoadNextPageWhenFooterEntersViewport() {
@@ -563,9 +664,94 @@ class NativeOnlineArticleDetailDeviceTest {
                 subscriptionMethods += "DELETE"
                 json(JSONObject().put("subscribed", false).put("subscriberCount", 3))
             }
+            path == "/articles/701/like" && request.method == "POST" -> {
+                mutationRequests += "POST $path"
+                articleLiked = true
+                articleLikeCount = 4
+                json(articleActionJson())
+            }
+            path == "/articles/701/like" && request.method == "DELETE" -> {
+                mutationRequests += "DELETE $path"
+                articleLiked = false
+                articleLikeCount = 0
+                json(articleActionJson())
+            }
+            path == "/articles/701/favorite" && request.method == "POST" -> {
+                mutationRequests += "POST $path"
+                articleFavorited = true
+                articleFavoriteCount = 1
+                json(articleActionJson())
+            }
+            path == "/articles/701/favorite" && request.method == "DELETE" -> {
+                mutationRequests += "DELETE $path"
+                articleFavorited = false
+                articleFavoriteCount = 0
+                json(articleActionJson())
+            }
+            path == "/articles/701/read-later" && request.method == "POST" -> {
+                mutationRequests += "POST $path"
+                articleReadLater = true
+                json(articleActionJson())
+            }
+            path == "/articles/701/read-later" && request.method == "DELETE" -> {
+                mutationRequests += "DELETE $path"
+                articleReadLater = false
+                json(articleActionJson())
+            }
+            path == "/articles/comments/801/like" && request.method == "POST" -> {
+                mutationRequests += "POST $path"
+                json(JSONObject().put("liked", true).put("likeCount", 1))
+            }
+            path == "/articles/comments/801/like" && request.method == "DELETE" -> {
+                mutationRequests += "DELETE $path"
+                json(JSONObject().put("liked", false).put("likeCount", 0))
+            }
+            path == "/articles/701/comments" && request.method == "POST" -> {
+                mutationRequests += "POST $path"
+                createdCommentPresent = true
+                json(createdCommentJson())
+            }
+            path == "/articles/comments/901/like" && request.method == "POST" -> {
+                mutationRequests += "POST $path"
+                createdCommentLiked = true
+                createdCommentLikeCount = 1
+                json(JSONObject().put("liked", true).put("likeCount", createdCommentLikeCount))
+            }
+            path == "/articles/comments/901/like" && request.method == "DELETE" -> {
+                mutationRequests += "DELETE $path"
+                createdCommentLiked = false
+                createdCommentLikeCount = 0
+                json(JSONObject().put("liked", false).put("likeCount", createdCommentLikeCount))
+            }
+            path == "/articles/comments/901" && request.method == "DELETE" -> {
+                mutationRequests += "DELETE $path"
+                createdCommentPresent = false
+                createdCommentLiked = false
+                createdCommentLikeCount = 0
+                json(JSONObject())
+            }
             else -> error(404, "Unexpected fixture request: $path")
         }
     }
+
+    /** 构造文章操作响应，使页面状态完全由写接口回包驱动。 */
+    private fun articleActionJson(): JSONObject = JSONObject()
+        .put("liked", articleLiked)
+        .put("favorited", articleFavorited)
+        .put("likeCount", articleLikeCount)
+        .put("favoriteCount", articleFavoriteCount)
+        .put("readLater", articleReadLater)
+
+    /** 构造新评论响应，字段与 NativeArticleApi 的评论解析契约保持一致。 */
+    private fun createdCommentJson(): JSONObject = JSONObject()
+        .put("id", 901)
+        .put("articleId", 701)
+        .put("body", "设备测试评论")
+        .put("status", "active")
+        .put("likeCount", createdCommentLikeCount)
+        .put("liked", createdCommentLiked)
+        .put("reported", false)
+        .put("author", JSONObject().put("id", 99).put("username", "fixture-reader").put("nickname", "Fixture reader"))
 
     /** 构造文章接口响应，标题与初始快照不同以证明在线请求确实完成。 */
     private fun articleJson(): JSONObject = JSONObject()
@@ -578,9 +764,12 @@ class NativeOnlineArticleDetailDeviceTest {
         .put("category", "测试")
         .put("tags", JSONArray().put("detail"))
         .put("viewCount", 1)
-        .put("likeCount", 0)
-        .put("favoriteCount", 0)
+        .put("likeCount", articleLikeCount)
+        .put("favoriteCount", articleFavoriteCount)
         .put("commentCount", 1)
+        .put("liked", articleLiked)
+        .put("favorited", articleFavorited)
+        .put("readLater", articleReadLater)
         .put("author", JSONObject().put("id", 77).put("username", "test-author").put("nickname", "隔离作者"))
         .put("status", "published")
         .put("visibility", "public")
@@ -622,12 +811,17 @@ class NativeOnlineArticleDetailDeviceTest {
             items.put(comment)
         }
 
+        // 发布后把新评论追加到首屏，删除后从后续刷新结果中移除。
+        if (createdCommentPresent && !commentPaginationEnabled && !commentQuoteTargetInInitialList) {
+            items.put(createdCommentJson())
+        }
+
         // 自动分页场景用 cursor=10 标记第二页；其它测试仍表现为单页列表。
         return JSONObject()
             .put("items", items)
             .put("hasMore", commentPaginationEnabled)
             .put("nextCursor", if (commentPaginationEnabled) 10 else JSONObject.NULL)
-            .put("totalThreads", if (commentPaginationEnabled) 11 else 1)
+            .put("totalThreads", if (commentPaginationEnabled) 11 else if (createdCommentPresent) 2 else 1)
     }
 
     /** 根据游标返回评论首屏或下一页，并记录请求顺序供分页回归核对。 */
