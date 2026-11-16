@@ -14,6 +14,15 @@
 - 在不写入生产数据的前提下完成公开只读 GET 检查：主页、`/api/health/ready`、`/api/articles?page=1&pageSize=1` 均返回 HTTP `200`，TLS 校验结果正常。该结果只证明公开入口可访问，不替代登录、权限、写操作、Google/Passkey、FCM、WebRTC、外部 AI/媒体服务或 OSS/R2 验收。
 - 本轮没有修改业务源码、应用数据、服务器配置或历史 `tmp-*` 验收材料；待可用物理内存达到 `8 GiB` 后，继续执行当前源码的 JVM、AndroidTest 编译和在线设备重点回归。
 
+## 同日资源恢复后的补充验证（2026-11-16）
+
+- 在确认可用物理内存约 `12.12 GiB`（高于 `8 GiB` 安全线）后，使用 JDK 17 执行 `:prototype:testDebugUnitTest :prototype:compileDebugAndroidTestKotlin :prototype:assembleDebug --rerun-tasks`；构建成功，JVM 单测 XML 汇总为 `365/365`，失败、错误和跳过均为 `0`。
+- 重新执行 PC/Android 静态对齐检查：用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27`，确认缺失候选 `0`。静态映射只说明入口有原生承接，不替代各功能服务端验收。
+- 将当前 Debug APK 覆盖安装到在线设备 `emulator-5570` 并启动至 `MainActivity`；发现页从配置的生产 API 地址显示文章列表，最近 Logcat 缓冲区未发现应用 `FATAL EXCEPTION` 或 ANR。此项只作为设备启动和公开内容读取冒烟，不代表完整页面流程回归。
+- 通过 HTTPS 对生产主页、`/api/health/ready` 和 `/api/articles?page=1&pageSize=1` 执行公开 GET，均返回 `200`。本轮未在生产执行登录后写操作或任何业务数据变更。
+- 本机 Docker daemon 未运行，`127.0.0.1:3000/3001` 均拒绝连接；因此真实数据库/API 写操作、权限状态变化及端到端业务链路仍待可用的隔离服务器环境验证。没有用 MockWebServer 结果替代服务器验收。
+- OSS/R2、OCR、语音、图片生成及 Google/Passkey、FCM、WebRTC 等依赖外部凭据或服务的功能按 PC 端继续保留实现；缺少条件时跳过对应真实供应商验收，不据此判定功能实现缺失或已通过。
+
 ## 测试前内存门禁脚本（2026-11-15）
 
 - 本轮通过门禁脚本检查到本机可用物理内存读数在 `6.45–7.37 GiB` 之间变化，均低于已确认的 `8 GiB` 安全线，因此没有启动 Gradle、JVM 测试、模拟器或设备测试。
