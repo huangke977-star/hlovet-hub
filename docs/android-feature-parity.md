@@ -33,7 +33,15 @@
 - OSS/R2、OCR、语音转文字、图片生成、Google、Passkey、FCM、WebRTC 和外部 AI/媒体服务在缺少必要凭据、设备或供应商条件时，只完成与 PC 端等价的功能、配置和降级路径，并明确标记为“已实现，暂跳过外部服务验收”，不虚报为供应商闭环通过。
 - 移动端体验验收同时检查资讯类应用的主流交互：首行搜索与筛选、连续信息流、接近底部自动加载、返回后恢复滚动位置、单手可触达的操作区域、稳定的底部导航以及同类组件的统一尺寸和反馈。
 - 当前源码静态证据为 PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27`；本轮真实服务器公开只读检查为 `16/16` 通过，覆盖健康、就绪、站点资源、公开文章/专题/合集及详情接口。
-- 当前本机可用物理内存约 `5.92 GiB`，低于 `8 GiB` 安全线，因此本轮没有启动 Gradle、JVM 或 Android Instrumentation；最新代码的设备回归必须在内存达标后重新构建并执行，不能沿用旧 APK 的通过结果代替当前源码验证。
+- Earlier on 2026-11-17, available physical memory was about `5.92 GiB`, below the `8 GiB` safety line, so that attempt did not start Gradle, JVM, or Android Instrumentation. After memory recovered to `9.86 GiB`, the current-source production-device regression was executed on `emulator-5554` and is recorded below; an old APK result is not used as evidence for the current source.
+
+## Android Discover and Anonymous Feed Real-Server Device Regression (2026-11-17)
+
+- Before testing, available physical memory was checked at `9.86 GiB`, above the agreed `8 GiB` safety line. The regression used online device `emulator-5554` and the production API at `https://5200918.xyz/api`.
+- Discover used real article data to cover search for `gfjsfdhsdf`, opening a result, opening the real article detail, scrolling the body, and returning with the search condition and results restored. The detail displayed the title, author, statistics, body, tags, publication time, and subscription entry.
+- Anonymous content used real topic data to cover list loading, the empty result state for search `1`, recovery after clearing search, refreshing after selecting `Most liked`, and loading the page again after restarting the app.
+- When creating an anonymous topic while signed out, the app entered the login gate as required by the current permission rule. This round did not perform login, comments, replies, subscriptions, likes, favorites, publishing, deletion, or any other business write.
+- The result proves that public Discover/anonymous reads, search, filtering, detail navigation, and return-state restoration work against the real server. It does not prove authenticated flows, business writes, physical-offline media caching, or external-provider end-to-end behavior. OSS/R2, OCR, speech-to-text, image generation, Google, Passkey, FCM, WebRTC, and external AI/media-provider acceptance remain skipped where the required conditions are unavailable.
 
 ## 普通用户入口
 
