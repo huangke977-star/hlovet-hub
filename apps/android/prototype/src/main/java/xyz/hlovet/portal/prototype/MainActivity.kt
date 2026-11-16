@@ -2760,7 +2760,12 @@ private fun HlovetMobilePreview(
                             }
                         },
                     )
-                    1 -> Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())) {
+                    1 -> Box(
+                        Modifier
+                            .fillMaxSize()
+                            // 匿名页自身的 Scaffold 已处理顶部系统栏安全区，这里只避开宿主底部导航栏。
+                            .padding(bottom = padding.calculateBottomPadding()),
+                    ) {
                         // 匿名内容是独立信息流，返回按钮只回到发现页，不改变匿名页内部的查询和排序实现。
                         NativeAnonymousTopicsScreen(
                             session = session,
@@ -6938,9 +6943,11 @@ internal fun DiscoverScreen(
         }
     }
 
+    // 宿主 Scaffold 将系统栏安全区交给当前标签；顶部 padding 需留在固定工具栏之外。
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .padding(top = scaffoldPadding.calculateTopPadding())
             .padding(bottom = scaffoldPadding.calculateBottomPadding()),
     ) {
         // 搜索工具栏固定在信息流上方，滚动时只移动文章内容，避免用户回不到筛选入口。
