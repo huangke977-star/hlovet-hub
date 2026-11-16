@@ -1,5 +1,12 @@
 # Android 与 PC 功能覆盖矩阵
 
+## 2026-11-17 本机产物与设备状态复核
+
+- 本机 `testDebugUnitTest` XML 汇总为 `72` 套件、`365/365` 项通过，失败、错误和跳过均为 `0`；`compileDebugAndroidTestKotlin` 与 `assembleDebug` 成功。重新执行路由和 API 静态审计：用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27`，确认缺失候选 `0`。
+- 当前磁盘上的 `prototype-debug.apk` SHA-256 为 `5799325a4a66f91e5118804ce7cabcb59bd677bdee71e3cceb62c0983edda6f5`。在线设备 `emulator-5554` 已安装原生包 `xyz.hlovet.portal.prototype`，但其 `lastUpdateTime` 为 `2026-11-16 22:02:59`，早于当前 APK；因此当前 APK 尚未在设备上安装或操作验证。
+- 测试前内存门禁读数为 `7.95 GiB`，低于 `8.00 GiB` 安全线，已拦截新的 Gradle/设备测试。此前短暂读数达到 `8.01 GiB`，但复核未能稳定满足门槛；没有关闭模拟器或其他进程。
+- 当天真实服务器公开只读检查 `16/16` 结果仍按上文记录；本次没有执行生产写操作。OSS/R2 等外部条件不足的闭环测试继续按“PC 等价实现后跳过并标记未验证”处理。
+
 ## 真实服务器规则下的当前源码回归（2026-11-17）
 
 - 按当前验收规则，后端相关检查直接连接 `https://5200918.xyz`；公开只读检查 `16/16` 通过，覆盖健康、就绪、站点地图、RSS、中英文 Manifest、Service Worker、App Links、公开文章/详情/评论、专题/详情、合集/详情/RSS。没有用设备内 MockWebServer 代替服务器结果，也没有执行生产写操作。
