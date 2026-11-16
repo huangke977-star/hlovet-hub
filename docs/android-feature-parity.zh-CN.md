@@ -7,6 +7,13 @@
 - 与 PC 的同类组件使用同一套移动端设计令牌；
 - 在模拟器或真实设备完成至少一条成功路径和一条失败/空状态路径。
 
+## Android 与 PC 覆盖复核及生产公开接口检查（2026-11-16）
+
+- 重新执行 `node apps/android/tools/check-route-parity.mjs`：PC 用户路由 `70/70`、后台入口 `24/24` 均有 `MainActivity` 映射；重新执行 `node apps/android/tools/check-api-parity.mjs`：当前 PC API 模块 `27/27`，`0` 个确认缺失候选。
+- 已通过 `D:\app\android-build\android-sdk\platform-tools\adb.exe devices -l` 确认 `emulator-5570` 在线，但执行 Android 内存门禁时可用物理内存仅约 `2.71 GiB`，后续复核降至约 `2.13 GiB`，低于已确认的 `8 GiB` 安全线。因此本轮没有启动 Gradle、JVM 测试、APK 安装或 instrumentation，避免内存提交不足导致应用退出；设备在线不等于本轮设备回归通过。
+- 在不写入生产数据的前提下完成公开只读 GET 检查：主页、`/api/health/ready`、`/api/articles?page=1&pageSize=1` 均返回 HTTP `200`，TLS 校验结果正常。该结果只证明公开入口可访问，不替代登录、权限、写操作、Google/Passkey、FCM、WebRTC、外部 AI/媒体服务或 OSS/R2 验收。
+- 本轮没有修改业务源码、应用数据、服务器配置或历史 `tmp-*` 验收材料；待可用物理内存达到 `8 GiB` 后，继续执行当前源码的 JVM、AndroidTest 编译和在线设备重点回归。
+
 ## 测试前内存门禁脚本（2026-11-15）
 
 - 本轮通过门禁脚本检查到本机可用物理内存读数在 `6.45–7.37 GiB` 之间变化，均低于已确认的 `8 GiB` 安全线，因此没有启动 Gradle、JVM 测试、模拟器或设备测试。
