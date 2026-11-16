@@ -1,5 +1,12 @@
 # Android 与 PC 功能覆盖矩阵
 
+## 真实服务器规则下的当前源码回归（2026-11-17）
+
+- 按当前验收规则，后端相关检查直接连接 `https://5200918.xyz`；公开只读检查 `16/16` 通过，覆盖健康、就绪、站点地图、RSS、中英文 Manifest、Service Worker、App Links、公开文章/详情/评论、专题/详情、合集/详情/RSS。没有用设备内 MockWebServer 代替服务器结果，也没有执行生产写操作。
+- 测试前可用物理内存约 `19.57 GiB`，高于 `8 GiB` 安全线；构建结束后仍约 `14.43 GiB`。当前源码执行 `:prototype:testDebugUnitTest :prototype:compileDebugAndroidTestKotlin :prototype:assembleDebug --rerun-tasks` 成功，JVM 单测 XML 汇总为 `365/365`，失败、错误和跳过均为 `0`。
+- 当前源码 Debug APK 已重新生成：`prototype/build/outputs/apk/debug/prototype-debug.apk`，SHA-256 为 `7022972b7c49c9b48cfb27cdfd6912d25411c33bb7defe850b68f7e61b640f77`。本轮 ADB 没有在线设备，因此没有把设备 instrumentation、真实登录会话或 Android 页面操作标记为通过。
+- OSS/R2、OCR、语音转文字、图片生成、Google、Passkey、FCM、WebRTC、外部 AI/媒体供应商等仍按“PC 等价功能已实现，缺少必要条件则跳过供应商闭环测试”处理；待设备在线后再继续当前源码的设备回归，后端写操作仍需连接真实服务器或真实隔离服务器执行。
+
 ## 真实服务器与设备测试执行规则补充（2026-11-16）
 
 - 后端、API、数据库、权限和业务状态相关测试必须连接真实服务器或真实隔离服务器；设备内 MockWebServer 仅用于验证 Android 请求契约、页面状态和竞态边界，不能作为后端验收结论。
