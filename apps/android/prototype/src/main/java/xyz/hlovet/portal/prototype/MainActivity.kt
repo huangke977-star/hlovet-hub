@@ -61,6 +61,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -258,6 +259,31 @@ private sealed interface NativeDetailBackTarget {
     data class Account(val target: AccountTarget) : NativeDetailBackTarget
     data class PublicProfile(val username: String) : NativeDetailBackTarget
     data class Detail(val target: DetailTarget) : NativeDetailBackTarget
+}
+
+/** 保存发现信息流的筛选、分页结果和滚动锚点，详情页切换时不丢失用户当前浏览位置。 */
+internal class NativeDiscoverState {
+    var query by mutableStateOf("")
+    var discoveryMode by mutableStateOf("文章")
+    var articleSort by mutableStateOf("recommended")
+    var loadingMore by mutableStateOf(false)
+    var loadMoreError by mutableStateOf<String?>(null)
+    var subscriptionError by mutableStateOf<String?>(null)
+    var discoveryPage by mutableIntStateOf(1)
+    var discoveryRequestId by mutableIntStateOf(0)
+    var canLoadMore by mutableStateOf(false)
+    var localArticles by mutableStateOf<List<RemoteArticle>>(emptyList())
+    var localTopics by mutableStateOf<List<RemoteTopic>>(emptyList())
+    var localCollections by mutableStateOf<List<RemoteCollection>>(emptyList())
+    var initialized by mutableStateOf(false)
+    var lastInitialMode by mutableStateOf<String?>(null)
+    var lastInitialQuery by mutableStateOf<String?>(null)
+    var needsReload by mutableStateOf(true)
+    // 只有搜索、筛选或排序真正变化时才递增，详情页返回重新组合时不触发滚动回顶。
+    var scrollResetVersion by mutableIntStateOf(0)
+    // 记录已经应用到列表的回顶版本，避免详情页返回重新组合时重复回到首项。
+    var appliedScrollResetVersion by mutableIntStateOf(-1)
+    val listState = LazyListState()
 }
 
 private data class NativeProfileBackTarget(
@@ -719,6 +745,8 @@ private fun HlovetMobilePreview(
 ) {
     // 页面位置和待恢复目标只属于当前宿主，外观更新不应重建这些业务状态。
     var selectedTab by remember { mutableIntStateOf(0) }
+    // 发现信息流跨越详情页存在期间仍由宿主持有，返回时恢复筛选、分页数据和滚动锚点。
+    val discoveryState = remember { NativeDiscoverState() }
     var discoveryInitialMode by remember { mutableStateOf("文章") }
     var discoveryInitialQuery by remember { mutableStateOf("") }
     var accountInitialStatus by remember { mutableStateOf<String?>(null) }
@@ -886,9 +914,7 @@ private fun HlovetMobilePreview(
 
     fun clearOpenTarget() {
         loginVisible = false
-        // 默认入口专注文章列表；推荐仍可在发现页的筛选中主动打开。
-        discoveryInitialMode = "文章"
-        discoveryInitialQuery = ""
+        // 发现页当前筛选属于用户浏览上下文，离开详情或其它页面时不能被清空。
         accountInitialStatus = null
         accountInitialQuery = ""
         subscriptionInitialSort = "latest"
@@ -2731,6 +2757,7 @@ private fun HlovetMobilePreview(
                     0 -> DiscoverScreen(
                         padding,
                         session = session,
+                        discoveryState = discoveryState,
                         initialMode = discoveryInitialMode,
                         initialQuery = discoveryInitialQuery,
                         articles = state.data.articles,
@@ -6615,6 +6642,7 @@ private fun FollowingStrip(
 internal fun DiscoverScreen(
     scaffoldPadding: PaddingValues,
     session: NativeSession?,
+    discoveryState: NativeDiscoverState = remember { NativeDiscoverState() },
     initialMode: String = "推荐",
     initialQuery: String = "",
     articles: List<RemoteArticle>,
@@ -6627,21 +6655,19 @@ internal fun DiscoverScreen(
     onOpenUser: (String) -> Unit = {},
     onOpenGroup: (NativeRecommendationGroup) -> Unit = {},
 ) {
-    var query by remember(initialQuery) { mutableStateOf(initialQuery) }
-    var subscriptionError by remember { mutableStateOf<String?>(null) }
-    var loadMoreError by remember { mutableStateOf<String?>(null) }
-    var loadingMore by remember { mutableStateOf(false) }
-    var discoveryMode by remember(initialMode) { mutableStateOf(initialMode) }
-    var articleSort by remember { mutableStateOf("recommended") }
+    var query by discoveryState::query
+    var subscriptionError by discoveryState::subscriptionError
+    var loadMoreError by discoveryState::loadMoreError
+    var loadingMore by discoveryState::loadingMore
+    var discoveryMode by discoveryState::discoveryMode
+    var articleSort by discoveryState::articleSort
     var discoveryFilterDialogOpen by remember { mutableStateOf(false) }
-    var discoveryPage by remember(articles, topics, collections) { mutableIntStateOf(1) }
-    var discoveryRequestId by remember { mutableIntStateOf(0) }
-    var canLoadMore by remember(articles, topics, collections) {
-        mutableStateOf(articles.size >= 8 || topics.size >= 8 || collections.size >= 8)
-    }
-    var localArticles by remember(articles) { mutableStateOf(articles) }
-    var localTopics by remember(topics) { mutableStateOf(topics) }
-    var localCollections by remember(collections) { mutableStateOf(collections) }
+    var discoveryPage by discoveryState::discoveryPage
+    var discoveryRequestId by discoveryState::discoveryRequestId
+    var canLoadMore by discoveryState::canLoadMore
+    var localArticles by discoveryState::localArticles
+    var localTopics by discoveryState::localTopics
+    var localCollections by discoveryState::localCollections
     var recommendations by remember(session?.accessToken) { mutableStateOf<NativeDiscoveryRecommendations?>(null) }
     var recommendationsLoading by remember(session?.accessToken) { mutableStateOf(false) }
     var recommendationsError by remember(session?.accessToken) { mutableStateOf<String?>(null) }
@@ -6845,6 +6871,9 @@ internal fun DiscoverScreen(
         // 允许用户在上一组请求尚未完成时切换筛选；新请求会递增代际，旧回包只能被丢弃。
         if (!force && mode == discoveryMode && discoveryPage == 1) return
         discoveryMode = mode
+        discoveryState.needsReload = false
+        // 新的一组发现条件从首条内容开始，避免用户误读上一组信息流的位置。
+        discoveryState.scrollResetVersion += 1
         val requestSort = discoverySort(mode, sortOverride)
         val requestId = discoveryRequestId + 1
         discoveryRequestId = requestId
@@ -6877,6 +6906,7 @@ internal fun DiscoverScreen(
                 }
             }.onFailure {
                 if (requestId == discoveryRequestId) {
+                    discoveryState.needsReload = true
                     loadMoreError = it.message ?: nativePhrase("切换发现内容失败，请稍后重试。", "Discover content could not be switched. Try again later.")
                 }
             }
@@ -6885,9 +6915,31 @@ internal fun DiscoverScreen(
     }
 
     LaunchedEffect(initialMode, query) {
-        // 初次进入或搜索词变化都重新读取当前模式的第一页，搜索结果沿用同一条分页信息流。
-        delay(if (query.isBlank()) 0 else 300)
-        loadDiscoveryMode(discoveryMode, force = true)
+        // 深链或“更多”入口改变初始条件时重置信息流；详情返回时沿用宿主保存的结果和滚动位置。
+        val entryChanged = !discoveryState.initialized ||
+            discoveryState.lastInitialMode != initialMode ||
+            discoveryState.lastInitialQuery != initialQuery
+        if (entryChanged) {
+            discoveryState.initialized = true
+            discoveryState.lastInitialMode = initialMode
+            discoveryState.lastInitialQuery = initialQuery
+            discoveryMode = initialMode
+            query = initialQuery
+            articleSort = "recommended"
+            localArticles = articles
+            localTopics = topics
+            localCollections = collections
+            discoveryPage = 1
+            canLoadMore = articles.size >= 8 || topics.size >= 8 || collections.size >= 8
+            discoveryState.needsReload = true
+            // 深链或入口条件发生变化时，需要把旧信息流的滚动锚点复位。
+            discoveryState.scrollResetVersion += 1
+        }
+        // 搜索输入会将 needsReload 置为 true；详情返回且没有新条件时跳过重复请求。
+        if (discoveryState.needsReload) {
+            delay(if (query.isBlank()) 0 else 300)
+            loadDiscoveryMode(discoveryMode, force = true)
+        }
     }
 
     /** 追加当前发现模式的下一页，成功后按稳定 ID 合并并更新是否还有后续数据。 */
@@ -6927,9 +6979,19 @@ internal fun DiscoverScreen(
     }
 
     // 列表接近底部时自动追加下一页，避免用户必须离开内容区寻找“加载更多”按钮。
-    val discoveryListState = rememberLazyListState()
-    // 搜索词、内容类型或排序变化代表一组新的信息流，先回到顶部避免用户误读旧滚动位置。
-    LaunchedEffect(query, discoveryMode, articleSort) {
+    val discoveryListState = discoveryState.listState
+    // 只响应明确的条件变化；详情页返回时不重新执行，因而保留列表的实际滚动锚点。
+    LaunchedEffect(discoveryState.scrollResetVersion) {
+        // 首次组合只记录当前版本，避免从详情页返回时把已有滚动位置强制重置。
+        if (discoveryState.appliedScrollResetVersion == -1) {
+            discoveryState.appliedScrollResetVersion = discoveryState.scrollResetVersion
+            return@LaunchedEffect
+        }
+        // 只有搜索、筛选或排序产生新版本时，才回到新的结果集首项。
+        if (discoveryState.appliedScrollResetVersion == discoveryState.scrollResetVersion) {
+            return@LaunchedEffect
+        }
+        discoveryState.appliedScrollResetVersion = discoveryState.scrollResetVersion
         discoveryListState.scrollToItem(0)
     }
     LaunchedEffect(discoveryListState, canLoadMore, loadingMore, loadMoreError) {
@@ -6953,8 +7015,18 @@ internal fun DiscoverScreen(
         // 搜索工具栏固定在信息流上方，滚动时只移动文章内容，避免用户回不到筛选入口。
         NativeFeedToolbar(
             query = query,
-            onQueryChange = { query = it },
-            onClearQuery = { query = "" },
+            onQueryChange = {
+                query = it
+                discoveryState.needsReload = true
+                // 搜索词变化代表新的结果集，滚动位置必须回到首条结果。
+                discoveryState.scrollResetVersion += 1
+            },
+            onClearQuery = {
+                query = ""
+                discoveryState.needsReload = true
+                // 清空搜索词恢复默认结果集，同样从首条内容开始浏览。
+                discoveryState.scrollResetVersion += 1
+            },
             onFilterClick = { discoveryFilterDialogOpen = true },
             queryTag = "discover-search",
             filterTag = "discover-filter",
