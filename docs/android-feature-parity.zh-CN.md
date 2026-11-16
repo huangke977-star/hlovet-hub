@@ -3652,3 +3652,10 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 脚本先检查 API 存活和就绪状态，再检查站点地图、站点 RSS、中文/英文 Manifest、Service Worker、Android App Links；随后从真实文章、专题和合集列表动态取得 slug/id，继续检查文章详情、文章评论、专题详情、合集详情和合集 RSS，避免依赖过期的固定数据。
 - 2026-11-17 本轮实际执行结果：16 项通过、0 项跳过、0 项失败。公开文章列表读取 20 条，公开专题列表读取 1 条，公开合集列表读取 4 条；动态选出的文章详情、评论、专题详情、合集详情和合集 RSS 均返回 HTTP 200。
 - 执行命令：`node apps/android/tools/check-real-server-readonly.mjs --base-url https://5200918.xyz`。`--json` 可输出机器可读报告；该脚本的通过结果只代表真实服务器公开 GET 链路正常，不代表登录态权限、业务写入或 OSS/R2、OCR、语音、图片生成、Google、Passkey、FCM、WebRTC、外部 AI/媒体供应商已验收。
+
+## 继续验收记录（2026-11-17）
+
+- 按真实服务器规则重新执行 `node apps/android/tools/check-real-server-readonly.mjs --base-url https://5200918.xyz --json`，公开健康、就绪、分发资源、文章、评论、专题、合集及合集 RSS 共 `16/16` 通过；本轮没有发送登录、评论、订阅、点赞、收藏、发布、删除、备份恢复或其它业务写请求。
+- 重新执行 PC/Android 路由和接口对齐审计：PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27`，仍为 `0` 个确认缺口。
+- 测试前内存门禁读数为 `5.85 GiB`，低于约定的 `8 GiB` 安全线；在线设备 `emulator-5554` 已发现，但本轮没有启动 Gradle、JVM 或 Instrumentation。当前模拟器进程工作集约 `13.07 GiB`，因此不把未执行的设备回归写成通过。
+- 本轮结论只更新真实公开 GET 证据；登录态业务闭环、业务写入、最新 APK 安装回归以及缺少外部条件的 OSS/R2、OCR、语音、图片、Google、Passkey、FCM、WebRTC 和外部 AI/媒体供应商验收仍保持未关闭状态。
