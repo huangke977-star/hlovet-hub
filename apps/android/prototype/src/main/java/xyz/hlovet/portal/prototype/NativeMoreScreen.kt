@@ -65,12 +65,12 @@ internal fun NativeMoreScreen(
         NativeMoreEntry("feedback", nativePhrase("问题反馈", "Report a problem"), nativePhrase("提交问题并查看处理进度", "Report issues and track progress"), Icons.Filled.Feedback),
         NativeMoreEntry("suggestions", nativePhrase("意见建议", "Suggestions"), nativePhrase("提出建议并参与改进", "Share ideas and help improve the site"), Icons.Filled.Lightbulb),
         NativeMoreEntry("resources", nativePhrase("资源中心", "Resource center"), nativePhrase("浏览资源并查看积分兑换", "Browse resources and manage points"), Icons.Filled.AccountBalanceWallet),
+        NativeMoreEntry("offline", nativePhrase("离线阅读", "Offline reading"), nativePhrase("打开已保存的文章和专题", "Open saved articles and topics"), Icons.Filled.Download),
     )
     val accountEntries = listOf(
         NativeMoreEntry("write", nativePhrase("写文章", "Write"), nativePhrase("创建文章草稿并继续编辑", "Create and edit an article draft"), Icons.Filled.Edit),
         NativeMoreEntry("my-articles", nativePhrase("我的文章", "My articles"), nativePhrase("管理草稿、发布和文章数据", "Manage drafts, publishing, and article data"), Icons.Filled.LibraryBooks),
         NativeMoreEntry("subscriptions", nativePhrase("我的订阅", "Subscriptions"), nativePhrase("查看作者、专题和合集更新", "View author, topic, and collection updates"), Icons.Filled.Topic),
-        NativeMoreEntry("offline", nativePhrase("离线阅读", "Offline reading"), nativePhrase("打开已保存的文章和专题", "Open saved articles and topics"), Icons.Filled.Download),
         NativeMoreEntry("ai", nativePhrase("AI 助手", "AI assistant"), nativePhrase("对话、检索和写作工具", "Chat, retrieval, and writing tools"), Icons.Filled.AutoAwesome),
     )
     val adminEntries = if (session?.isAdministrator == true || session?.isSuperAdmin == true) {
@@ -119,13 +119,14 @@ internal fun NativeMoreScreen(
                 "feedback" -> onOpenTarget(AccountTarget.Feedback)
                 "suggestions" -> onOpenTarget(AccountTarget.Suggestions)
                 "resources" -> onOpenTarget(AccountTarget.ResourceCenter)
+                "offline" -> onOpenTarget(AccountTarget.Offline)
             }
         }
         if (session == null) {
             item {
                 GlassCard(modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth(), shape = HlovetUi.rowShape) {
                     Text(
-                        nativePhrase("登录后可使用写作、离线阅读、订阅和 AI 功能。", "Sign in to use writing, offline reading, subscriptions, and AI features."),
+                        nativePhrase("登录后可使用写作、订阅和 AI 功能。", "Sign in to use writing, subscriptions, and AI features."),
                         color = HlovetUi.muted,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp).clickable(onClick = onLogin),

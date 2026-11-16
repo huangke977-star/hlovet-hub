@@ -61,8 +61,8 @@ class NativeMoreNavigationTest {
 
         // 先核对入口和匿名用户提示都存在，避免仅因回调可调用而忽略界面缺项。
         compose.onNodeWithText("更多").assertIsDisplayed()
-        compose.onNodeWithText("登录后可使用写作、离线阅读、订阅和 AI 功能。").assertIsDisplayed()
-        listOf("topics", "collections", "announcements", "navigation", "tools", "feedback", "suggestions", "resources")
+        compose.onNodeWithText("登录后可使用写作、订阅和 AI 功能。").performScrollTo().assertExists()
+        listOf("topics", "collections", "announcements", "navigation", "tools", "feedback", "suggestions", "resources", "offline")
             .forEach { key -> compose.onNodeWithTag("native-more-$key").performScrollTo().assertIsDisplayed() }
 
         // 专题和合集回到发现页对应筛选，其余入口交给宿主的 AccountTarget 分发。
@@ -74,6 +74,7 @@ class NativeMoreNavigationTest {
         compose.onNodeWithTag("native-more-feedback").performClick()
         compose.onNodeWithTag("native-more-suggestions").performClick()
         compose.onNodeWithTag("native-more-resources").performClick()
+        compose.onNodeWithTag("native-more-offline").performClick()
 
         // 回调顺序与页面顺序一致，防止某个入口误指向相邻功能页面。
         assertEquals(listOf("专题", "合集"), openedDiscoveryModes)
@@ -85,6 +86,7 @@ class NativeMoreNavigationTest {
                 AccountTarget.Feedback,
                 AccountTarget.Suggestions,
                 AccountTarget.ResourceCenter,
+                AccountTarget.Offline,
             ),
             openedTargets,
         )

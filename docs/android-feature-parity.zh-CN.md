@@ -3667,6 +3667,15 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 - 测试前内存门禁读数为 `5.85 GiB`，低于约定的 `8 GiB` 安全线；在线设备 `emulator-5554` 已发现，但本轮没有启动 Gradle、JVM 或 Instrumentation。当前模拟器进程工作集约 `13.07 GiB`，因此不把未执行的设备回归写成通过。
 - 本轮结论只更新真实公开 GET 证据；登录态业务闭环、业务写入、最新 APK 安装回归以及缺少外部条件的 OSS/R2、OCR、语音、图片、Google、Passkey、FCM、WebRTC 和外部 AI/媒体供应商验收仍保持未关闭状态。
 
+## Android 更多页离线入口修复与真实服务复核（2026-11-17）
+
+- 更多页将“离线阅读”归入公开入口分组，匿名用户也可以看到并点击进入离线阅读；登录提示仅保留写作、订阅和 AI，避免把不需要登录的离线阅读误标为登录功能。
+- `NativeMoreNavigationTest` 增加匿名离线入口存在性、点击分发和 `AccountTarget.Offline` 断言；登录提示改用存在性断言，避免大型玻璃卡片内的文本节点因 Compose 可见区域判断过严造成假失败。Android 15 `HlovetAndroid15` 上定向执行 `NativeMoreNavigationTest#publicMoreEntriesDispatchToExpectedTargets`，结果 `1/1` 通过、0 失败。
+- 本轮真实服务器公开只读脚本重新执行，健康、就绪、站点地图、RSS、中英文 Manifest、Service Worker、App Links、文章/评论、专题、合集及合集 RSS 共 `16/16` 通过；没有写入生产数据。
+- 前两次增量构建因可用内存跌破 `8 GiB` 安全线而中止。本轮先停止模拟器释放内存，在 JDK 17、显式 SDK 路径、单 worker、无常驻 Gradle daemon 条件下重新构建 `assembleDebug` 与 `assembleAndroidTest`，`BUILD SUCCESSFUL`；构建中最低可用内存约 `14.60 GiB`。随后重启同一模拟器，使用 `adb install -r` 安装主包和测试包并运行定向 instrumentation，未清除应用数据；恢复后内存约 `14.96 GiB`。
+- `:prototype:testDebugUnitTest --no-daemon --max-workers=1 --console=plain` 通过，`BUILD SUCCESSFUL`。该结果只代表 JVM 单元测试通过，不替代 Android 设备或服务器联调；服务器侧本轮仅验证公开只读 GET 接口。
+- OSS/R2、OCR、语音转文字、图片生成、Google、Passkey、FCM、WebRTC 及外部 AI/媒体供应商仍按“功能已实现、缺少必要条件时跳过供应商闭环测试”处理；本轮不把客户端编译、隔离夹具或公开 GET 结果扩大为外部服务验收。
+
 ## Android 发现与匿名信息流真实服务器设备回归（2026-11-17）
 
 - 测试前重新检查本机可用物理内存为 `9.86 GiB`，高于约定的 `8 GiB` 安全线；使用在线设备 `emulator-5554` 和生产地址 `https://5200918.xyz/api` 执行本轮回归。
