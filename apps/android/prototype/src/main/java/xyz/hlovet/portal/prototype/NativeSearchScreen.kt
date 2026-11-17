@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -47,6 +48,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,16 +61,30 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.distinctUntilChanged
+
+/** 保存搜索页离开详情前的查询条件、分页和列表滚动位置，便于返回时恢复用户上下文。 */
+internal data class NativeSearchScreenState(
+    val query: String = "",
+    val scopeFilter: String = "all",
+    val sort: String = "relevance",
+    val category: String = "",
+    val page: Int = 1,
+    val firstVisibleItemIndex: Int = 0,
+    val firstVisibleItemScrollOffset: Int = 0,
+)
 
 /** 展示全站搜索及历史、热门、范围、排序、分类和多类型结果；点击结果交给宿主分发。 */
 @Composable
 internal fun NativeSearchScreen(
     session: NativeSession?,
     initialQuery: String = "",
+    initialState: NativeSearchScreenState = NativeSearchScreenState(query = initialQuery),
+    onStateChanged: (NativeSearchScreenState) -> Unit = {},
     onBack: () -> Unit,
-    onOpenArticle: (String) -> Unit,
-    onOpenTopic: (String) -> Unit,
-    onOpenCollection: (Int) -> Unit,
+    onOpenArticle: (String, NativeSearchScreenState) -> Unit,
+    onOpenTopic: (String, NativeSearchScreenState) -> Unit,
+    onOpenCollection: (Int, NativeSearchScreenState) -> Unit,
     onOpenUser: (String) -> Unit,
     onOpenAnnouncement: (Int) -> Unit,
     onOpenGroup: (NativeSearchChatGroup) -> Unit,
@@ -76,11 +92,16 @@ internal fun NativeSearchScreen(
 ) {
     val scope = rememberCoroutineScope()
     val token = session?.accessToken
-    var query by remember(initialQuery) { mutableStateOf(initialQuery.take(80)) }
-    var scopeFilter by remember { mutableStateOf("all") }
-    var sort by remember { mutableStateOf("relevance") }
-    var category by remember { mutableStateOf("") }
-    var page by remember { mutableIntStateOf(1) }
+    val restoredState = remember { initialState }
+    var query by remember { mutableStateOf((restoredState.query.ifBlank { initialQuery }).take(80)) }
+    var scopeFilter by remember { mutableStateOf(restoredState.scopeFilter.ifBlank { "all" }) }
+    var sort by remember { mutableStateOf(restoredState.sort.ifBlank { "relevance" }) }
+    var category by remember { mutableStateOf(restoredState.category) }
+    var page by remember { mutableIntStateOf(restoredState.page.coerceAtLeast(1)) }
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = restoredState.firstVisibleItemIndex.coerceAtLeast(0),
+        initialFirstVisibleItemScrollOffset = restoredState.firstVisibleItemScrollOffset.coerceAtLeast(0),
+    )
     var result by remember { mutableStateOf<NativeSearchResult?>(null) }
     var history by remember(token) { mutableStateOf<List<NativeSearchHistory>>(emptyList()) }
     var hot by remember { mutableStateOf<List<NativeSearchHistory>>(emptyList()) }
@@ -88,10 +109,42 @@ internal fun NativeSearchScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var clearHistoryConfirm by remember { mutableStateOf(false) }
     var lastRecorded by remember { mutableStateOf("") }
+    var lastToken by remember { mutableStateOf(token) }
+    var restoredAnchorApplied by remember { mutableStateOf(false) }
     val searchRequestGeneration = remember { NativeRequestGeneration() }
 
+    LaunchedEffect(Unit) {
+        // 详情页返回后仍向宿主报告当前条件和锚点，下一次进入详情时不会丢失用户浏览位置。
+        snapshotFlow {
+            NativeSearchScreenState(
+                query = query,
+                scopeFilter = scopeFilter,
+                sort = sort,
+                category = category,
+                page = page,
+                firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset,
+            )
+        }.distinctUntilChanged().collect(onStateChanged)
+    }
+
+    LaunchedEffect(result) {
+        // 只在恢复进入详情前的首次结果时应用锚点，后续切换筛选或分页不能被旧锚点拉回去。
+        if (!restoredAnchorApplied && result != null && (restoredState.firstVisibleItemIndex > 0 || restoredState.firstVisibleItemScrollOffset > 0)) {
+            listState.scrollToItem(
+                restoredState.firstVisibleItemIndex.coerceAtLeast(0),
+                restoredState.firstVisibleItemScrollOffset.coerceAtLeast(0),
+            )
+            restoredAnchorApplied = true
+        }
+    }
+
     LaunchedEffect(token) {
-        page = 1
+        // 首次进入时保留宿主传入的页码；只有登录状态真正变化时才重新从第一页查询。
+        if (lastToken != token) {
+            page = 1
+            lastToken = token
+        }
         hot = withContext(Dispatchers.IO) { runCatching { NativeSearchApi.hot(8) }.getOrDefault(emptyList()) }
         if (!token.isNullOrBlank()) {
             history = withContext(Dispatchers.IO) { runCatching { NativeSearchApi.history(token) }.getOrDefault(emptyList()) }
@@ -149,6 +202,17 @@ internal fun NativeSearchScreen(
         page = 1
     }
 
+    /** 同步捕获结果点击时的搜索条件和滚动锚点，避免异步状态回传落后于用户操作。 */
+    fun currentSearchState(): NativeSearchScreenState = NativeSearchScreenState(
+        query = query,
+        scopeFilter = scopeFilter,
+        sort = sort,
+        category = category,
+        page = page,
+        firstVisibleItemIndex = listState.firstVisibleItemIndex,
+        firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset,
+    )
+
     val total = result?.let {
         it.articles.total + it.users.total + it.navigation.total + it.tools.total +
             it.topics.total + it.collections.total + it.groups.total + it.announcements.total
@@ -179,6 +243,7 @@ internal fun NativeSearchScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("native-search-list"),
+        state = listState,
         contentPadding = PaddingValues(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -314,7 +379,7 @@ internal fun NativeSearchScreen(
                             article.title,
                             "${article.authorName} · ${article.category.ifBlank { nativePhrase("随笔", "Notes") }} · ${article.viewCount} ${nativePhrase("阅读", "views")} · ${article.commentCount} ${nativePhrase("评论", "comments")}",
                             Icons.Filled.Article,
-                            onClick = { onOpenArticle(article.slug) },
+                            onClick = { onOpenArticle(article.slug, currentSearchState()) },
                             testTag = "native-search-article-${article.id}",
                         )
                     }
@@ -340,13 +405,13 @@ internal fun NativeSearchScreen(
                 if ((scopeFilter == "all" || scopeFilter == "topics") && data.topics.items.isNotEmpty()) {
                     item { SearchGroupHeader(nativePhrase("专题", "Topics"), data.topics.total, Icons.Filled.Topic) }
                     items(data.topics.items, key = { "topic-${it.id}" }) { topic ->
-                        SearchRow(topic.title, "${topic.articleCount} ${nativePhrase("篇文章", "articles")} · ${topic.subscriberCount} ${nativePhrase("人订阅", "subscribers")}\n${topic.description}", Icons.Filled.Topic) { onOpenTopic(topic.slug) }
+                        SearchRow(topic.title, "${topic.articleCount} ${nativePhrase("篇文章", "articles")} · ${topic.subscriberCount} ${nativePhrase("人订阅", "subscribers")}\n${topic.description}", Icons.Filled.Topic) { onOpenTopic(topic.slug, currentSearchState()) }
                     }
                 }
                 if ((scopeFilter == "all" || scopeFilter == "collections") && data.collections.items.isNotEmpty()) {
                     item { SearchGroupHeader(nativePhrase("合集", "Collections"), data.collections.total, Icons.Filled.CollectionsBookmark) }
                     items(data.collections.items, key = { "collection-${it.id}" }) { collection ->
-                        SearchRow(collection.name, "${collection.articleCount} ${nativePhrase("篇文章", "articles")} · ${collection.subscriberCount} ${nativePhrase("人订阅", "subscribers")} · ${collection.ownerName}", Icons.Filled.CollectionsBookmark) { onOpenCollection(collection.id) }
+                        SearchRow(collection.name, "${collection.articleCount} ${nativePhrase("篇文章", "articles")} · ${collection.subscriberCount} ${nativePhrase("人订阅", "subscribers")} · ${collection.ownerName}", Icons.Filled.CollectionsBookmark) { onOpenCollection(collection.id, currentSearchState()) }
                     }
                 }
                 if ((scopeFilter == "all" || scopeFilter == "groups") && data.groups.items.isNotEmpty()) {

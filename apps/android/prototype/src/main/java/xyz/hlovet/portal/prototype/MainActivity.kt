@@ -255,10 +255,12 @@ internal sealed interface DetailTarget {
     ) : DetailTarget
 }
 
+/** 记录详情页的逐层返回目标，覆盖账号页、个人页、详情链和带搜索快照的搜索页。 */
 private sealed interface NativeDetailBackTarget {
     data class Account(val target: AccountTarget) : NativeDetailBackTarget
     data class PublicProfile(val username: String) : NativeDetailBackTarget
-    data class Detail(val target: DetailTarget) : NativeDetailBackTarget
+    data class Detail(val target: DetailTarget, val parent: NativeDetailBackTarget? = null) : NativeDetailBackTarget
+    data class Search(val state: NativeSearchScreenState) : NativeDetailBackTarget
 }
 
 /** 保存发现信息流的筛选、分页结果和滚动锚点，详情页切换时不丢失用户当前浏览位置。 */
@@ -763,6 +765,7 @@ private fun HlovetMobilePreview(
     var profileBackTarget by remember { mutableStateOf<NativeProfileBackTarget?>(null) }
     var searchVisible by remember { mutableStateOf(false) }
     var searchInitialQuery by remember { mutableStateOf("") }
+    var searchState by remember { mutableStateOf(NativeSearchScreenState()) }
     var conversationTarget by remember { mutableStateOf<ConversationTarget?>(null) }
     var pendingMessagesRoute by remember { mutableStateOf<PendingMessagesRoute?>(null) }
     var pendingMessagesRouteUrl by remember { mutableStateOf<String?>(null) }
@@ -948,6 +951,14 @@ private fun HlovetMobilePreview(
         unsubscribeToken = null
     }
 
+    /** 主动退出搜索页并清理搜索上下文；详情返回使用 closeDetailTarget 保留该上下文。 */
+    fun closeSearchTarget() {
+        // 退出搜索流程时清空宿主可见状态，避免下次独立打开搜索意外恢复旧条件。
+        searchVisible = false
+        searchInitialQuery = ""
+        searchState = NativeSearchScreenState()
+    }
+
     fun openProtectedAccountTarget(
         target: AccountTarget,
         initialStatus: String? = null,
@@ -978,14 +989,29 @@ private fun HlovetMobilePreview(
         detailTarget = target
     }
 
+    /**
+     * 关闭当前详情并恢复进入详情前的宿主页面；搜索返回时同时恢复查询条件、筛选、分页和滚动锚点。
+     */
     fun closeDetailTarget() {
+        // 先拆除当前详情，再依据保存的目标恢复父页面，避免旧返回目标被重复消费。
         val backTarget = detailBackTarget
         detailBackTarget = null
         detailTarget = null
         when (backTarget) {
+            // 账号页和个人页保持原有返回行为。
             is NativeDetailBackTarget.Account -> accountTarget = backTarget.target
             is NativeDetailBackTarget.PublicProfile -> publicProfileTarget = backTarget.username
-            is NativeDetailBackTarget.Detail -> detailTarget = backTarget.target
+            is NativeDetailBackTarget.Detail -> {
+                // 子详情逐层返回，并把更上层的返回目标继续留在栈顶。
+                detailBackTarget = backTarget.parent
+                detailTarget = backTarget.target
+            }
+            is NativeDetailBackTarget.Search -> {
+                // 从搜索结果返回时，恢复点击瞬间捕获的条件及列表锚点。
+                searchState = backTarget.state
+                searchInitialQuery = backTarget.state.query
+                searchVisible = true
+            }
             null -> Unit
         }
     }
@@ -1917,7 +1943,7 @@ private fun HlovetMobilePreview(
                     pendingAdminPreviewBackTarget = null
                 }
                 unsubscribeToken != null -> unsubscribeToken = null
-                searchVisible -> searchVisible = false
+                searchVisible -> closeSearchTarget()
                 publicProfileTarget != null -> closePublicProfile()
                 conversationTarget != null -> conversationTarget = null
                 groupScreenVisible -> groupScreenVisible = false
@@ -2019,25 +2045,27 @@ private fun HlovetMobilePreview(
                     NativeSearchScreen(
                         session = session,
                         initialQuery = searchInitialQuery,
-                        onBack = { searchVisible = false; searchInitialQuery = "" },
-                        onOpenArticle = { slug ->
+                        initialState = searchState,
+                        onStateChanged = { searchState = it; searchInitialQuery = it.query },
+                        onBack = ::closeSearchTarget,
+                        onOpenArticle = { slug, clickedState ->
                             scope.launch {
                                 runCatching { withContext(Dispatchers.IO) { NativeArticleApi.getArticle(session?.accessToken, slug) } }
-                                    .onSuccess { article -> openDetailTarget(DetailTarget.Article(article)) }
+                                    .onSuccess { article -> openDetailTarget(DetailTarget.Article(article), NativeDetailBackTarget.Search(clickedState)) }
                                     .onFailure { showNativeNotice(it.message ?: nativePhrase("文章暂时无法打开。", "The article cannot be opened right now.")) }
                             }
                         },
-                        onOpenTopic = { slug ->
+                        onOpenTopic = { slug, clickedState ->
                             scope.launch {
                                 runCatching { withContext(Dispatchers.IO) { NativeDiscoveryApi.getTopic(session?.accessToken, slug) } }
-                                    .onSuccess { topic -> openDetailTarget(DetailTarget.Topic(topic)) }
+                                    .onSuccess { topic -> openDetailTarget(DetailTarget.Topic(topic), NativeDetailBackTarget.Search(clickedState)) }
                                     .onFailure { showNativeNotice(it.message ?: nativePhrase("专题暂时无法打开。", "The topic cannot be opened right now.")) }
                             }
                         },
-                        onOpenCollection = { id ->
+                        onOpenCollection = { id, clickedState ->
                             scope.launch {
                                 runCatching { withContext(Dispatchers.IO) { NativeDiscoveryApi.getCollection(session?.accessToken, id) } }
-                                    .onSuccess { collection -> openDetailTarget(DetailTarget.Collection(collection)) }
+                                    .onSuccess { collection -> openDetailTarget(DetailTarget.Collection(collection), NativeDetailBackTarget.Search(clickedState)) }
                                     .onFailure { showNativeNotice(it.message ?: nativePhrase("合集暂时无法打开。", "The collection cannot be opened right now.")) }
                             }
                         },
@@ -2664,7 +2692,7 @@ private fun HlovetMobilePreview(
                                                     else -> throw IllegalArgumentException(nativePhrase("暂不支持打开此内容。", "This content type cannot be opened."))
                                                 }
                                             }
-                                            openDetailTarget(destination, NativeDetailBackTarget.Detail(target))
+                                            openDetailTarget(destination, NativeDetailBackTarget.Detail(target, detailBackTarget))
                                         } catch (cancelled: CancellationException) {
                                             // 页面关闭或切换时停止旧导航，不把取消显示成加载失败。
                                             throw cancelled
@@ -2685,7 +2713,7 @@ private fun HlovetMobilePreview(
                             onArticleClick = {
                                 openDetailTarget(
                                     DetailTarget.Article(it, offlineOnly = target.offlineOnly),
-                                    NativeDetailBackTarget.Detail(target),
+                                    NativeDetailBackTarget.Detail(target, detailBackTarget),
                                 )
                             },
                             onContentChanged = { reloadKey += 1 },
@@ -2804,7 +2832,7 @@ private fun HlovetMobilePreview(
                         scaffoldPadding = padding,
                         session = session,
                         onLogin = { loginVisible = true },
-                        onOpenSearch = { searchInitialQuery = ""; searchVisible = true },
+                        onOpenSearch = { searchState = NativeSearchScreenState(); searchInitialQuery = ""; searchVisible = true },
                         onOpenWrite = {
                             if (session == null) {
                                 loginVisible = true

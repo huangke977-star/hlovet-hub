@@ -19,6 +19,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -80,9 +81,9 @@ class NativeSearchDeviceTest {
                     session = null,
                     initialQuery = "guide",
                     onBack = {},
-                    onOpenArticle = { openedArticles += it },
-                    onOpenTopic = {},
-                    onOpenCollection = {},
+                    onOpenArticle = { slug, _ -> openedArticles += slug },
+                    onOpenTopic = { _, _ -> },
+                    onOpenCollection = { _, _ -> },
                     onOpenUser = {},
                     onOpenAnnouncement = {},
                     onOpenGroup = {},
@@ -129,9 +130,9 @@ class NativeSearchDeviceTest {
                     session = null,
                     initialQuery = "guide",
                     onBack = {},
-                    onOpenArticle = {},
-                    onOpenTopic = {},
-                    onOpenCollection = {},
+                    onOpenArticle = { _, _ -> },
+                    onOpenTopic = { _, _ -> },
+                    onOpenCollection = { _, _ -> },
                     onOpenUser = {},
                     onOpenAnnouncement = {},
                     onOpenGroup = {},
@@ -160,6 +161,61 @@ class NativeSearchDeviceTest {
         waitRequest(predicate = { it.contains("scope=articles") && it.contains("category=tutorial") && it.contains("sort=latest") && it.contains("page=1") })
     }
 
+    /** 验证长列表第二页打开文章时，点击瞬间的筛选、排序、页码与滚动锚点一并传给宿主。 */
+    @Test
+    fun openingArticleCapturesLatestSearchStateAndScrollAnchor() {
+        // 独立记录点击回调携带的快照，验证宿主收到的状态不依赖异步滚动监听时序。
+        val clickedStates = mutableListOf<NativeSearchScreenState>()
+        host.setContent {
+            HlovetTheme {
+                NativeSearchScreen(
+                    session = null,
+                    initialQuery = "long",
+                    onBack = {},
+                    onOpenArticle = { _, state -> clickedStates += state },
+                    onOpenTopic = { _, _ -> },
+                    onOpenCollection = { _, _ -> },
+                    onOpenUser = {},
+                    onOpenAnnouncement = {},
+                    onOpenGroup = {},
+                    onOpenEntry = {},
+                )
+            }
+        }
+        waitTag("native-search-article-1")
+
+        // 先切换到文章、分类和最新排序，确保恢复快照含有完整的搜索条件。
+        compose.onNodeWithTag("native-search-scope-articles").performClick()
+        waitTag("native-search-category-tutorial")
+        compose.onNodeWithTag("native-search-category-tutorial").performClick()
+        waitRequest(predicate = { it.contains("q=long") && it.contains("scope=articles") && it.contains("category=tutorial") && it.contains("page=1") })
+        compose.onNodeWithTag("native-search-sort-latest").performClick()
+        waitRequest(predicate = { it.contains("q=long") && it.contains("scope=articles") && it.contains("category=tutorial") && it.contains("sort=latest") && it.contains("page=1") })
+
+        // 翻到第二页并滚至长列表末尾，建立非零锚点后立即点击，不等待 snapshotFlow 回传。
+        val nextPage = hasTestTag("native-search-next-page") and hasClickAction()
+        compose.waitUntil(15_000) {
+            runCatching {
+                compose.onNodeWithTag("native-search-list").performScrollToNode(nextPage)
+                true
+            }.getOrDefault(false)
+        }
+        compose.onNode(nextPage).performClick()
+        waitRequest(predicate = { it.contains("q=long") && it.contains("scope=articles") && it.contains("category=tutorial") && it.contains("sort=latest") && it.contains("page=2") })
+        waitTag("native-search-article-21")
+        compose.onNodeWithTag("native-search-list").performScrollToNode(hasTestTag("native-search-article-40"))
+        compose.onNodeWithTag("native-search-article-40").performClick()
+
+        // 搜索返回链保存点击瞬间状态，条件和可视锚点都不得退回旧值。
+        val clickedState = clickedStates.single()
+        assertEquals("long", clickedState.query)
+        assertEquals("articles", clickedState.scopeFilter)
+        assertEquals("latest", clickedState.sort)
+        assertEquals("tutorial", clickedState.category)
+        assertEquals(2, clickedState.page)
+        assertTrue("Expected a scrolled list anchor", clickedState.firstVisibleItemIndex > 0)
+    }
+
     /** 根据请求范围和页码构造搜索结果，保持每个类型的字段形状与服务端契约一致。 */
     private fun respond(request: RecordedRequest): MockResponse {
         // 测试只记录路径和查询条件，不写入授权头或正文内容。
@@ -176,22 +232,35 @@ class NativeSearchDeviceTest {
     /** 构造范围筛选、分类和排序均可解析的搜索响应。 */
     private fun searchPage(path: String): JSONObject {
         // 从查询串读取页面状态，模拟服务端按范围返回不同结果集合。
+        val query = queryValue(path, "q") ?: "guide"
         val scope = queryValue(path, "scope") ?: "all"
         val page = queryValue(path, "page")?.toIntOrNull() ?: 1
         val sort = queryValue(path, "sort") ?: "relevance"
         val category = queryValue(path, "category")
-        val articleItems = if (scope == "all" || scope == "articles") JSONArray().put(article(if (page == 2) 2 else 1, category)) else JSONArray()
+        val articleItems = when {
+            query == "long" && (scope == "all" || scope == "articles") -> JSONArray().apply {
+                val firstId = (page - 1).coerceAtLeast(0) * 20 + 1
+                (firstId..firstId + 19).forEach { put(article(it, category)) }
+            }
+            scope == "all" || scope == "articles" -> JSONArray().put(article(if (page == 2) 2 else 1, category))
+            else -> JSONArray()
+        }
         val userItems = if (scope == "all" || scope == "users") JSONArray().put(user()) else JSONArray()
         val topicItems = if (scope == "all" || scope == "topics") JSONArray().put(topic()) else JSONArray()
         val collectionItems = if (scope == "all" || scope == "collections") JSONArray().put(collection()) else JSONArray()
         val groupItems = if (scope == "all" || scope == "groups") JSONArray().put(group()) else JSONArray()
         val announcementItems = if (scope == "all" || scope == "announcements") JSONArray().put(announcement()) else JSONArray()
         val entryItems = if (scope == "all" || scope == "navigation" || scope == "tools") JSONArray().put(entry()) else JSONArray()
-        val articlePages = if (scope == "all" || scope == "articles") 2 else 1
+        val articleTotal = when {
+            scope != "all" && scope != "articles" -> 0
+            query == "long" -> 40
+            else -> 21
+        }
+        val articlePages = if (query == "long" && (scope == "all" || scope == "articles")) 2 else if (scope == "all" || scope == "articles") 2 else 1
         return JSONObject()
-            .put("query", "guide")
+            .put("query", query)
             .put("sort", sort)
-            .put("articles", group(articleItems, if (scope == "all" || scope == "articles") 21 else 0, page, articlePages))
+            .put("articles", group(articleItems, articleTotal, page, articlePages))
             .put("users", group(userItems, userItems.length()))
             .put("navigation", group(if (scope == "all" || scope == "navigation") entryItems else JSONArray(), if (scope == "all" || scope == "navigation") 1 else 0))
             .put("tools", group(if (scope == "all" || scope == "tools") entryItems else JSONArray(), if (scope == "all" || scope == "tools") 1 else 0))
