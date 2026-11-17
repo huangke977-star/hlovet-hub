@@ -76,6 +76,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -104,7 +105,12 @@ internal fun nativeAnonymousTopicAccess(management: Boolean, isAdministrator: Bo
     else -> NativeAnonymousTopicAccess.Denied
 }
 
-/** 展示 session 对应的匿名列表与讨论弹窗；management 仅用于审核入口，onBack 返回宿主。 */
+/** 展示 session 对应的匿名列表与讨论弹窗；management 仅用于审核入口，onBack 返回宿主。
+ * @param session 当前登录会话；为空时按访客身份访问公开匿名内容。
+ * @param management 是否来自管理员审核入口；开启时必须校验管理员权限和登录令牌。
+ * @param showBackNavigation 是否显示返回宿主的导航控件。
+ * @param onBack 返回上级页面的操作。
+ */
 @Composable
 internal fun NativeAnonymousTopicsScreen(
     session: NativeSession?,
@@ -146,6 +152,7 @@ internal fun NativeAnonymousTopicsScreen(
     var filterDialogOpen by remember { mutableStateOf(false) }
     val topicListState = rememberLazyListState()
     val listRequestGeneration = remember { NativeRequestGeneration() }
+    val topicRequestGeneration = remember { NativeRequestGeneration() }
 
     // 系统多选文件返回后统一检查数量和总大小，拒绝时保留现有附件与正文。
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -234,7 +241,10 @@ internal fun NativeAnonymousTopicsScreen(
         }
     }
 
-    /** 读取 id 的最新消息，或按 beforeSequence 前插历史，失败不清空正在阅读的内容。 */
+    /** 读取指定话题的最新消息，或按消息序号向前加载历史；失败时保留当前阅读内容。
+     * @param id 要读取的话题编号。
+     * @param beforeSequence 仅读取该序号之前的消息；为空时读取最新消息窗口。
+     */
     fun loadTopic(id: Int, beforeSequence: Int? = null) {
         // 详情与列表使用相同角色范围，管理权限不足时不请求任何详情。
         if (managementDenied) {
@@ -246,6 +256,8 @@ internal fun NativeAnonymousTopicsScreen(
             error = nativePhrase("管理员登录状态已失效，请重新登录。", "The administrator session has expired. Please sign in again.")
             return
         }
+        // 详情切换、刷新和加载历史都开启新代际，旧话题的迟到回包不能覆盖当前弹窗。
+        val requestGeneration = topicRequestGeneration.begin()
         topicLoading = true
         // 历史消息按服务端编号去重，最新窗口由服务端重新核对可见性。
         scope.launch {
@@ -258,12 +270,21 @@ internal fun NativeAnonymousTopicsScreen(
                     }
                 }
             }.onSuccess { result ->
-                topic = if (beforeSequence != null && topic?.summary?.id == id) {
-                    val known = topic!!.messages.map { it.id }.toSet()
-                    result.copy(messages = result.messages.filterNot { it.id in known } + topic!!.messages)
-                } else result
-            }.onFailure { error = it.message ?: nativePhrase("无法打开匿名话题。", "Could not open the anonymous topic.") }
-            topicLoading = false
+                // 只有当前详情代际仍有效时，才合并消息并打开对应话题。
+                if (topicRequestGeneration.isCurrent(requestGeneration)) {
+                    topic = if (beforeSequence != null && topic?.summary?.id == id) {
+                        val known = topic!!.messages.map { it.id }.toSet()
+                        result.copy(messages = result.messages.filterNot { it.id in known } + topic!!.messages)
+                    } else result
+                }
+            }.onFailure {
+                // 旧详情失败不能覆盖当前话题的错误提示。
+                if (topicRequestGeneration.isCurrent(requestGeneration)) {
+                    error = it.message ?: nativePhrase("无法打开匿名话题。", "Could not open the anonymous topic.")
+                }
+            }
+            // 旧详情结束时不能误关闭新详情的加载状态。
+            if (topicRequestGeneration.isCurrent(requestGeneration)) topicLoading = false
         }
     }
 
@@ -292,7 +313,8 @@ internal fun NativeAnonymousTopicsScreen(
         val id = topic?.summary?.id ?: return@LaunchedEffect
         while (true) {
             delay(5_000)
-            if (!topicLoading) loadTopic(id)
+            // 轮询只服务仍然打开的同一话题，关闭弹窗后不能重新发起旧详情请求。
+            if (topic?.summary?.id == id && !topicLoading) loadTopic(id)
         }
     }
 
@@ -681,7 +703,14 @@ internal fun NativeAnonymousTopicsScreen(
             pendingFiles = pendingFiles,
             error = error,
             onMessageChange = { messageDraft = it },
-            onClose = { topic = null; identityOpen = false; pendingFiles = emptyList() },
+            onClose = {
+                // 关闭详情立即废弃正在进行的请求，避免迟到回包重新写入已关闭的弹窗。
+                topicRequestGeneration.invalidate()
+                topic = null
+                topicLoading = false
+                identityOpen = false
+                pendingFiles = emptyList()
+            },
             onLoadOlder = { selected.messages.firstOrNull()?.sequence?.let { loadTopic(selected.summary.id, it) } },
             onOpenIdentity = {
                 val identity = NativeAnonymousTopicApi.readIdentity(context, selected.summary.id)
@@ -841,6 +870,13 @@ private fun AnonymousTopicDialog(
     }
 }
 
+/**
+ * 展示匿名消息及管理状态；隐藏消息仅管理员可查看正文和附件，互动计数只读。
+ * @param message 当前消息及审核可见性、正文、附件和互动计数。
+ * @param manager 当前入口是否具备管理员审核权限。
+ * @param onReact 提交点赞或点踩操作。
+ * @param onToggleHidden 切换消息隐藏状态。
+ */
 @Composable
 private fun AnonymousMessageRow(
     message: NativeAnonymousTopicMessage,
@@ -858,14 +894,24 @@ private fun AnonymousMessageRow(
                 Text(formatAnonymousTime(message.createdAt), color = HlovetUi.muted, fontSize = 9.sp)
                 if (manager) IconButton(onClick = { onToggleHidden(message) }, modifier = Modifier.size(25.dp)) { Icon(if (message.isHidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, contentDescription = if (message.isHidden) nativePhrase("恢复消息", "Restore message") else nativePhrase("隐藏消息", "Hide message"), modifier = Modifier.size(14.dp)) }
             }
-            if (message.isHidden) Text(nativePhrase("此消息已隐藏", "This message is hidden"), color = HlovetUi.secondaryAccent, fontSize = 11.sp)
-            else {
-                if (message.body.isNotBlank()) Text(message.body, fontSize = 12.sp, lineHeight = 18.sp)
+            if (message.isHidden && !manager) {
+                // 普通用户不能看到被审核隐藏的正文和附件，只保留状态提示。
+                Text(nativePhrase("此消息已隐藏", "This message is hidden"), color = HlovetUi.secondaryAccent, fontSize = 11.sp)
+            } else {
+                // 管理员需要继续核对隐藏内容；正文样式与 PC 端保持弱化和删除线。
+                if (message.body.isNotBlank()) Text(
+                    message.body,
+                    color = if (message.isHidden) HlovetUi.muted else Color.Unspecified,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    textDecoration = if (message.isHidden) TextDecoration.LineThrough else TextDecoration.None,
+                )
                 message.attachments.forEach { attachment -> AnonymousAttachmentRow(attachment) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = { onReact(message, "up") }, modifier = Modifier.testTag("anonymous-message-like-${message.id}"), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Icon(Icons.Filled.ThumbUp, contentDescription = nativePhrase("点赞", "Like"), modifier = Modifier.size(14.dp)); Spacer(Modifier.width(3.dp)); Text(message.likeCount.toString(), fontSize = 10.sp) }
-                TextButton(onClick = { onReact(message, "down") }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Icon(Icons.Filled.ThumbDown, contentDescription = nativePhrase("踩", "Dislike"), modifier = Modifier.size(14.dp)); Spacer(Modifier.width(3.dp)); Text(message.dislikeCount.toString(), fontSize = 10.sp) }
+                // 隐藏消息保留计数但禁止互动，避免审核内容仍被普通操作修改。
+                TextButton(onClick = { onReact(message, "up") }, enabled = !message.isHidden, modifier = Modifier.testTag("anonymous-message-like-${message.id}"), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Icon(Icons.Filled.ThumbUp, contentDescription = nativePhrase("点赞", "Like"), modifier = Modifier.size(14.dp)); Spacer(Modifier.width(3.dp)); Text(message.likeCount.toString(), fontSize = 10.sp) }
+                TextButton(onClick = { onReact(message, "down") }, enabled = !message.isHidden, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Icon(Icons.Filled.ThumbDown, contentDescription = nativePhrase("踩", "Dislike"), modifier = Modifier.size(14.dp)); Spacer(Modifier.width(3.dp)); Text(message.dislikeCount.toString(), fontSize = 10.sp) }
             }
         }
     }

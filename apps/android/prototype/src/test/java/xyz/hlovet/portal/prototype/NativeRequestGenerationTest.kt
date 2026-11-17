@@ -25,4 +25,17 @@ class NativeRequestGenerationTest {
 
         assertTrue(generation.isCurrent(request))
     }
+
+    /** 界面关闭后，正在进行的请求结果必须失效。 */
+    @Test
+    fun invalidationRejectsInFlightRequest() {
+        // 准备一个尚未返回的请求，并模拟界面关闭导致当前代际失效。
+        val generation = NativeRequestGeneration()
+        val request = generation.begin()
+
+        generation.invalidate()
+
+        // 关闭后到达的回包不能再被视为有效结果。
+        assertFalse(generation.isCurrent(request))
+    }
 }
