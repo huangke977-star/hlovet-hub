@@ -1,5 +1,13 @@
 # Android 与 PC 功能覆盖矩阵
 
+## 当前状态复核（2026-11-18）
+
+- 本轮通过 `node apps/android/tools/run-android-with-memory-gate.mjs --check-only`，测试前可用物理内存约 `10.51 GiB`，达到约定的 `8 GiB` 安全线。使用 JDK 17 和本机 Android SDK 依次执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugAndroidTestKotlin`、`:prototype:assembleDebug`，三项均 `BUILD SUCCESSFUL`；构建只报告既有弃用和未使用参数警告，没有编译错误。
+- 本轮重新执行路由/API 静态对齐审计：PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27`，确认缺失候选 `0`。当前 Debug APK 为 `apps/android/prototype/build/outputs/apk/debug/prototype-debug.apk`，SHA-256 为 `3f99373203db4fd5872b067aa849e6268abe1a8d5ddc0aa0a9d54475f2283ca8`。
+- 当前真实服务器公开只读检查为 `0` 通过、`11` 失败、`5` 跳过；失败请求均在约 `2` 秒超时。当前 `5200918.xyz` 直接解析到源站 `47.80.24.188`，本机 TCP `443` 连接失败，因此该结果属于服务器/网络可达性问题，不能作为 Android 功能缺陷结论；本轮没有执行生产写操作。
+- 已正常关闭并重新启动回归模拟器 `HlovetChatRegression15`，设备 `emulator-5554` 能够上线；但模拟器启动后可用物理内存约 `7.69 GiB`，低于安全线，因此本轮没有安装 APK 或启动 `connectedDebugAndroidTest`，避免设备测试期间发生内存提交不足导致应用退出。待内存稳定达到安全线后继续当前源码的设备回归。
+- OSS/R2、OCR、语音转文字、图片生成、Google、Passkey、FCM、WebRTC、外部 AI/媒体供应商等仍按“PC 等价功能已实现，缺少必要条件则跳过供应商闭环测试”处理；后端相关验收继续要求连接真实服务器或真实隔离服务器。
+
 ## 当前状态复核（2026-11-17）
 
 - 本轮再次检查真实服务器公开只读接口，`16/16` 通过；PC/Android 静态对齐审计为用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27`，无确认缺口。
