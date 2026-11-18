@@ -1,5 +1,11 @@
 # Android 与 PC 功能覆盖矩阵
 
+## 当前状态复核（2026-11-18，继续验收）
+
+- 本轮重新执行路由/API 静态对齐审计：PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27`，确认缺失候选仍为 `0`。该结果只证明当前源码的入口和接口覆盖关系，不替代服务器、账号、设备或外部供应商验收。
+- 测试前通过 `node apps/android/tools/run-android-with-memory-gate.mjs --check-only` 读取到可用物理内存约 `6.85 GiB`，低于约定的 `8 GiB` 安全线；因此本轮没有启动 Gradle、JVM 测试、APK 安装或 Android Instrumentation。在线设备 `emulator-5554` 仅证明设备连接存在，不能记为本轮设备回归通过。
+- 当前仍保留现有 Debug APK 和历史测试证据，不清理 `.dockerignore` 改动或 `tmp-*` 验收材料。待可用内存稳定达到安全线后，继续安装当前 APK，并按真实服务器规则优先回归发现、匿名、搜索、文章详情、离线和管理页面。
+
 ## 当前状态复核（2026-11-18）
 
 - 本轮通过 `node apps/android/tools/run-android-with-memory-gate.mjs --check-only`，测试前可用物理内存约 `10.51 GiB`，达到约定的 `8 GiB` 安全线。使用 JDK 17 和本机 Android SDK 依次执行 `:prototype:testDebugUnitTest`、`:prototype:compileDebugAndroidTestKotlin`、`:prototype:assembleDebug`，三项均 `BUILD SUCCESSFUL`；构建只报告既有弃用和未使用参数警告，没有编译错误。
