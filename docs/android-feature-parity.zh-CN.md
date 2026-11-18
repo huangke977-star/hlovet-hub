@@ -3,8 +3,8 @@
 ## 当前状态复核（2026-11-18，服务器可达性与内存门禁）
 
 - 本轮再次执行路由/API 静态对齐审计：PC 用户路由 `70/70`、后台入口 `24/24`、API 模块 `27/27`，确认缺失候选仍为 `0`。该结果只证明源码入口和接口覆盖关系，不替代真实服务器、账号、设备或外部供应商验收。
-- 本轮执行 `node apps/android/tools/run-android-with-memory-gate.mjs --check-only`，可用物理内存约 `5.38 GiB`，低于约定的 `8 GiB` 安全线；因此没有启动 Gradle、JVM 测试、APK 安装或 Android Instrumentation。
-- 本轮执行 `node apps/android/tools/check-real-server-readonly.mjs --json`，所有公开 GET 请求均在约 `10` 秒后失败。DNS 显示 `5200918.xyz` 和 `turn.5200918.xyz` 直接解析到 `47.80.24.188`；本机到该地址的 TCP `443` 连接失败，直接 HTTPS 请求也超时。因此服务器只读验收本轮记为未通过，原因属于源站/网络可达性阻断，不作为 Android 功能缺陷结论；本轮没有执行生产写操作。
+- 本轮执行 `node apps/android/tools/run-android-with-memory-gate.mjs --check-only`，可用物理内存约 `5.47 GiB`，低于约定的 `8 GiB` 安全线；因此没有启动 Gradle、JVM 测试、APK 安装或 Android Instrumentation。
+- 本轮于 `2026-11-18 21:38`（北京时间）执行 `node apps/android/tools/check-real-server-readonly.mjs --json`，结果为 `0` 个通过、`11` 个失败、`5` 个跳过。DNS 显示 `5200918.xyz` 和 `turn.5200918.xyz` 直接解析到 `47.80.24.188`；本机到该地址的 TCP `443` 连接失败，直接 HTTPS 请求也超时。因此服务器只读验收本轮记为未通过，原因属于源站/网络可达性阻断，不作为 Android 功能缺陷结论；本轮没有执行生产写操作。
 - 现有 `.dockerignore` 改动和 `tmp-*` 测试证据继续保留，不清理。待源站 `443` 可达且可用内存稳定达到安全线后，再继续 APK 构建、设备回归和真实服务器文章详情验证。
 
 ## 当前状态复核（2026-11-18，继续验收）
